@@ -1,0 +1,639 @@
+openapi: 3.1.0
+info:
+  title: Overfin API
+  version: 1.0.0-draft
+  license:
+    name: MIT
+    identifier: MIT
+  description: |
+    Overfin is a secure gateway in front of a Jellyfin server (and optionally
+    Seerr). Websites and apps use this API; they never talk to Jellyfin
+    directly. See SECURITY.md and THREAT_MODEL.md for the rules behind it.
+
+    ## Conventions
+
+    These apply to every endpoint.
+
+    **Format.** Requests and responses are JSON (`application/json`, UTF-8),
+    except media, images and subtitles. Field names are `camelCase`.
+
+    **Versioning.** All routes live under `/api/v1/`. Within v1, changes are
+    only additive: new endpoints, new optional fields, new enum values.
+    Breaking changes go to a new version, and the old one keeps running for a
+    while.
+
+    **Forward compatibility.** Clients must ignore fields they don't know and
+    must handle enum values they don't know (for example a new item `kind`).
+    This is what makes additive changes safe.
+
+    **IDs.** IDs are opaque strings with a type prefix, such as `item_…`,
+    `prof_…` or `play_…`. Clients must not parse them or build them, and an
+    ID of the wrong type is rejected.
+
+    **Missing values.** Optional fields that have no value are left out
+    instead of being `null`. Lists are `[]` when empty, never `null`.
+
+    **Time.** Durations and playback positions are integer milliseconds
+    (`durationMs`, `positionMs`). Timestamps are RFC 3339 in UTC
+    (`2026-10-18T21:04:00Z`). Calendar dates without a time, such as premiere
+    dates, are `YYYY-MM-DD`.
+
+    **Pagination.** List endpoints take `limit` and `cursor` and return a
+    `Page`: the `items`, a `nextCursor` (absent on the last page) and, where
+    known, a `totalCount`. Cursors are opaque.
+
+    **Browsing and search.** Browse filters are `GET` query parameters, so a
+    page of results can be linked and reloaded. Free-text search is a `POST`
+    with the terms in the body, so they stay out of URLs and access logs.
+
+    **Errors.** Errors use RFC 9457 problem details
+    (`application/problem+json`). The `type` is a short, stable name such as
+    `stream-limit-reached`; clients should branch on `type`, never on `detail`.
+    Anything the caller may not see is reported as `not-found`.
+
+    **Language.** Metadata comes in the language of the `Accept-Language`
+    header, unless the active profile sets its own.
+
+servers:
+  - url: /api/v1
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Check that the gateway is running
+      tags: [system]
+      responses:
+        "200":
+          description: The gateway is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Maximum number of items to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      description: The `nextCursor` from the previous page.
+      schema:
+        type: string
+        maxLength: 512
+
+  schemas:
+    Problem:
+      description: An error, as RFC 9457 problem details.
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          description: Stable, machine-readable error name.
+          examples: [stream-limit-reached]
+        title:
+          type: string
+          description: Short human-readable summary, the same for every
+            occurrence of this type.
+        status:
+          type: integer
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: Human-readable explanation of this occurrence. Never
+            parse it.
+
+    PageInfo:
+      description: Paging fields shared by every list response.
+      type: object
+      properties:
+        nextCursor:
+          type: string
+          description: Pass as `cursor` to get the next page. Absent on the
+            last page.
+        totalCount:
+          type: integer
+          minimum: 0
+          description: Total number of matching items, when known.
+
+    Milliseconds:
+      type: integer
+      minimum: 0
+      description: A duration or position in milliseconds.
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 timestamp in UTC.
+
+    CalendarDate:
+      type: string
+      format: date
+      description: A calendar date without time or time zone (`YYYY-MM-DD`).
+
+    # ---- Items -------------------------------------------------------------
+    #
+    # Every item has the same small core, plus one nested object named after
+    # its kind ("episode", "track", ...) holding the kind-specific fields.
+    # Clients skip kinds they don't know.
+
+    ItemKind:
+      type: string
+      description: |
+        What an item is. New kinds may be added in v1; clients must skip
+        items whose kind they don't know.
+      examples: [episode]
+      enum:
+        - movie
+        - series
+        - season
+        - episode
+        - collection
+        - video
+        - musicVideo
+        - musicArtist
+        - musicAlbum
+        - track
+        - playlist
+        - audiobook
+        - book
+        - photo
+        - photoAlbum
+        - liveChannel
+        - liveProgram
+        - recording
+
+    ImageRef:
+      description: |
+        An image, served by Overfin. Request it at `url` with a `size` from
+        the fixed list documented on the image endpoint.
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri-reference
+        aspectRatio:
+          type: number
+          exclusiveMinimum: 0
+          description: Width divided by height.
+        blurHash:
+          type: string
+          maxLength: 128
+          description: A tiny placeholder to show while the image loads
+            (BlurHash format).
+
+    Images:
+      type: object
+      properties:
+        primary:
+          $ref: "#/components/schemas/ImageRef"
+        backdrops:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageRef"
+        logo:
+          $ref: "#/components/schemas/ImageRef"
+        thumb:
+          $ref: "#/components/schemas/ImageRef"
+
+    UserState:
+      description: The active profile's state for this item. Never anyone
+        else's.
+      type: object
+      properties:
+        positionMs:
+          $ref: "#/components/schemas/Milliseconds"
+        played:
+          type: boolean
+        playCount:
+          type: integer
+          minimum: 0
+        favorite:
+          type: boolean
+        lastPlayedAt:
+          $ref: "#/components/schemas/Timestamp"
+        unplayedCount:
+          type: integer
+          minimum: 0
+          description: For series, seasons and albums, the number of children
+            not yet played.
+
+    ExternalIds:
+      description: IDs of this item in public databases.
+      type: object
+      properties:
+        tmdb:
+          type: string
+        imdb:
+          type: string
+        tvdb:
+          type: string
+        musicBrainz:
+          type: string
+      additionalProperties:
+        type: string
+
+    ItemRef:
+      description: A minimal pointer to another item.
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    Credit:
+      description: A person's part in an item.
+      type: object
+      required: [person, role]
+      properties:
+        person:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            image:
+              $ref: "#/components/schemas/ImageRef"
+        role:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [actor, director, writer, producer, composer, guestStar]
+        character:
+          type: string
+
+    Chapter:
+      type: object
+      required: [startMs]
+      properties:
+        name:
+          type: string
+        startMs:
+          $ref: "#/components/schemas/Milliseconds"
+        image:
+          $ref: "#/components/schemas/ImageRef"
+
+    ItemSummary:
+      description: The light shape used in lists, rows and grids.
+      type: object
+      required: [id, kind, name]
+      properties:
+        id:
+          type: string
+          examples: [item_7f3a9c04b1e2]
+        kind:
+          $ref: "#/components/schemas/ItemKind"
+        name:
+          type: string
+        premiereDate:
+          $ref: "#/components/schemas/CalendarDate"
+        year:
+          type: integer
+        durationMs:
+          $ref: "#/components/schemas/Milliseconds"
+        officialRating:
+          type: string
+          description: Age rating as published, e.g. `PG-13` or `TV-MA`.
+        images:
+          $ref: "#/components/schemas/Images"
+        userState:
+          $ref: "#/components/schemas/UserState"
+        # Kind-specific parts. At most one is present: the one matching `kind`.
+        movie:
+          $ref: "#/components/schemas/MoviePart"
+        series:
+          $ref: "#/components/schemas/SeriesPart"
+        season:
+          $ref: "#/components/schemas/SeasonPart"
+        episode:
+          $ref: "#/components/schemas/EpisodePart"
+        collection:
+          $ref: "#/components/schemas/CountPart"
+        musicVideo:
+          $ref: "#/components/schemas/MusicVideoPart"
+        musicArtist:
+          $ref: "#/components/schemas/MusicArtistPart"
+        musicAlbum:
+          $ref: "#/components/schemas/MusicAlbumPart"
+        track:
+          $ref: "#/components/schemas/TrackPart"
+        playlist:
+          $ref: "#/components/schemas/PlaylistPart"
+        audiobook:
+          $ref: "#/components/schemas/AudiobookPart"
+        book:
+          $ref: "#/components/schemas/BookPart"
+        photo:
+          $ref: "#/components/schemas/PhotoPart"
+        photoAlbum:
+          $ref: "#/components/schemas/CountPart"
+        liveChannel:
+          $ref: "#/components/schemas/LiveChannelPart"
+        liveProgram:
+          $ref: "#/components/schemas/LiveProgramPart"
+        recording:
+          $ref: "#/components/schemas/RecordingPart"
+
+    Item:
+      description: The full shape, used on detail pages.
+      allOf:
+        - $ref: "#/components/schemas/ItemSummary"
+        - type: object
+          properties:
+            overview:
+              type: string
+              description: Plain text; never contains markup.
+            genres:
+              type: array
+              items:
+                type: string
+            studios:
+              type: array
+              items:
+                type: string
+            communityRating:
+              type: number
+              minimum: 0
+              maximum: 10
+            criticRating:
+              type: number
+              minimum: 0
+              maximum: 100
+            credits:
+              type: array
+              items:
+                $ref: "#/components/schemas/Credit"
+            chapters:
+              type: array
+              items:
+                $ref: "#/components/schemas/Chapter"
+            externalIds:
+              $ref: "#/components/schemas/ExternalIds"
+            tags:
+              type: array
+              description: Absent unless the operator turns tags on; operators
+                often use tags for internal purposes.
+              items:
+                type: string
+
+    ItemPage:
+      allOf:
+        - $ref: "#/components/schemas/PageInfo"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ItemSummary"
+
+    # ---- Kind-specific parts -----------------------------------------------
+
+    MoviePart:
+      type: object
+      properties:
+        originalTitle:
+          type: string
+        tagline:
+          type: string
+
+    SeriesPart:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [continuing, ended]
+        seasonCount:
+          type: integer
+          minimum: 0
+        episodeCount:
+          type: integer
+          minimum: 0
+        endDate:
+          $ref: "#/components/schemas/CalendarDate"
+
+    SeasonPart:
+      type: object
+      required: [seriesId]
+      properties:
+        seriesId:
+          type: string
+        seriesName:
+          type: string
+        number:
+          type: integer
+          minimum: 0
+          description: 0 is the specials season.
+        episodeCount:
+          type: integer
+          minimum: 0
+
+    EpisodePart:
+      type: object
+      required: [seriesId]
+      properties:
+        seriesId:
+          type: string
+        seriesName:
+          type: string
+        seasonId:
+          type: string
+        seasonNumber:
+          type: integer
+          minimum: 0
+        number:
+          type: integer
+          minimum: 0
+        numberEnd:
+          type: integer
+          minimum: 0
+          description: Last episode number, for files covering several
+            episodes.
+
+    CountPart:
+      description: For containers whose only specific field is a count.
+      type: object
+      properties:
+        itemCount:
+          type: integer
+          minimum: 0
+
+    MusicVideoPart:
+      type: object
+      properties:
+        artists:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRef"
+
+    MusicArtistPart:
+      type: object
+      properties:
+        albumCount:
+          type: integer
+          minimum: 0
+        trackCount:
+          type: integer
+          minimum: 0
+
+    MusicAlbumPart:
+      type: object
+      properties:
+        albumArtists:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRef"
+        trackCount:
+          type: integer
+          minimum: 0
+        normalizationGainDb:
+          type: number
+          description: Loudness adjustment for the whole album, in decibels.
+
+    TrackPart:
+      type: object
+      properties:
+        album:
+          $ref: "#/components/schemas/ItemRef"
+        artists:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRef"
+        albumArtists:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRef"
+        number:
+          type: integer
+          minimum: 0
+        discNumber:
+          type: integer
+          minimum: 0
+        normalizationGainDb:
+          type: number
+          description: Loudness adjustment for this track, in decibels.
+        hasLyrics:
+          type: boolean
+
+    PlaylistPart:
+      type: object
+      properties:
+        mediaKind:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [video, audio, mixed]
+        itemCount:
+          type: integer
+          minimum: 0
+
+    AudiobookPart:
+      type: object
+      properties:
+        authors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRef"
+        narrators:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRef"
+
+    BookPart:
+      type: object
+      properties:
+        authors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRef"
+
+    PhotoPart:
+      description: |
+        Only what an album view needs. `takenAt`, `location` and `camera` are
+        privacy-sensitive: they are absent unless the operator turns each one
+        on. Image files themselves are always stripped of embedded metadata.
+      type: object
+      properties:
+        album:
+          $ref: "#/components/schemas/ItemRef"
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        takenAt:
+          $ref: "#/components/schemas/Timestamp"
+        location:
+          type: object
+          required: [latitude, longitude]
+          properties:
+            latitude:
+              type: number
+              minimum: -90
+              maximum: 90
+            longitude:
+              type: number
+              minimum: -180
+              maximum: 180
+            altitudeM:
+              type: number
+        camera:
+          type: object
+          properties:
+            make:
+              type: string
+            model:
+              type: string
+
+    LiveChannelPart:
+      type: object
+      properties:
+        number:
+          type: string
+          description: The channel number as displayed, e.g. `5.1`.
+
+    LiveProgramPart:
+      type: object
+      required: [channelId, startAt, endAt]
+      properties:
+        channelId:
+          type: string
+        startAt:
+          $ref: "#/components/schemas/Timestamp"
+        endAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    RecordingPart:
+      type: object
+      properties:
+        channelId:
+          type: string
+        recordedAt:
+          $ref: "#/components/schemas/Timestamp"
+
+  responses:
+    NotFound:
+      description: The resource doesn't exist, or the caller may not see it.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

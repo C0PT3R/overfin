@@ -136,9 +136,14 @@ from the internet, and media files can be written by anyone.
     scripts, icons); the demo site does exactly that.
 47. Logs identify users only by a keyed hash (HMAC) of their ID and never
     contain query strings.
+48. Privacy-sensitive fields are off by default, and operators turn on each one
+    they want: photo capture time, location and camera data, and item tags.
+    Embedded metadata is still stripped from image files (rule 10).
+    Security-sensitive data (file paths, server internals, permission flags) is
+    never exposed, whatever the configuration.
 
 ### Code supply
-48. No code copied or ported from other projects. Dependencies are few, chosen
+49. No code copied or ported from other projects. Dependencies are few, chosen
     on purpose, and pinned.
 
 ## Deployment
