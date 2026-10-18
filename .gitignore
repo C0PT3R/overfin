@@ -1,0 +1,7 @@
+/overfin
+*.db
+.env
+# local configs and secrets
+*.toml
+!*.example.toml
+.env*
