@@ -73,7 +73,8 @@ Jellyfin server, using only the public API.
    and removing PINs, deleting profiles, and lifting PIN locks. Left: account
    deletion and data export, and making the PIN lock threshold an operator
    setting.
-5. A minimal demo site in plain HTML and JavaScript.
+5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done:
+   [examples/demo-site](examples/demo-site).
 
 ## Designed, to implement after milestone 1
 

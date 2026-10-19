@@ -137,6 +137,12 @@ The full rules are in [SECURITY.md](SECURITY.md), and
 Overfin replaces public access to Jellyfin, including its native apps. It never offers a route to
 Jellyfin's dashboard; operators reach that privately.
 
+## Demo site
+
+[examples/demo-site](examples/demo-site) is a small but complete website on
+Overfin, in plain HTML and JavaScript: account setup, profiles, browsing and
+playback. It's a working starting point, and a reference for using the API.
+
 ## API
 
 The API is defined spec-first in [api/openapi.yaml](api/openapi.yaml)

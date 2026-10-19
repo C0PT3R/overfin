@@ -27,11 +27,14 @@ func TestNoInvisibleCharactersInSource(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules") {
+		// Vendored third-party files are checked against their published
+		// hashes instead.
+		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "vendor") {
 			return filepath.SkipDir
 		}
 		if d.IsDir() || !(strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".sql") ||
-			strings.HasSuffix(path, ".md") || strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".toml")) {
+			strings.HasSuffix(path, ".md") || strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".toml") ||
+			strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".css")) {
 			return nil
 		}
 		b, err := os.ReadFile(path)
