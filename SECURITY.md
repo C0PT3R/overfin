@@ -24,7 +24,9 @@ Jellyfin and Seerr are trusted software serving untrusted data: metadata comes
 from the internet, and media files can be written by anyone.
 
 5. No URL found in upstream data is ever fetched. Remote and `.strm` media
-   sources are not supported.
+   sources are not supported. The only URLs Overfin takes from Jellyfin are
+   the stream URLs Jellyfin generates itself, and only as relative paths
+   matching Jellyfin's known streaming routes, never absolute URLs.
 6. Overfin never follows redirects from Jellyfin or Seerr. Upstream responses
    have size limits and timeouts.
 7. IDs that come from upstream are validated exactly like client input.
@@ -149,9 +151,12 @@ from the internet, and media files can be written by anyone.
     never in Jellyfin, whose image endpoints don't check permissions.
 50. Public endpoints (`/health`, `/info`) never reveal software versions,
     upstream servers or anything about users.
+51. A transcode is stopped as soon as its playback stops, its ticket expires
+    or its progress reports go silent, so abandoned streams never keep the
+    server busy.
 
 ### Code supply
-51. No code copied or ported from other projects. Dependencies are few, chosen
+52. No code copied or ported from other projects. Dependencies are few, chosen
     on purpose, and pinned.
 
 ## Deployment

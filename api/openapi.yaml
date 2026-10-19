@@ -935,6 +935,306 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # ---- Playback --------------------------------------------------------------
+
+  /playback:
+    post:
+      operationId: startPlayback
+      summary: Start playing an item
+      description: |
+        The client describes what it can play; Overfin picks the cheapest
+        way (direct play, repackaging, or transcoding) and returns a playback
+        session with the stream URL, tracks and skip markers.
+
+        If the account is at its stream limit, its oldest playback is ended
+        and that device is told why (unless the operator chose to refuse new
+        streams). Overfin never ends another account's playback.
+      tags: [playback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaybackStart"
+      responses:
+        "201":
+          description: The playback session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackSession"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The account is at its stream limit and the operator
+            refuses new streams (`stream-limit-reached`), or the item can't be
+            played (`not-playable`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: The server is busy and no cheaper way to play exists
+            (`server-busy`). Try again later.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /playback/current:
+    get:
+      operationId: getCurrentPlayback
+      summary: This session's active playback, to restore it after a reload
+      tags: [playback]
+      responses:
+        "200":
+          description: The active playback session, with its position, tracks
+            and queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackSession"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /playback/bitrate-test:
+    get:
+      operationId: bitrateTest
+      summary: Download test bytes to measure bandwidth
+      description: Served by Overfin itself, so it measures the real path
+        between the viewer and the server. Rate-limited.
+      tags: [playback]
+      parameters:
+        - name: sizeKb
+          in: query
+          schema:
+            type: integer
+            minimum: 64
+            maximum: 10240
+            default: 1024
+      responses:
+        "200":
+          description: Random bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /playback/{playbackId}:
+    parameters:
+      - $ref: "#/components/parameters/PlaybackId"
+    get:
+      operationId: getPlayback
+      summary: Get a playback session
+      tags: [playback]
+      responses:
+        "200":
+          description: The playback session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackSession"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/PlaybackEnded"
+    patch:
+      operationId: changePlayback
+      summary: Switch audio, subtitles, version or quality
+      description: When the change needs a different stream, the response has
+        a new `stream.url`; the client switches to it at its current
+        position.
+      tags: [playback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaybackChange"
+      responses:
+        "200":
+          description: The updated playback session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackSession"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/PlaybackEnded"
+
+  /playback/{playbackId}/progress:
+    parameters:
+      - $ref: "#/components/parameters/PlaybackId"
+    post:
+      operationId: reportProgress
+      summary: Report the position, every few seconds while playing
+      description: Keeps the stream ticket alive and saves progress. Playback
+        that stops reporting is ended and its transcode stopped.
+      tags: [playback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressReport"
+      responses:
+        "204":
+          description: Recorded.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/PlaybackEnded"
+
+  /playback/{playbackId}/stop:
+    parameters:
+      - $ref: "#/components/parameters/PlaybackId"
+    post:
+      operationId: stopPlayback
+      summary: Stop playing; saves the final position and ends any transcode
+      tags: [playback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressReport"
+      responses:
+        "204":
+          description: Stopped.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /playback/{playbackId}/queue:
+    parameters:
+      - $ref: "#/components/parameters/PlaybackId"
+    put:
+      operationId: setQueue
+      summary: Replace the play queue
+      tags: [playback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [itemIds]
+              properties:
+                itemIds:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    type: string
+                    maxLength: 64
+      responses:
+        "200":
+          description: The playback session with its new queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackSession"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/PlaybackEnded"
+
+  /playback/{playbackId}/advance:
+    parameters:
+      - $ref: "#/components/parameters/PlaybackId"
+    post:
+      operationId: advanceQueue
+      summary: Move to another queue entry (next episode, next track, a jump)
+      description: Ends the current item and starts the chosen one, keeping
+        the queue. Returns the new playback session.
+      tags: [playback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [index]
+              properties:
+                index:
+                  type: integer
+                  minimum: 0
+      responses:
+        "201":
+          description: The playback session for the new entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackSession"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/PlaybackEnded"
+
+  /stream/{ticket}/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Ticket"
+      - name: name
+        in: path
+        required: true
+        description: A file name from the stream, e.g. `master.m3u8` or a
+          segment name from the playlist. Clients only use names that appear
+          in Overfin's playlists or in `stream.url`.
+        schema:
+          type: string
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+    get:
+      operationId: getStream
+      summary: Playlists, segments or the media file
+      description: Supports `Range` requests for seeking. The ticket is
+        short-lived, bound to the session and renewed by progress reports.
+      tags: [playback]
+      responses:
+        "200":
+          description: The media or playlist.
+          content:
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+            video/*:
+              schema:
+                type: string
+                format: binary
+            audio/*:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Part of the media, for a `Range` request.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/PlaybackEnded"
+
+  /stream/{ticket}/subtitles/{trackId}:
+    parameters:
+      - $ref: "#/components/parameters/Ticket"
+      - name: trackId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 64
+    get:
+      operationId: getSubtitles
+      summary: A subtitle track as sanitized WebVTT
+      tags: [playback]
+      responses:
+        "200":
+          description: The subtitles.
+          content:
+            text/vtt:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     session:
@@ -979,6 +1279,22 @@ components:
         type: string
         maxLength: 64
         examples: [item_7f3a9c04b1e2]
+    PlaybackId:
+      name: playbackId
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 64
+        examples: [play_9m2k7w4q1x8c]
+    Ticket:
+      name: ticket
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 64
+        pattern: "^[A-Za-z0-9_-]+$"
     ProfileId:
       name: profileId
       in: path
@@ -1640,6 +1956,236 @@ components:
         libraryItemId:
           type: string
 
+    # ---- Playback -----------------------------------------------------------
+
+    Capabilities:
+      description: |
+        What the playing device can handle. The JavaScript SDK fills this in
+        from the browser. Unknown values are ignored, so clients can declare
+        new codecs or formats without breaking anything.
+      type: object
+      properties:
+        containers:
+          type: array
+          items:
+            type: string
+          examples: [[mp4, webm, mkv]]
+        videoCodecs:
+          type: array
+          items:
+            type: string
+          examples: [[h264, hevc, av1, vp9]]
+        audioCodecs:
+          type: array
+          items:
+            type: string
+          examples: [[aac, opus, flac, eac3]]
+        maxHeight:
+          type: integer
+          minimum: 144
+        hdr:
+          type: array
+          items:
+            type: string
+          examples: [[hdr10, dolbyVision]]
+        subtitles:
+          type: array
+          description: Subtitle formats the client renders itself; anything
+            else is converted or burned in.
+          items:
+            type: string
+          examples: [[vtt, ass, pgs]]
+        maxAudioChannels:
+          type: integer
+          minimum: 1
+        maxBitrateKbps:
+          type: integer
+          minimum: 64
+
+    PlaybackStart:
+      type: object
+      required: [itemId, capabilities]
+      properties:
+        itemId:
+          type: string
+          maxLength: 64
+        capabilities:
+          $ref: "#/components/schemas/Capabilities"
+        startPositionMs:
+          $ref: "#/components/schemas/Milliseconds"
+        versionId:
+          type: string
+          description: Which version of the item, when it has several.
+          maxLength: 64
+        audioTrack:
+          type: string
+          maxLength: 64
+        subtitleTrack:
+          type: string
+          description: A subtitle track ID, or `off`.
+          maxLength: 64
+        maxBitrateKbps:
+          type: integer
+          minimum: 64
+        queue:
+          type: array
+          description: Items to play after this one (next episodes, an
+            album's tracks).
+          maxItems: 1000
+          items:
+            type: string
+            maxLength: 64
+        device:
+          type: string
+          description: A readable name for this device, shown when another
+            device takes over.
+          maxLength: 64
+
+    PlaybackChange:
+      type: object
+      minProperties: 1
+      properties:
+        versionId:
+          type: string
+          maxLength: 64
+        audioTrack:
+          type: string
+          maxLength: 64
+        subtitleTrack:
+          type: string
+          maxLength: 64
+        maxBitrateKbps:
+          type: integer
+          minimum: 64
+
+    ProgressReport:
+      type: object
+      required: [positionMs]
+      properties:
+        positionMs:
+          $ref: "#/components/schemas/Milliseconds"
+        paused:
+          type: boolean
+        ended:
+          type: boolean
+          description: True when the item played to its end.
+
+    Track:
+      type: object
+      required: [id, label]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+          description: Readable, e.g. `English (5.1)` or `Français, forced`.
+        language:
+          type: string
+          description: BCP 47 language tag, when known.
+        codec:
+          type: string
+        channels:
+          type: integer
+          minimum: 1
+        default:
+          type: boolean
+        forced:
+          type: boolean
+        hearingImpaired:
+          type: boolean
+        url:
+          type: string
+          format: uri-reference
+          description: For subtitles delivered separately, the WebVTT URL.
+
+    MediaSegment:
+      description: A marked part of the media, e.g. for a "Skip intro"
+        button.
+      type: object
+      required: [kind, startMs, endMs]
+      properties:
+        kind:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [intro, outro, recap, preview, commercial]
+        startMs:
+          $ref: "#/components/schemas/Milliseconds"
+        endMs:
+          $ref: "#/components/schemas/Milliseconds"
+
+    PlaybackSession:
+      type: object
+      required: [id, item, method, stream, positionMs]
+      properties:
+        id:
+          type: string
+          examples: [play_9m2k7w4q1x8c]
+        item:
+          $ref: "#/components/schemas/ItemSummary"
+        method:
+          type: string
+          description: How the media reaches the client. Open set.
+          examples: [direct, remux, transcode]
+        stream:
+          type: object
+          required: [url, protocol]
+          properties:
+            url:
+              type: string
+              format: uri-reference
+            protocol:
+              type: string
+              description: Open set.
+              examples: [file, hls]
+            mimeType:
+              type: string
+        positionMs:
+          $ref: "#/components/schemas/Milliseconds"
+        durationMs:
+          $ref: "#/components/schemas/Milliseconds"
+        versions:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+        versionId:
+          type: string
+        audioTracks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Track"
+        audioTrack:
+          type: string
+        subtitleTracks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Track"
+        subtitleTrack:
+          type: string
+        maxBitrateKbps:
+          type: integer
+        segments:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaSegment"
+        queue:
+          type: object
+          required: [items, index]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ItemSummary"
+            index:
+              type: integer
+              minimum: 0
+              description: The entry playing now.
+
     # ---- Kind-specific parts -----------------------------------------------
 
     MoviePart:
@@ -1872,6 +2418,22 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/UserState"
+    PlaybackEnded:
+      description: |
+        This playback no longer exists. With `playback-taken-over`, another
+        device of the same account started playing; `takenOverBy` names it,
+        so the site can offer to continue here. With `playback-expired`, it
+        stopped reporting progress for too long.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Problem"
+              - type: object
+                properties:
+                  takenOverBy:
+                    type: string
+                    description: The other device's name.
     NotFound:
       description: The resource doesn't exist, or the caller may not see it.
       content:
