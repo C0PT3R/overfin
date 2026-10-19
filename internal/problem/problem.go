@@ -92,8 +92,7 @@ var registry = map[Type]info{
 	Internal:             {http.StatusInternalServerError, "Internal error"},
 }
 
-// Problem is one error response. Extra fields specific to a type (such as
-// stepUpUrl) are added later, as their features arrive.
+// Problem is one error response, with the extra fields some types carry.
 type Problem struct {
 	Type   Type   `json:"type"`
 	Title  string `json:"title"`
@@ -104,6 +103,11 @@ type Problem struct {
 	// RetryAfter is how many seconds to wait before trying again; it is
 	// also sent as the Retry-After header.
 	RetryAfter int `json:"retryAfter,omitempty"`
+	// StepUp and StepUpURL, for step-up-required: what confirms the action
+	// ("login"), and where to send the user for it. StepUpURL is empty when
+	// the instance offers no step-up.
+	StepUp    string `json:"stepUp,omitempty"`
+	StepUpURL string `json:"stepUpUrl,omitempty"`
 }
 
 // New returns the problem for t, with an optional human-readable detail.

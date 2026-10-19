@@ -22,8 +22,10 @@ import (
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
+	"github.com/C0PT3R/overfin/internal/oidc"
 	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/playback"
+	"github.com/C0PT3R/overfin/internal/plugin"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
@@ -180,6 +182,12 @@ func newServer(t *testing.T) (*httptest.Server, *fakeJellyfin) {
 
 func newServerLimited(t *testing.T, maxStreams int) (*httptest.Server, *fakeJellyfin) {
 	t.Helper()
+	return newServerWith(t, maxStreams, nil)
+}
+
+// newServerWith starts a test server; provider, when set, enables step-up.
+func newServerWith(t *testing.T, maxStreams int, provider *oidc.Provider) (*httptest.Server, *fakeJellyfin) {
+	t.Helper()
 	fake := &fakeJellyfin{}
 	jfSrv := httptest.NewServer(fake)
 	t.Cleanup(jfSrv.Close)
@@ -207,13 +215,20 @@ func newServerLimited(t *testing.T, maxStreams int) (*httptest.Server, *fakeJell
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	prov := &provision.Provisioner{Store: st, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"), Logger: logger}
 	sessions := &api.Sessions{Provisioner: prov, Store: st, Logger: logger, Lifetime: time.Hour}
+	extra := []plugin.Plugin{}
+	if provider != nil {
+		sessions.StepUp = &api.StepUp{Sessions: sessions, Store: st, Provider: provider, FreshFor: 5 * time.Minute, Logger: logger}
+		extra = append(extra, sessions.StepUp)
+	}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "", "|")
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
-	h, err := server.New(logger, ids, lib, pb, api.Stream{Playback: pb},
+	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb},
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,
-			PINs: &pin.Checker{Key: []byte("pin-key"), Store: st}})
+			PINs: &pin.Checker{Key: []byte("pin-key"), Store: st}},
+	}, extra...)
+	h, err := server.New(logger, ids, plugins...)
 	if err != nil {
 		t.Fatal(err)
 	}

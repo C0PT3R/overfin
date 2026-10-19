@@ -338,6 +338,16 @@ func (p *Provisioner) Restrict(ctx context.Context, jellyfinUserID string, ceili
 	return p.Jellyfin.SetUserPolicy(ctx, admin, jellyfinUserID, policy)
 }
 
+// DeleteJellyfinUser deletes a profile's Jellyfin user, with its watch
+// history. A user already gone counts as deleted.
+func (p *Provisioner) DeleteJellyfinUser(ctx context.Context, jellyfinUserID string) error {
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	if err := p.Jellyfin.DeleteUser(ctx, admin, jellyfinUserID); err != nil && !jellyfin.IsStatus(err, http.StatusNotFound) {
+		return err
+	}
+	return nil
+}
+
 // Ratings lists the server's parental ratings, from least to most mature.
 func (p *Provisioner) Ratings(ctx context.Context) ([]jellyfin.Rating, error) {
 	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}

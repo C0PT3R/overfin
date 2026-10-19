@@ -37,7 +37,7 @@ func New(logger *slog.Logger, ids *identity.Resolver, plugins ...plugin.Plugin) 
 		problem.Send(w, problem.NotFound, "")
 	})
 
-	return recoverPanics(logger, securityHeaders(sameOrigin(limitBody(ids.Middleware(mux))))), nil
+	return recoverPanics(logger, securityHeaders(sameOrigin(reg, limitBody(ids.Middleware(mux))))), nil
 }
 
 // requireIdentity refuses requests that carry no identity (SECURITY.md rule
@@ -73,12 +73,17 @@ func securityHeaders(next http.Handler) http.Handler {
 // Sec-Fetch-Site; only same-origin requests (and "none", for an address typed
 // directly) are accepted, which also shuts out sibling subdomains. Requests
 // that change something must be JSON, which plain HTML forms can't send: that
-// covers old browsers without Sec-Fetch-Site.
-func sameOrigin(next http.Handler) http.Handler {
+// covers old browsers without Sec-Fetch-Site. The only exception is a
+// top-level GET navigation to a navigation route.
+func sameOrigin(reg *plugin.Registrar, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Header.Get("Sec-Fetch-Site") {
 		case "", "same-origin", "none":
 		default:
+			if r.Method == http.MethodGet && r.Header.Get("Sec-Fetch-Mode") == "navigate" &&
+				r.Header.Get("Sec-Fetch-Dest") == "document" && reg.IsNavigation(r.URL.Path) {
+				break
+			}
 			problem.Send(w, problem.CrossSiteRequest, "")
 			return
 		}

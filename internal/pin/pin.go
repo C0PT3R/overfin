@@ -2,7 +2,8 @@
 //
 // A PIN is short, so it is only as strong as the limits on guessing it. Each
 // wrong PIN doubles the wait before the next attempt (1, 2, 4, 8 seconds),
-// and the fifth locks the profile (SECURITY.md rule 22). PINs are stored as
+// and the fifth locks the profile until the account owner logs in again
+// (SECURITY.md rule 22). PINs are stored as
 // keyed hashes bound to their profile: a copied database row neither reveals
 // a PIN nor works on another profile.
 package pin
@@ -21,9 +22,8 @@ import (
 // MaxFailures is how many wrong PINs in a row lock a profile.
 const MaxFailures = 5
 
-// LockFor is how long a lock lasts. Rule 22 wants the owner to log in again
-// to unlock; until step-up exists, the lock simply expires.
-const LockFor = 15 * time.Minute
+// forever stands for a lock only the owner's fresh login lifts.
+var forever = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // Forget is how long after the last wrong PIN the count starts over.
 const Forget = 15 * time.Minute
@@ -37,6 +37,7 @@ var (
 
 // WaitError means no attempt is possible yet. Locked is true after
 // MaxFailures wrong PINs, false during the short wait between attempts.
+// Wait is zero for a lock that only the owner's fresh login lifts.
 type WaitError struct {
 	Locked bool
 	Wait   time.Duration
@@ -61,6 +62,10 @@ func Valid(s string) bool {
 type Checker struct {
 	Key   []byte
 	Store *store.Store
+	// UnlockAfter, when set, ends locks by themselves after that long: for
+	// instances without step-up, where the owner can't confirm a fresh
+	// login. Zero keeps a lock until the owner does.
+	UnlockAfter time.Duration
 
 	// mu makes each check a whole read-decide-write step, so parallel
 	// guesses can't all slip through the same wait.
@@ -96,7 +101,7 @@ func (c *Checker) Check(ctx context.Context, accountID, profileID, pin string) e
 	}
 	now := c.clock()
 	if now.Before(st.LockedUntil) {
-		return &WaitError{Locked: true, Wait: st.LockedUntil.Sub(now)}
+		return c.locked(st.LockedUntil, now)
 	}
 	failures := st.Failures
 	if !st.LockedUntil.IsZero() || now.Sub(st.FailedAt) > Forget {
@@ -119,13 +124,23 @@ func (c *Checker) Check(ctx context.Context, accountID, profileID, pin string) e
 	failures++
 	var lockedUntil time.Time
 	if failures >= MaxFailures {
-		lockedUntil = now.Add(LockFor)
+		lockedUntil = forever
+		if c.UnlockAfter > 0 {
+			lockedUntil = now.Add(c.UnlockAfter)
+		}
 	}
 	if err := c.Store.RecordPIN(ctx, profileID, failures, now, lockedUntil); err != nil {
 		return err
 	}
 	if !lockedUntil.IsZero() {
-		return &WaitError{Locked: true, Wait: LockFor}
+		return c.locked(lockedUntil, now)
 	}
 	return ErrIncorrect
+}
+
+func (c *Checker) locked(until, now time.Time) error {
+	if until.Equal(forever) {
+		return &WaitError{Locked: true}
+	}
+	return &WaitError{Locked: true, Wait: until.Sub(now)}
 }

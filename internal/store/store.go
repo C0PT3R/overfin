@@ -298,14 +298,17 @@ func (s *Store) CreateSession(ctx context.Context, accountID, profileID, device 
 	now := s.now().UTC()
 	sess := &Session{
 		ID: ids.New(ids.Session), AccountID: accountID, ActiveProfileID: profileID, Device: device,
-		Created: now, LastActive: now, FreshLogin: now, Expires: now.Add(lifetime),
+		Created: now, LastActive: now, Expires: now.Add(lifetime),
 	}
+	// No fresh login yet: a new session only proves the identity provider
+	// still knows the user, not that they just logged in. Only step-up
+	// sets it.
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO sessions (id, token_hash, account_id, active_profile_id, device,
-			created_at, last_active_at, fresh_login_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			created_at, last_active_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, hashToken(token), accountID, nullable(profileID), nullable(device),
-		now.Unix(), now.Unix(), now.Unix(), sess.Expires.Unix())
+		now.Unix(), now.Unix(), sess.Expires.Unix())
 	if err != nil {
 		return nil, "", fmt.Errorf("store: creating session: %w", err)
 	}
@@ -610,4 +613,53 @@ func (s *Store) RecordPIN(ctx context.Context, profileID string, failures int, f
 	_, err := s.db.ExecContext(ctx, `UPDATE profiles SET pin_failures = ?, pin_failed_at = ?, pin_locked_until = ? WHERE id = ?`,
 		failures, toUnix(failedAt), toUnix(lockedUntil), profileID)
 	return err
+}
+
+// ---- Step-up -----------------------------------------------------------------------
+
+// SetFreshLogin records that the person behind a session just confirmed a
+// login with the identity provider.
+func (s *Store) SetFreshLogin(ctx context.Context, accountID, sessionID string, at time.Time) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE sessions SET fresh_login_at = ? WHERE id = ? AND account_id = ?`,
+		at.Unix(), sessionID, accountID)
+	return oneRow(res, err)
+}
+
+// UnlockPINs lifts every PIN lock and forgets wrong attempts in an account,
+// after its owner logged in again (rule 22).
+func (s *Store) UnlockPINs(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE profiles SET pin_failures = 0, pin_failed_at = NULL, pin_locked_until = NULL
+		WHERE account_id = ?`, accountID)
+	return err
+}
+
+// ReplacePIN sets a profile's PIN whether or not it has one; nil removes it.
+// Callers make sure a fresh login came first.
+func (s *Store) ReplacePIN(ctx context.Context, accountID, profileID string, hash []byte) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE profiles SET pin_hash = ?, pin_failures = 0, pin_failed_at = NULL, pin_locked_until = NULL
+		WHERE id = ? AND account_id = ?`, hash, profileID, accountID)
+	return oneRow(res, err)
+}
+
+// DeleteProfile deletes a profile that isn't the owner's. Sessions using it
+// fall back to the owner profile.
+func (s *Store) DeleteProfile(ctx context.Context, accountID, profileID string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM profiles WHERE id = ? AND account_id = ? AND owner = 0`,
+		profileID, accountID)
+	return oneRow(res, err)
+}
+
+// oneRow turns "no row changed" into ErrNotFound.
+func oneRow(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

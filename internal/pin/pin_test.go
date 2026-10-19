@@ -26,7 +26,7 @@ func setup(t *testing.T) (*Checker, *time.Time, string, string) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	c := &Checker{Key: bytes.Repeat([]byte{7}, 32), Store: s, now: func() time.Time { return now }}
+	c := &Checker{Key: bytes.Repeat([]byte{7}, 32), Store: s, UnlockAfter: 15 * time.Minute, now: func() time.Time { return now }}
 	if err := c.Check(ctx, a.ID, p.ID, ""); err != nil {
 		t.Fatalf("no PIN set, but: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestGrowingWaitThenLock(t *testing.T) {
 	if err := c.Check(ctx, acct, prof, "0000"); !errors.As(err, &we) || !we.Locked {
 		t.Fatalf("fifth wrong PIN: %v", err)
 	}
-	*now = now.Add(LockFor - time.Second)
+	*now = now.Add(c.UnlockAfter - time.Second)
 	if err := c.Check(ctx, acct, prof, "1234"); !errors.As(err, &we) || !we.Locked {
 		t.Fatalf("right PIN while locked: %v", err)
 	}
@@ -93,5 +93,26 @@ func TestGrowingWaitThenLock(t *testing.T) {
 	}
 	if err := c.Check(ctx, acct, prof, "1234"); !errors.As(err, &we) || we.Wait != time.Second {
 		t.Fatalf("count not reset: %v", err)
+	}
+}
+
+func TestLockUntilOwnerLogsIn(t *testing.T) {
+	c, now, acct, prof := setup(t)
+	c.UnlockAfter = 0
+	ctx := context.Background()
+	for i := 0; i < MaxFailures; i++ {
+		c.Check(ctx, acct, prof, "0000")
+		*now = now.Add(time.Minute)
+	}
+	*now = now.Add(24 * 365 * time.Hour)
+	var we *WaitError
+	if err := c.Check(ctx, acct, prof, "1234"); !errors.As(err, &we) || !we.Locked || we.Wait != 0 {
+		t.Fatalf("a year later: %v", err)
+	}
+	if err := c.Store.UnlockPINs(ctx, acct); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Check(ctx, acct, prof, "1234"); err != nil {
+		t.Errorf("after the owner's login: %v", err)
 	}
 }

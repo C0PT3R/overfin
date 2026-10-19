@@ -67,9 +67,12 @@ info:
 
     **Step-up.** Some actions need a fresh login. Overfin then answers
     with a `step-up-required` error naming what is needed (`login`)
-    and a `stepUpUrl` to send the user to. After confirming, the
-    client retries the same request. A confirmed login stays fresh for a few
-    minutes. After a login or step-up, users are only ever sent back to the
+    and a `stepUpUrl` to send the user to: navigate the whole page to
+    `stepUpUrl?return=/path/of/this/page`. The user logs in again at the
+    identity provider and comes back to that path, then the client retries the
+    same request. A confirmed login stays fresh for a few minutes (5 by
+    default). Without a `stepUpUrl`, the instance offers no step-up and the
+    action can't be done. After a login or step-up, users are only ever sent back to the
     same origin or to an origin the operator allows, never to an address
     taken unchecked from the request.
 
@@ -344,6 +347,28 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /step-up:
+    get:
+      operationId: startStepUp
+      summary: Confirm a fresh login (navigate here, don't fetch)
+      description: Sends the browser to the identity provider for a new
+        login, then back to `return`. Only offered when the instance has
+        step-up configured. The provider returns to
+        `/step-up/callback`, which forwards to `/step-up/finish`; neither is
+        for clients to call.
+      tags: [account]
+      parameters:
+        - name: return
+          in: query
+          description: Path on this site to come back to. Anything that isn't
+            a plain path (another host, a scheme, `//`) is replaced by `/`.
+          schema:
+            type: string
+            examples: [/settings/profiles]
+      responses:
+        "303":
+          description: Off to the identity provider.
+
   /ratings:
     get:
       operationId: listRatings
@@ -468,8 +493,7 @@ paths:
       description: The owner profile can set any profile's PIN; a standard
         profile can set its own; a kids profile can't. Setting another
         profile's PIN needs `ownerPin` when the owner profile has a PIN.
-        Changing an existing PIN needs a fresh login (not available yet, so
-        always `step-up-required`).
+        Changing an existing PIN needs a fresh login instead of `ownerPin`.
       tags: [profiles]
       requestBody:
         required: true
@@ -493,8 +517,7 @@ paths:
     delete:
       operationId: removeProfilePin
       summary: Remove a profile's PIN
-      description: Same profiles as setting it, and needs a fresh login (not
-        available yet; always `step-up-required` when there is a PIN).
+      description: Same profiles as setting it, and needs a fresh login.
       tags: [profiles]
       responses:
         "204":

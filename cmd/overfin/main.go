@@ -19,6 +19,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
+	"github.com/C0PT3R/overfin/internal/oidc"
 	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/playback"
 	"github.com/C0PT3R/overfin/internal/plugin"
@@ -96,6 +97,17 @@ func run(logger *slog.Logger) error {
 	}
 
 	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
+	checker := &pin.Checker{Key: k.PIN, Store: db}
+	if su := cfg.StepUp; su.Enabled() {
+		sessions.StepUp = &api.StepUp{Sessions: sessions, Store: db, Logger: logger,
+			FreshFor: time.Duration(su.FreshForMinutes) * time.Minute,
+			Provider: &oidc.Provider{Issuer: su.Issuer, ClientID: su.ClientID,
+				ClientSecret: cfg.Secrets.StepUpClientSecret, RedirectURL: su.RedirectURL, HTTP: oidc.NewClient(su.Dial)}}
+	} else {
+		// Without step-up the owner can't confirm a login, so PIN locks
+		// end by themselves.
+		checker.UnlockAfter = 15 * time.Minute
+	}
 	imgs := images.New(jf, 64<<20)
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, Images: imgs, CursorKey: k.Cursor, Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(24 * time.Hour),
@@ -107,8 +119,11 @@ func run(logger *slog.Logger) error {
 	plugins := []plugin.Plugin{
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
-			PINs: &pin.Checker{Key: k.PIN, Store: db}, Images: imgs,
+			PINs: checker, Images: imgs,
 			LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
+	}
+	if sessions.StepUp != nil {
+		plugins = append(plugins, sessions.StepUp)
 	}
 	if cfg.Plugins.Enabled("library") {
 		plugins = append(plugins, lib)

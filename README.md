@@ -151,6 +151,7 @@ Secrets never go in the file. Set them as environment variables, or as
 | --- | --- |
 | `OVERFIN_JELLYFIN_ADMIN_KEY` | Jellyfin API key, used only to create users |
 | `OVERFIN_SECRET_KEY` | Base64, at least 32 random bytes; encrypts tokens and signs cursors |
+| `OVERFIN_STEP_UP_CLIENT_SECRET` | Only with `[step_up]`: Overfin's client secret at the identity provider |
 
 ## AI-assisted development
 

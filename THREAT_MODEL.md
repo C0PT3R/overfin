@@ -138,9 +138,12 @@ subtitles and attachments) from anywhere.
 - **Catalog searches reach TMDB.** With the TMDB catalog enabled, what users
   search for in the catalog is sent from the server to TMDB. Browsers never
   contact TMDB, but the operator's server does [43, 57].
-- **Step-up with forward-auth is not verified yet.** It relies on the identity
-  provider offering a forced re-login; this still has to be confirmed for each
-  supported provider before rule 21 can be implemented in that mode.
+- **Step-up trusts the identity provider's login time.** Overfin asks for a
+  new login over OpenID Connect and accepts it only if the signed ID token is
+  for the same user and says the login happened after the step-up began. A
+  provider that reports a wrong login time would defeat that check. Without
+  step-up configured, the actions that need it are refused, and PIN locks end
+  after 15 minutes instead of waiting for the owner [21, 22].
 
 ## Out of scope
 

@@ -30,12 +30,14 @@ type Registrar struct {
 	owner   string
 	routes  map[string]string // pattern -> plugin that registered it
 	public  map[string]bool   // patterns registered with HandlePublic
+	nav     map[string]bool   // paths registered with HandleNavigation
 }
 
 // NewRegistrar returns a Registrar that adds routes to mux, wrapping every
 // non-public route with protect.
 func NewRegistrar(mux *http.ServeMux, protect func(http.Handler) http.Handler) *Registrar {
-	return &Registrar{mux: mux, protect: protect, routes: make(map[string]string), public: make(map[string]bool)}
+	return &Registrar{mux: mux, protect: protect, routes: make(map[string]string),
+		public: make(map[string]bool), nav: make(map[string]bool)}
 }
 
 // Load registers each plugin's routes, stopping at the first error.
@@ -61,6 +63,27 @@ func (r *Registrar) Handle(pattern string, h http.Handler) error {
 // (SECURITY.md rule 37).
 func (r *Registrar) HandlePublic(pattern string, h http.Handler) error {
 	return r.add(pattern, h, true)
+}
+
+// HandleNavigation adds a public GET route that another site may send the
+// browser to, such as an identity provider returning from a login. Every
+// other route refuses cross-site requests. The path must be fixed, without
+// wildcards, and the handler must not act on anything but its own query.
+func (r *Registrar) HandleNavigation(pattern string, h http.Handler) error {
+	method, path, _ := strings.Cut(pattern, " ")
+	if method != http.MethodGet || strings.Contains(path, "{") {
+		return fmt.Errorf("route %q: navigation routes must be GET with a fixed path", pattern)
+	}
+	if err := r.add(pattern, h, true); err != nil {
+		return err
+	}
+	r.nav[path] = true
+	return nil
+}
+
+// IsNavigation reports whether a request path belongs to a navigation route.
+func (r *Registrar) IsNavigation(path string) bool {
+	return r.nav[path]
 }
 
 func (r *Registrar) add(pattern string, h http.Handler, public bool) error {

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -30,6 +31,7 @@ type Config struct {
 	Adoption Adoption `toml:"adoption"`
 	Privacy  Privacy  `toml:"privacy"`
 	Plugins  Plugins  `toml:"plugins"`
+	StepUp   StepUp   `toml:"step_up"`
 
 	// Secrets, loaded from the environment, never from the file.
 	Secrets Secrets `toml:"-"`
@@ -85,6 +87,26 @@ func (p Privacy) Exposes(field string) bool {
 	return slices.Contains(p.Expose, field)
 }
 
+// StepUp confirms a fresh login with the identity provider, over OpenID
+// Connect, before destructive actions. Off unless Issuer is set.
+type StepUp struct {
+	// Issuer is the provider's issuer URL, exactly as it states it.
+	Issuer   string `toml:"issuer"`
+	ClientID string `toml:"client_id"`
+	// RedirectURL is this site's callback, registered at the provider:
+	// "https://<site>/api/v1/step-up/callback".
+	RedirectURL string `toml:"redirect_url"`
+	// Dial, when set, is the "host:port" Overfin connects to for the
+	// provider, instead of what DNS says (TLS is still checked against the
+	// issuer's name).
+	Dial string `toml:"dial"`
+	// FreshForMinutes is how long a confirmed login stays fresh.
+	FreshForMinutes int `toml:"fresh_for_minutes"`
+}
+
+// Enabled reports whether step-up is configured.
+func (s StepUp) Enabled() bool { return s.Issuer != "" }
+
 type Plugins struct {
 	// Enable lists the plugins this instance offers. None are on by
 	// default: without any, Overfin only manages accounts and profiles.
@@ -124,6 +146,9 @@ type Secrets struct {
 	JellyfinAdminKey string
 	// Key encrypts tokens and keys PIN hashes, cursors and log IDs.
 	Key []byte
+	// StepUpClientSecret is the client secret at the identity provider,
+	// required only with step-up.
+	StepUpClientSecret string
 }
 
 // MinKeyBytes is the minimum length of the secret key.
@@ -143,6 +168,7 @@ func defaults() Config {
 			MaxTranscodesTotal:    4,
 			OnLimit:               "replace-oldest",
 		},
+		StepUp: StepUp{FreshForMinutes: 5},
 	}
 }
 
@@ -167,6 +193,13 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 
 	if err := loadSecrets(&cfg.Secrets, getenv); err != nil {
 		return nil, err
+	}
+	if cfg.StepUp.Enabled() {
+		s, err := secret("OVERFIN_STEP_UP_CLIENT_SECRET", getenv)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Secrets.StepUpClientSecret = s
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -274,6 +307,30 @@ func (c *Config) validate() error {
 			if !c.Plugins.Enabled(n) {
 				add("plugins.enable: %q needs %q enabled too", name, n)
 			}
+		}
+	}
+
+	if su := c.StepUp; su.Enabled() {
+		if u, err := url.Parse(su.Issuer); err != nil || u.Scheme != "https" || u.Host == "" {
+			add("step_up.issuer must be an https URL")
+		}
+		if su.ClientID == "" {
+			add("step_up.client_id is required with step-up")
+		}
+		if u, err := url.Parse(su.RedirectURL); err != nil || u.Scheme != "https" || u.Host == "" ||
+			u.Path != "/api/v1/step-up/callback" || u.RawQuery != "" {
+			add("step_up.redirect_url must be https://<your site>/api/v1/step-up/callback")
+		}
+		if su.Dial != "" {
+			if _, _, err := net.SplitHostPort(su.Dial); err != nil {
+				add("step_up.dial must be host:port")
+			}
+		}
+		if su.FreshForMinutes < 1 || su.FreshForMinutes > 60 {
+			add("step_up.fresh_for_minutes must be between 1 and 60")
+		}
+		if c.Identity.Mode != "forwardauth" {
+			add("step-up needs identity.mode = \"forwardauth\"")
 		}
 	}
 

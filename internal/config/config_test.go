@@ -181,3 +181,35 @@ func TestPlugins(t *testing.T) {
 		}
 	}
 }
+
+func TestStepUp(t *testing.T) {
+	ok := `
+[step_up]
+issuer = "https://auth.example.org/application/o/site/"
+client_id = "overfin"
+redirect_url = "https://example.org/api/v1/step-up/callback"
+dial = "198.51.100.7:443"
+`
+	vars := goodEnv()
+	if _, err := Load(writeFile(t, goodFile+ok), env(vars)); err == nil {
+		t.Error("step-up without its client secret was accepted")
+	}
+	vars["OVERFIN_STEP_UP_CLIENT_SECRET"] = "secret"
+	cfg, err := Load(writeFile(t, goodFile+ok), env(vars))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.StepUp.Enabled() || cfg.Secrets.StepUpClientSecret != "secret" || cfg.StepUp.FreshForMinutes != 5 {
+		t.Errorf("step-up = %+v", cfg.StepUp)
+	}
+	for _, bad := range []string{
+		strings.Replace(ok, "https://auth", "http://auth", 1),
+		strings.Replace(ok, "/api/v1/step-up/callback", "/elsewhere", 1),
+		strings.Replace(ok, `client_id = "overfin"`, `client_id = ""`, 1),
+		strings.Replace(ok, `dial = "198.51.100.7:443"`, `dial = "nowhere"`, 1),
+	} {
+		if _, err := Load(writeFile(t, goodFile+bad), env(vars)); err == nil {
+			t.Errorf("accepted:%s", bad)
+		}
+	}
+}

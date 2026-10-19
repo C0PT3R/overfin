@@ -43,6 +43,7 @@ func (p Profiles) Register(r *plugin.Registrar) error {
 		"POST /api/v1/profiles":               p.create,
 		"GET /api/v1/profiles/{id}":           p.get,
 		"PATCH /api/v1/profiles/{id}":         p.update,
+		"DELETE /api/v1/profiles/{id}":        p.remove,
 		"POST /api/v1/profiles/{id}/activate": p.activate,
 		"PUT /api/v1/profiles/{id}/pin":       p.setPIN,
 		"DELETE /api/v1/profiles/{id}/pin":    p.removePIN,
@@ -368,8 +369,7 @@ func pinAllowed(c *Caller, pr *store.Profile) bool {
 }
 
 // setPIN gives a profile a PIN. Changing an existing one needs a fresh login
-// (rule 21), which isn't available yet: until then a PIN can only be set
-// where there is none.
+// (rule 21) instead of the owner's PIN.
 func (p Profiles) setPIN(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PIN      string `json:"pin"`
@@ -394,7 +394,14 @@ func (p Profiles) setPIN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pr.HasPIN {
-		problem.Send(w, problem.StepUpRequired, "changing a PIN needs a fresh login, which isn't available yet")
+		if !p.Sessions.RequireFresh(w, c) {
+			return
+		}
+		if err := p.Store.ReplacePIN(ctx, c.Account.ID, pr.ID, p.PINs.Hash(pr.ID, req.PIN)); err != nil {
+			problem.Send(w, problem.NotFound, "")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	// The owner protecting someone else's profile proves it's the owner.
@@ -402,7 +409,7 @@ func (p Profiles) setPIN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := p.Store.SetPIN(ctx, c.Account.ID, pr.ID, p.PINs.Hash(pr.ID, req.PIN)); errors.Is(err, store.ErrPINExists) {
-		problem.Send(w, problem.StepUpRequired, "changing a PIN needs a fresh login, which isn't available yet")
+		p.Sessions.RequireFresh(w, c) // set by someone else meanwhile
 		return
 	} else if err != nil {
 		problem.Send(w, problem.NotFound, "")
@@ -411,7 +418,7 @@ func (p Profiles) setPIN(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// removePIN needs a fresh login (rule 21), which isn't available yet.
+// removePIN needs a fresh login (rule 21).
 func (p Profiles) removePIN(w http.ResponseWriter, r *http.Request) {
 	c := p.Sessions.Current(w, r)
 	if c == nil {
@@ -430,7 +437,56 @@ func (p Profiles) removePIN(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	problem.Send(w, problem.StepUpRequired, "removing a PIN needs a fresh login, which isn't available yet")
+	if !p.Sessions.RequireFresh(w, c) {
+		return
+	}
+	if err := p.Store.ReplacePIN(r.Context(), c.Account.ID, pr.ID, nil); err != nil {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// remove deletes a profile and, with its Jellyfin user, its watch history.
+// Owner only, never the owner profile itself, and only after a fresh login.
+func (p Profiles) remove(w http.ResponseWriter, r *http.Request) {
+	c := p.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	ctx := r.Context()
+	pr, err := p.Store.Profile(ctx, c.Account.ID, r.PathValue("id"))
+	if err != nil {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	if !c.IsOwner() {
+		problem.Send(w, problem.OwnerOnly, "")
+		return
+	}
+	if pr.Owner {
+		problem.Send(w, problem.InvalidRequest, "the owner profile goes with the account")
+		return
+	}
+	if !p.Sessions.RequireFresh(w, c) {
+		return
+	}
+	// Jellyfin first: if that fails, the profile stays and can be deleted
+	// again, rather than leaving a history nobody can reach or erase.
+	if err := p.Provisioner.DeleteJellyfinUser(ctx, pr.JellyfinUserID); err != nil {
+		p.Logger.Error("deleting a profile's Jellyfin user failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	if err := p.Store.DeleteProfile(ctx, c.Account.ID, pr.ID); err != nil {
+		p.Logger.Error("deleting a profile failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	if p.Images != nil {
+		p.Images.Forget(pr.ID)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // activate switches this session to a profile, with its PIN if it has one.

@@ -55,6 +55,21 @@ on_limit = "replace-oldest"
 # be brought over. Off by default.
 claim = false
 
+[step_up]
+# Destructive actions (deleting a profile, changing or removing a PIN) need a
+# fresh login. Overfin asks the identity provider for one over OpenID
+# Connect: register Overfin there as a confidential OAuth2/OpenID client
+# whose subject is the same user ID the proxy sends in user_header, and set
+# OVERFIN_STEP_UP_CLIENT_SECRET. Without step-up those actions are refused,
+# and a locked PIN unlocks by itself after 15 minutes.
+issuer = ""                     # e.g. "https://auth.example.org/application/o/site/"
+client_id = ""
+redirect_url = ""               # "https://example.org/api/v1/step-up/callback"
+# Optional "host:port" to reach the provider at, such as the reverse proxy
+# both sit behind; TLS is still checked against the issuer's name.
+dial = ""
+fresh_for_minutes = 5
+
 [plugins]
 # What this instance offers besides accounts and profiles, which are always
 # on. Nothing is enabled by default.
