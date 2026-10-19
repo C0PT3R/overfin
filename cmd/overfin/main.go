@@ -21,6 +21,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/keys"
 	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/playback"
+	"github.com/C0PT3R/overfin/internal/plugin"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
@@ -101,13 +102,22 @@ func run(logger *slog.Logger) error {
 		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
 		MaxStreams: cfg.Limits.MaxStreamsPerAccount, MaxTranscodes: cfg.Limits.MaxTranscodesTotal,
 		RefuseOverLimit: cfg.Limits.OnLimit == "refuse", Logger: logger}
-	handler, err := server.New(logger, ids,
+	// Accounts and profiles are always on; everything else is a plugin the
+	// operator enables.
+	plugins := []plugin.Plugin{
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
 			PINs: &pin.Checker{Key: k.PIN, Store: db}, Images: imgs,
 			LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
-		lib, pb, api.Stream{Playback: pb},
-	)
+	}
+	if cfg.Plugins.Enabled("library") {
+		plugins = append(plugins, lib)
+	}
+	if cfg.Plugins.Enabled("playback") {
+		plugins = append(plugins, pb, api.Stream{Playback: pb})
+	}
+	logger.Info("plugins", "enabled", cfg.Plugins.Enable)
+	handler, err := server.New(logger, ids, plugins...)
 	if err != nil {
 		return err
 	}
@@ -123,7 +133,9 @@ func run(logger *slog.Logger) error {
 	// Stop cleanly on Ctrl+C or `docker stop`.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go pb.RunJanitor(ctx)
+	if cfg.Plugins.Enabled("playback") {
+		go pb.RunJanitor(ctx)
+	}
 
 	errc := make(chan error, 1)
 	go func() {

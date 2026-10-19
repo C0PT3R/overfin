@@ -33,8 +33,9 @@ components are native to your own stack: a React carousel, a Svelte player, a
 Discord bot, a wall display. They're not plugins squeezed into someone else's
 UI.
 
-> **Status: early development.** The API is specified, the gateway is a
-> skeleton. Nothing here is ready to run in production yet. See
+> **Status: early development.** Accounts, profiles, browsing and playback
+> work against a real Jellyfin server; the rest of the API is specified but
+> not built yet. Nothing here is ready to run in production yet. See
 > [ROADMAP.md](ROADMAP.md) for what's done and what comes next.
 
 ## What it offers
@@ -59,6 +60,29 @@ UI.
 - **Operator choice.** Features, identity mode, user mapping, limits and every
   privacy-sensitive field are set in the configuration. Sensitive data is off
   by default.
+
+## Plugins
+
+Overfin always manages accounts, profiles and sessions. Everything else is a
+plugin, and **every plugin is off by default**: an instance offers only what
+its operator lists in `[plugins] enable`. A disabled plugin's routes don't
+exist at all; they answer `not-found` like any unknown address.
+
+| Plugin | Offers | Needs | Status |
+| --- | --- | --- | --- |
+| *(core, always on)* | Accounts, adoption of existing Jellyfin users (separately opt-in), profiles including kids profiles and PINs, sessions and devices, logout | Jellyfin | Available |
+| `library` | Libraries, items with filters and sorting, random order, "continue watching", "next up", recently added, posters and other images (re-encoded) | Jellyfin | Available |
+| `playback` | Direct play, repackaging or transcoding chosen from the client's capabilities, HLS without tokens, subtitles as WebVTT, progress and resume, stream limits, "skip intro" markers | `library` | Available |
+| `catalog` | Discover lists, operator-curated lists, titles not in the library yet | TMDB key | Planned |
+| `requests` | Requests, quotas and problem reports, kids profiles limited to their rating ceiling | Seerr | Planned |
+
+```toml
+[plugins]
+enable = ["library", "playback"]
+```
+
+Unknown names, planned plugins and missing dependencies stop Overfin at
+startup rather than being ignored.
 
 ## Security and privacy
 

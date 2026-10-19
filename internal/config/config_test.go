@@ -160,3 +160,24 @@ func TestErrorsNeverEchoSecrets(t *testing.T) {
 		t.Errorf("error leaks the secret: %v", err)
 	}
 }
+
+func TestPlugins(t *testing.T) {
+	cfg, err := Load(writeFile(t, goodFile), env(goodEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Plugins.Enable) != 0 {
+		t.Errorf("plugins on by default: %v", cfg.Plugins.Enable)
+	}
+	for file, ok := range map[string]bool{
+		`enable = ["library", "playback"]`: true,
+		`enable = ["library"]`:             true,
+		`enable = ["playback"]`:            false,
+		`enable = ["requests"]`:            false,
+	} {
+		_, err := Load(writeFile(t, goodFile+"\n[plugins]\n"+file+"\n"), env(goodEnv()))
+		if (err == nil) != ok {
+			t.Errorf("%s: err = %v", file, err)
+		}
+	}
+}

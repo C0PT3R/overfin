@@ -55,6 +55,13 @@ on_limit = "replace-oldest"
 # be brought over. Off by default.
 claim = false
 
+[plugins]
+# What this instance offers besides accounts and profiles, which are always
+# on. Nothing is enabled by default.
+#   library    browse libraries, items, "continue watching", posters
+#   playback   play items, with subtitles (needs library)
+enable = []
+
 [privacy]
 # Privacy-sensitive fields stay hidden unless listed here:
 #   version.names   names of media versions, derived from file names (otherwise

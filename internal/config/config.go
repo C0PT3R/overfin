@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"net/url"
 	"os"
@@ -28,6 +29,7 @@ type Config struct {
 	Limits   Limits   `toml:"limits"`
 	Adoption Adoption `toml:"adoption"`
 	Privacy  Privacy  `toml:"privacy"`
+	Plugins  Plugins  `toml:"plugins"`
 
 	// Secrets, loaded from the environment, never from the file.
 	Secrets Secrets `toml:"-"`
@@ -81,6 +83,24 @@ var ExposableFields = []string{"version.names", "photo.takenAt", "photo.location
 // Exposes reports whether the operator turned on a privacy-sensitive field.
 func (p Privacy) Exposes(field string) bool {
 	return slices.Contains(p.Expose, field)
+}
+
+type Plugins struct {
+	// Enable lists the plugins this instance offers. None are on by
+	// default: without any, Overfin only manages accounts and profiles.
+	Enable []string `toml:"enable"`
+}
+
+// KnownPlugins are the plugins an operator may enable, and what each one
+// needs enabled with it.
+var KnownPlugins = map[string][]string{
+	"library":  nil,
+	"playback": {"library"},
+}
+
+// Enabled reports whether the operator enabled a plugin.
+func (p Plugins) Enabled(name string) bool {
+	return slices.Contains(p.Enable, name)
 }
 
 type Storage struct {
@@ -241,6 +261,19 @@ func (c *Config) validate() error {
 	for _, f := range c.Privacy.Expose {
 		if !slices.Contains(ExposableFields, f) {
 			add("privacy.expose: unknown field %q (known: %s)", f, strings.Join(ExposableFields, ", "))
+		}
+	}
+
+	known := slices.Sorted(maps.Keys(KnownPlugins))
+	for _, name := range c.Plugins.Enable {
+		needs, ok := KnownPlugins[name]
+		if !ok {
+			add("plugins.enable: unknown plugin %q (known: %s)", name, strings.Join(known, ", "))
+		}
+		for _, n := range needs {
+			if !c.Plugins.Enabled(n) {
+				add("plugins.enable: %q needs %q enabled too", name, n)
+			}
 		}
 	}
 
