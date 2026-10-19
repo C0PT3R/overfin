@@ -73,38 +73,44 @@ type accessCache struct {
 	mu      sync.Mutex
 	ttl     time.Duration
 	max     int
-	expires map[string]time.Time
+	entries map[string]access
+}
+
+// access is one remembered permission, with the item's image tags.
+type access struct {
+	expires time.Time
+	tags    map[string]string
 }
 
 func newAccessCache(ttl time.Duration, max int) *accessCache {
-	return &accessCache{ttl: ttl, max: max, expires: make(map[string]time.Time)}
+	return &accessCache{ttl: ttl, max: max, entries: make(map[string]access)}
 }
 
-func (a *accessCache) allowed(key string, now time.Time) bool {
+func (a *accessCache) allowed(key string, now time.Time) (map[string]string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	exp, ok := a.expires[key]
-	if ok && now.Before(exp) {
-		return true
+	e, ok := a.entries[key]
+	if ok && now.Before(e.expires) {
+		return e.tags, true
 	}
-	delete(a.expires, key)
-	return false
+	delete(a.entries, key)
+	return nil, false
 }
 
-func (a *accessCache) allow(key string, now time.Time) {
+func (a *accessCache) allow(key string, tags map[string]string, now time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if len(a.expires) >= a.max {
+	if len(a.entries) >= a.max {
 		// Full: drop expired entries, and if that isn't enough, start over.
 		// Losing entries only costs extra Jellyfin calls, never safety.
-		for k, exp := range a.expires {
-			if !now.Before(exp) {
-				delete(a.expires, k)
+		for k, e := range a.entries {
+			if !now.Before(e.expires) {
+				delete(a.entries, k)
 			}
 		}
-		if len(a.expires) >= a.max {
-			a.expires = make(map[string]time.Time)
+		if len(a.entries) >= a.max {
+			a.entries = make(map[string]access)
 		}
 	}
-	a.expires[key] = now.Add(a.ttl)
+	a.entries[key] = access{expires: now.Add(a.ttl), tags: tags}
 }

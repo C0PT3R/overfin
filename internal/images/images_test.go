@@ -134,7 +134,8 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"Id": itemID, "Type": "Movie"})
+		json.NewEncoder(w).Encode(map[string]any{"Id": itemID, "Type": "Movie",
+			"ImageTags": map[string]string{"Primary": tag}})
 	case strings.HasPrefix(r.URL.Path, "/Items/"+itemID+"/Images/"):
 		f.imageCalls.Add(1)
 		w.Write(f.image)
@@ -169,6 +170,27 @@ func TestAccessCheckedEvenWhenCached(t *testing.T) {
 	}
 	if _, _, err := p.Image(ctx, allowed, ref, "huge"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("unknown size: %v", err)
+	}
+}
+
+func TestMadeUpTagIsRefused(t *testing.T) {
+	fake := &fakeJellyfin{image: sampleJPEG(t)}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	jf, _ := jellyfin.New(srv.URL, "test")
+	p := New(jf, 1<<20)
+	v := Viewer{ProfileID: "p", UserID: "allowed"}
+	for _, id := range []string{
+		"img_" + itemID + "_primary_0_00000000000000000000000000000000", // wrong tag
+		"img_" + itemID + "_backdrop_0_" + tag,                          // image that doesn't exist
+	} {
+		ref, _ := Parse(id)
+		if _, _, err := p.Image(context.Background(), v, ref, "small"); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", id, err)
+		}
+	}
+	if fake.imageCalls.Load() != 0 {
+		t.Error("an image was fetched for a made-up URL")
 	}
 }
 

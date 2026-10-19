@@ -113,9 +113,15 @@ func (p *Pipeline) Image(ctx context.Context, v Viewer, ref Ref, size string) ([
 		return nil, "", ErrInvalid
 	}
 
-	// The access check comes first, every time, even for cached images.
-	if err := p.checkAccess(ctx, v, ref.ItemID); err != nil {
+	// The access check comes first, every time, even for cached images. It
+	// also yields the item's real image tags: a made-up tag is refused, so
+	// nobody can flood the cache or force re-decoding with invented URLs.
+	tags, err := p.checkAccess(ctx, v, ref.ItemID)
+	if err != nil {
 		return nil, "", err
+	}
+	if tags[ref.Type+"/"+strconv.Itoa(ref.Index)] != ref.Tag {
+		return nil, "", ErrInvalid
 	}
 
 	key := ref.ItemID + "/" + ref.Type + "/" + strconv.Itoa(ref.Index) + "/" + ref.Tag + "/" + size
@@ -156,19 +162,42 @@ func (p *Pipeline) Image(ctx context.Context, v Viewer, ref Ref, size string) ([
 	return data, contentType, nil
 }
 
-func (p *Pipeline) checkAccess(ctx context.Context, v Viewer, itemID string) error {
+// checkAccess asks Jellyfin, with the profile's own token, whether it may
+// see the item, and returns the item's current image tags by "type/index".
+func (p *Pipeline) checkAccess(ctx context.Context, v Viewer, itemID string) (map[string]string, error) {
 	key := v.ProfileID + "/" + itemID
-	if p.access.allowed(key, time.Now()) {
-		return nil
+	if tags, ok := p.access.allowed(key, time.Now()); ok {
+		return tags, nil
 	}
-	if _, err := p.Jellyfin.Item(ctx, v.Auth, v.UserID, itemID); err != nil {
+	item, err := p.Jellyfin.Item(ctx, v.Auth, v.UserID, itemID)
+	if err != nil {
 		if jellyfin.IsStatus(err, 404) {
-			return ErrHidden
+			return nil, ErrHidden
 		}
-		return err
+		return nil, err
 	}
-	p.access.allow(key, time.Now())
-	return nil
+	tags := imageTags(item)
+	p.access.allow(key, tags, time.Now())
+	return tags, nil
+}
+
+// imageTags lists an item's current image tags, keyed like image IDs.
+func imageTags(it *jellyfin.RawItem) map[string]string {
+	tags := map[string]string{}
+	for jfType, ours := range map[string]string{"Primary": "primary", "Logo": "logo", "Thumb": "thumb"} {
+		if t := it.ImageTags[jfType]; t != "" {
+			tags[ours+"/0"] = t
+		}
+	}
+	for i, t := range it.BackdropImageTags {
+		tags["backdrop/"+strconv.Itoa(i)] = t
+	}
+	for i, ch := range it.Chapters {
+		if ch.ImageTag != "" {
+			tags["chapter/"+strconv.Itoa(i)] = ch.ImageTag
+		}
+	}
+	return tags
 }
 
 // Reencode checks an image and encodes it again as contentType. Only JPEG
