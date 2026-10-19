@@ -423,6 +423,8 @@ func (a *Auth) finishStepUp(w http.ResponseWriter, r *http.Request, p pendingAut
 		return
 	}
 	if login.AuthTime.Before(p.Started.Add(-5 * time.Second)) {
+		a.Logger.Warn("step-up: the identity provider reported an old login",
+			"stepUpStarted", p.Started.UTC().Format(time.RFC3339), "loginTime", login.AuthTime.UTC().Format(time.RFC3339))
 		problem.Send(w, problem.StepUpRequired, "the identity provider didn't ask for a new login")
 		return
 	}

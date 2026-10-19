@@ -191,9 +191,10 @@ func (p *Provider) AuthURL(ctx context.Context, state, nonce, verifier string, f
 	}
 	if fresh {
 		// Both ask for a new login. Neither is trusted: the login time in
-		// the ID token is checked instead.
+		// the ID token is checked instead. max_age is 1, not 0: some
+		// providers treat 0 as "not set".
 		q.Set("prompt", "login")
-		q.Set("max_age", "0")
+		q.Set("max_age", "1")
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
