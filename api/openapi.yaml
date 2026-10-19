@@ -218,6 +218,12 @@ paths:
         the existing Jellyfin account prove ownership; the password is used
         for that one check and never stored or logged. Administrator accounts
         can't be brought over. Failed attempts are limited per user.
+
+        `account-setup-required` says how in its `claim` field. With `move`,
+        claiming is one-way: the media server account gets an opaque name and
+        a new password nobody knows, so its old login and apps stop working;
+        sites should say so before the user confirms. With `link`, it keeps
+        working until the operator moves it.
       tags: [account]
       requestBody:
         required: true
@@ -1966,6 +1972,12 @@ components:
           type: integer
           description: For `rate-limited` and `pin-locked`, seconds to wait
             before trying again.
+        claim:
+          type: string
+          description: For `account-setup-required`, whether an existing
+            media server account can be brought (`move` or `link`, see
+            `POST /me/claim`). Absent when it can't.
+          enum: [move, link]
         stepUp:
           type: string
           description: For `step-up-required`, what is needed. Open set.

@@ -85,6 +85,39 @@ func (p Policy) LockDown() {
 	}
 }
 
+// UserName returns a user's name. Admin only.
+func (c *Client) UserName(ctx context.Context, admin Auth, userID string) (string, error) {
+	id, err := NormalizeID(userID)
+	if err != nil {
+		return "", err
+	}
+	var out struct{ Name string }
+	if err := c.do(ctx, "get user", http.MethodGet, "/Users/"+id, admin, nil, &out); err != nil {
+		return "", err
+	}
+	return out.Name, nil
+}
+
+// RenameUser changes a user's name. Admin only. Jellyfin takes the whole
+// user back, so the current one is read first.
+func (c *Client) RenameUser(ctx context.Context, admin Auth, userID, name string) error {
+	id, err := NormalizeID(userID)
+	if err != nil {
+		return err
+	}
+	var user map[string]any
+	if err := c.do(ctx, "get user", http.MethodGet, "/Users/"+id, admin, nil, &user); err != nil {
+		return err
+	}
+	user["Name"] = name
+	return c.doQuery(ctx, "rename user", http.MethodPost, "/Users", url.Values{"userId": {id}}, admin, user, nil)
+}
+
+// Logout ends the session a token belongs to, which revokes the token.
+func (c *Client) Logout(ctx context.Context, a Auth) error {
+	return c.do(ctx, "logout", http.MethodPost, "/Sessions/Logout", a, nil, nil)
+}
+
 // SetPassword gives a user a new password. Admin only.
 func (c *Client) SetPassword(ctx context.Context, admin Auth, userID, password string) error {
 	id, err := NormalizeID(userID)

@@ -90,6 +90,13 @@ on_limit = "replace-oldest"
 # entering its username and password once. Administrator accounts can never
 # be brought over. Off by default.
 claim = false
+# "move": claiming is one-way. The Jellyfin account gets an opaque name, the
+#   lock-down and a new password nobody knows; its old login and Jellyfin
+#   apps stop working. When you overfin, you don't fin.
+# "link": it keeps its name and password, for a transition period. Move
+#   these accounts later with `overfin -move-linked`, once the old way to
+#   Jellyfin is closed.
+mode = "move"
 
 [plugins]
 # What this instance offers besides accounts and profiles, which are always

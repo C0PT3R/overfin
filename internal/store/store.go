@@ -847,3 +847,37 @@ func (s *Store) ForgetSealed(ctx context.Context) (pins, logins int64, err error
 	logins, _ = res.RowsAffected()
 	return pins, logins, nil
 }
+
+// Linked is a profile whose Jellyfin user was adopted in "link" mode: it
+// still has its own name and password.
+type Linked struct {
+	ProfileID      string
+	JellyfinUserID string
+}
+
+// LinkedProfiles lists the profiles whose Jellyfin user keeps its own name.
+// Users Overfin created or moved all have opaque "of-" names.
+func (s *Store) LinkedProfiles(ctx context.Context) ([]Linked, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, jellyfin_user_id FROM profiles WHERE jellyfin_username NOT LIKE 'of-%'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Linked
+	for rows.Next() {
+		var l Linked
+		if err := rows.Scan(&l.ProfileID, &l.JellyfinUserID); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// SetJellyfinUser records a profile's Jellyfin user's new name and token,
+// after a move.
+func (s *Store) SetJellyfinUser(ctx context.Context, profileID, username, token string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET jellyfin_username = ?, jellyfin_token = ? WHERE id = ?`,
+		username, s.box.Seal([]byte(token), profileID), profileID)
+	return oneRow(res, err)
+}

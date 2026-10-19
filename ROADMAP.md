@@ -66,8 +66,10 @@ The first goal is one complete website running on Overfin against a real
 Jellyfin server, using only the public API.
 
 1. ~~Configuration reload without restart.~~ Done: SIGHUP.
-2. Adoption extras: optional matching by name or email (operator opt-in),
-   and pseudonymizing adopted accounts once the old access path is retired.
+2. ~~Adoption extras.~~ Done: claiming is a one-way move by default
+   (opaque name, lock-down, new password), or "link" for a transition, moved
+   later with `overfin -move-linked`. No matching by name or email: only the
+   username and password prove an account.
 3. ~~Kids profiles (rating ceilings enforced by Jellyfin) and PINs.~~ Done.
 4. ~~Step-up for destructive actions.~~ Done, over OpenID Connect: changing
    and removing PINs, deleting profiles, and lifting PIN locks. Left: account

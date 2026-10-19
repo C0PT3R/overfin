@@ -37,12 +37,47 @@ type fakeJellyfin struct {
 	policy    map[string]any
 	failLogin bool
 	logins    []string
+
+	// alice's current name and password, which a move changes; failing
+	// names a step that fails ("rename", "password").
+	aliceName, alicePw string
+	alicePolicy        map[string]any
+	failing            string
+	logouts            int
 }
 
 func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.aliceName == "" {
+		f.aliceName, f.alicePw = "alice", alicePass
+	}
 	switch r.Method + " " + r.URL.Path {
+	case "POST /Sessions/Logout":
+		f.logouts++
+		w.WriteHeader(http.StatusNoContent)
+	case "POST /Users":
+		if f.failing == "rename" || r.URL.Query().Get("userId") != aliceUser {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		var in struct{ Name string }
+		json.NewDecoder(r.Body).Decode(&in)
+		f.aliceName = in.Name
+		w.WriteHeader(http.StatusNoContent)
+	case "POST /Users/Password":
+		if f.failing == "password" || r.URL.Query().Get("userId") != aliceUser {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		var in struct{ NewPw string }
+		json.NewDecoder(r.Body).Decode(&in)
+		f.alicePw = in.NewPw
+		w.WriteHeader(http.StatusNoContent)
+	case "POST /Users/" + aliceUser + "/Policy":
+		f.alicePolicy = nil // a new policy replaces the old one entirely
+		json.NewDecoder(r.Body).Decode(&f.alicePolicy)
+		w.WriteHeader(http.StatusNoContent)
 	case "POST /Users/New":
 		var in struct{ Name string }
 		json.NewDecoder(r.Body).Decode(&in)
@@ -59,7 +94,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.logins = append(f.logins, in.Username)
 		id := jfUser
 		switch {
-		case in.Username == "alice" && in.Pw == alicePass:
+		case in.Username == f.aliceName && in.Pw == f.alicePw:
 			id = aliceUser
 		case in.Username == "boss" && in.Pw == adminPass:
 			id = adminUser
@@ -69,7 +104,11 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"AccessToken": "token-" + id, "User": map[string]string{"Id": id}})
 	case "GET /Users/" + aliceUser:
-		json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": false}})
+		policy := f.alicePolicy
+		if policy == nil {
+			policy = map[string]any{"IsAdministrator": false, "MaxParentalRating": 10.0}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Name": f.aliceName, "Policy": policy})
 	case "GET /Users/" + adminUser:
 		json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": true}})
 	case "DELETE /Users/" + jfUser:
@@ -258,5 +297,75 @@ func TestClaimRespectsRequiredGroup(t *testing.T) {
 	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass)
 	if !errors.Is(err, ErrNotAllowed) || len(fake.logins) != 0 {
 		t.Errorf("err = %v, logins = %v", err, fake.logins)
+	}
+}
+
+func TestClaimMoves(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeJellyfin{}
+	p := setup(t, fake, "")
+	p.MoveOnClaim = true
+
+	_, prof, err := p.Claim(ctx, identity.Identity{Subject: "alice-subject"}, "alice", alicePass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An opaque name, the lock-down, a password nobody knows: the old login
+	// is gone, and the profile holds the new name and a working token.
+	if !strings.HasPrefix(fake.aliceName, "of-") || prof.JellyfinUsername != fake.aliceName {
+		t.Errorf("name: jellyfin %q, profile %q", fake.aliceName, prof.JellyfinUsername)
+	}
+	if fake.alicePw == alicePass {
+		t.Error("the old password still works")
+	}
+	if fake.alicePolicy["IsHidden"] != true || fake.alicePolicy["MaxParentalRating"] != 10.0 {
+		t.Errorf("policy not locked down, or other settings lost: %v", fake.alicePolicy)
+	}
+	if prof.JellyfinToken != "token-"+aliceUser {
+		t.Errorf("token = %q", prof.JellyfinToken)
+	}
+	if fake.logouts != 1 {
+		t.Errorf("the claim check's session was ended %d times", fake.logouts)
+	}
+}
+
+// A move that fails half-way puts everything back: the user can still log
+// in as before, and try again.
+func TestClaimMoveFailureRestores(t *testing.T) {
+	for _, step := range []string{"rename", "password"} {
+		t.Run(step, func(t *testing.T) {
+			fake := &fakeJellyfin{failing: step}
+			p := setup(t, fake, "")
+			p.MoveOnClaim = true
+			if _, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass); err == nil {
+				t.Fatal("claim succeeded")
+			}
+			if fake.aliceName != "alice" || fake.alicePw != alicePass {
+				t.Errorf("not restored: %q / %q", fake.aliceName, fake.alicePw)
+			}
+			if fake.alicePolicy["IsHidden"] == true {
+				t.Errorf("lock-down left in place: %v", fake.alicePolicy)
+			}
+			if _, err := p.Store.AccountBySubject(context.Background(), "s"); !errors.Is(err, store.ErrNotFound) {
+				t.Error("an account was created")
+			}
+		})
+	}
+}
+
+func TestClaimLinkKeepsTheLogin(t *testing.T) {
+	fake := &fakeJellyfin{}
+	p := setup(t, fake, "")
+	_, prof, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.aliceName != "alice" || fake.alicePw != alicePass || prof.JellyfinUsername != "alice" {
+		t.Errorf("link changed the login: %q %q", fake.aliceName, fake.alicePw)
+	}
+	// Moved later, without the old password.
+	name, token, err := p.MoveLinked(context.Background(), aliceUser)
+	if err != nil || !strings.HasPrefix(name, "of-") || token == "" || fake.alicePw == alicePass {
+		t.Errorf("move later: %q %q %v", name, token, err)
 	}
 }

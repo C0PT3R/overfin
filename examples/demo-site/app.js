@@ -261,12 +261,14 @@ function notFound() {
 
 // ---- Account setup -----------------------------------------------------------
 
-function setupPage() {
+// setupPage offers a fresh account and, when the server allows it (claim is
+// 'move' or 'link'), bringing an existing media server account.
+function setupPage(claim) {
   $('#top').hidden = true;
   const msg = h('p', { class: 'error' });
   const username = h('input', { name: 'username', autocomplete: 'username', required: true });
   const password = h('input', { name: 'password', type: 'password', autocomplete: 'current-password', required: true });
-  const claim = h('form', { class: 'stack', onsubmit: async (ev) => {
+  const claimForm = h('form', { class: 'stack', onsubmit: async (ev) => {
     ev.preventDefault();
     msg.textContent = '';
     try {
@@ -279,6 +281,11 @@ function setupPage() {
   } }, h('label', {}, 'Media server username', username), h('label', {}, 'Password', password),
   h('button', { type: 'submit' }, 'Bring my account'));
 
+  const bring = claim && h('div', { class: 'panel' },
+    h('p', {}, 'Or bring your existing media server account, with its watch history. Your password is used once and not kept.'),
+    claim === 'move' && h('p', { class: 'muted' },
+      'This is a move: afterwards, your old login and media server apps stop working, and you watch here.'),
+    claimForm);
   render(h('div', { class: 'center' },
     h('h1', {}, 'Welcome'),
     h('div', { class: 'panel' },
@@ -286,9 +293,7 @@ function setupPage() {
       h('button', { class: 'primary', onclick: async () => {
         try { await overfin.createAccount(); start(); } catch (err) { msg.textContent = explain(err); }
       } }, 'Create my account')),
-    h('div', { class: 'panel' },
-      h('p', {}, 'Or bring your existing media server account, with its watch history. Your password is used once and not kept.'),
-      claim),
+    bring,
     msg));
 }
 
@@ -456,7 +461,7 @@ async function start() {
   try {
     state.me = await overfin.me();
   } catch (err) {
-    if (err.type === 'account-setup-required') return setupPage();
+    if (err.type === 'account-setup-required') return setupPage(err.problem.claim);
     if (err.type === 'account-not-allowed') {
       return render(h('div', { class: 'center' }, h('h1', {}, 'No access'), h('p', {}, explain(err))));
     }

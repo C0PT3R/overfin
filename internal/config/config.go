@@ -75,6 +75,11 @@ type Adoption struct {
 	// Claim lets a user adopt an existing Jellyfin account by entering its
 	// password once. Off by default.
 	Claim bool `toml:"claim"`
+	// Mode is "move" (the default: claiming is one-way, the Jellyfin account
+	// gets an opaque name, the lock-down and a new password nobody knows) or
+	// "link" (it keeps its name and password, for a transition; the
+	// operator moves it later with overfin -move-linked).
+	Mode string `toml:"mode"`
 }
 
 // Privacy lists the privacy-sensitive fields the operator chooses to
@@ -180,7 +185,8 @@ func defaults() Config {
 			MaxTranscodesTotal:    4,
 			OnLimit:               "replace-oldest",
 		},
-		OIDC: OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
+		OIDC:     OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
+		Adoption: Adoption{Mode: "move"},
 	}
 }
 
@@ -357,6 +363,10 @@ func (c *Config) validate() error {
 		if c.Identity.Mode == "anonymous" {
 			add("[oidc] can't be used with identity.mode = \"anonymous\"")
 		}
+	}
+
+	if c.Adoption.Mode != "move" && c.Adoption.Mode != "link" {
+		add("adoption.mode must be \"move\" or \"link\", got %q", c.Adoption.Mode)
 	}
 
 	if c.Storage.Path == "" {

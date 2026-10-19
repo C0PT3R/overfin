@@ -108,6 +108,10 @@ type Problem struct {
 	// the instance offers no step-up.
 	StepUp    string `json:"stepUp,omitempty"`
 	StepUpURL string `json:"stepUpUrl,omitempty"`
+	// Claim, for account-setup-required, says whether an existing media
+	// server account can be brought, and how: "move" (its old login stops
+	// working) or "link" (it keeps working). Absent when it can't.
+	Claim string `json:"claim,omitempty"`
 }
 
 // New returns the problem for t, with an optional human-readable detail.

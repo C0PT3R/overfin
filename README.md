@@ -77,8 +77,9 @@ It's both a starting point and a reference for using the API.
   even from direct links. Optional PINs, with growing delays and a lock after
   repeated wrong guesses.
 - **Bring existing users.** Optionally, people can bring their existing
-  Jellyfin account and watch history by entering its password once
-  (administrator accounts never).
+  Jellyfin account and watch history by entering its username and password
+  once (administrator accounts never). See
+  [Migrating from Jellyfin](#migrating-from-jellyfin).
 - **A clean data model.** Movies, series, episodes, music and more share one
   small core plus a kind-specific part. No 150-field objects, no file paths,
   no server internals.
@@ -127,8 +128,8 @@ You need a **Jellyfin 12** server that isn't reachable from the internet, an
 Overfin and your site.
 
 **1. A Jellyfin API key.** In Jellyfin's dashboard, create an API key. Overfin
-uses it only to create and limit the Jellyfin users behind its profiles,
-never for browsing or playback.
+uses it only to manage the Jellyfin users behind its profiles (create, limit,
+move), never for browsing or playback.
 
 **2. A client at your identity provider.** Register Overfin as a confidential
 OAuth2/OpenID client with the redirect URL
@@ -205,6 +206,29 @@ in, and you're watching.
 
 To limit who gets an account, set `identity.required_group` to a group from
 your identity provider. Without it, anyone who can log in there gets in.
+
+## Migrating from Jellyfin
+
+People already using your Jellyfin server keep their watch history:
+
+1. Set `adoption.claim = true`.
+2. Announce a date, and give everyone a login at your identity provider.
+3. On their first visit, people choose "bring my existing account" and enter
+   their old Jellyfin username and password, once.
+4. On the date, close the old way to Jellyfin.
+
+By default (`adoption.mode = "move"`) bringing an account is a move: the
+Jellyfin account gets an opaque name and a new password nobody knows, so the
+old login and Jellyfin apps stop working for that person at once. When you
+overfin, you don't fin. For a gentler transition, `mode = "link"` lets moved
+people keep using Jellyfin apps until the date; then run
+`overfin -move-linked` once.
+
+Nobody loses anything by being late: their Jellyfin account and history
+stay, and they can bring them whenever they get their login. Tell people who
+watch through Jellyfin apps (TVs, phones) that those stop working; the
+website works in any browser, and Overfin's own login for native apps is on
+the roadmap.
 
 ## Login modes
 

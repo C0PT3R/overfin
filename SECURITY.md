@@ -223,8 +223,12 @@ comes from the internet, and media files can be written by anyone.
     logged; failed attempts are limited per user, and wrong usernames and
     wrong passwords get the same answer. Administrator accounts are never
     adopted, and a Jellyfin account can belong to only one Overfin account.
-    Adopted accounts keep their names until the operator pseudonymizes them,
-    an exception to rule 47.
+    Nothing is guessed: no matching by name or email, only the username and
+    password. By default adoption is a move: the account gets an opaque name
+    (rule 47), the same lock-down as the users Overfin creates, and a new
+    password nobody knows, so its old login stops working; a move that fails
+    half-way is undone. In the operator's "link" mode, adopted accounts keep
+    their names and passwords until moved, an exception to rule 47.
 
 ### Resource use
 61. Memory-heavy work, such as decoding images, runs with bounded

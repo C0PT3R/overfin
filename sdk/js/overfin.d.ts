@@ -10,6 +10,8 @@ export interface Problem {
   takenOverBy?: string;
   stepUp?: string;
   stepUpUrl?: string;
+  /** For account-setup-required: whether an existing account can be brought. */
+  claim?: 'move' | 'link';
 }
 
 export class OverfinError extends Error {

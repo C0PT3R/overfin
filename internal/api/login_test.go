@@ -144,7 +144,8 @@ func TestLoginThenNewAccount(t *testing.T) {
 	srv, _ := newServerWith(t, options{provider: idp.provider(), login: true})
 	b := newBrowser(srv)
 	logIn(t, b, srv, idp, "brand-new-user", "/")
-	if res, body := visit(t, b, srv, "/api/v1/me", nil); res.StatusCode != 404 || !strings.Contains(body, "account-setup-required") {
+	if res, body := visit(t, b, srv, "/api/v1/me", nil); res.StatusCode != 404 || !strings.Contains(body, "account-setup-required") ||
+		!strings.Contains(body, `"claim":"move"`) {
 		t.Errorf("me before setup: %d %s", res.StatusCode, body)
 	}
 }

@@ -47,6 +47,8 @@ func run(logger *slog.Logger) error {
 	configPath := flag.String("config", defaultPath, "path to the configuration file")
 	recoverTokens := flag.Bool("recover-tokens", false,
 		"after the secret key was lost: give every profile a fresh Jellyfin token sealed with the current key, then exit")
+	moveLinked := flag.Bool("move-linked", false,
+		"move every account adopted in \"link\" mode for good (opaque name, lock-down, new password), then exit")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath, os.Getenv)
@@ -87,6 +89,9 @@ func run(logger *slog.Logger) error {
 
 	if *recoverTokens {
 		return recoverTokensWith(context.Background(), logger, db, newProvisioner(cfg, sh), k.Check)
+	}
+	if *moveLinked {
+		return moveLinkedAccounts(context.Background(), logger, db, newProvisioner(cfg, sh))
 	}
 
 	gw, err := newGateway(*configPath, cfg, sh)
@@ -198,5 +203,33 @@ func recoverTokensWith(ctx context.Context, logger *slog.Logger, db *store.Store
 		return err
 	}
 	logger.Info("recovery: done; PINs cleared and everyone logs in again", "pins", pins, "logins", logins)
+	return nil
+}
+
+// moveLinkedAccounts moves every account adopted in "link" mode, as "move"
+// mode would have when it was claimed: for when the operator closes the old
+// way to Jellyfin. Their owners' old logins stop working.
+func moveLinkedAccounts(ctx context.Context, logger *slog.Logger, db *store.Store, prov *provision.Provisioner) error {
+	linked, err := db.LinkedProfiles(ctx)
+	if err != nil {
+		return err
+	}
+	logger.Info("moving linked accounts", "count", len(linked))
+	failed := 0
+	for _, l := range linked {
+		name, token, err := prov.MoveLinked(ctx, l.JellyfinUserID)
+		if err == nil {
+			err = db.SetJellyfinUser(ctx, l.ProfileID, name, token)
+		}
+		if err != nil {
+			failed++
+			logger.Error("not moved", "profile", l.ProfileID, "err", err)
+			continue
+		}
+		logger.Info("moved", "profile", l.ProfileID)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d accounts not moved; run again to retry them", failed)
+	}
 	return nil
 }

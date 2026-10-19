@@ -63,6 +63,11 @@ type Provisioner struct {
 	RequiredGroup string
 	LogKey        []byte // keys.LogID, for pseudonymous log entries
 	Logger        *slog.Logger
+	// MoveOnClaim makes claiming one-way (adoption.mode = "move"): the
+	// Jellyfin user gets an opaque name, the lock-down and a password nobody
+	// knows, so its old login stops working. Otherwise ("link") it keeps its
+	// name and password until moved later.
+	MoveOnClaim bool
 
 	// mu serializes account creation and adoption. Both are rare, and
 	// serializing them rules out two accounts for one person.
@@ -194,10 +199,29 @@ func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username,
 		return nil, nil, ErrClaimNotAllowed
 	}
 
+	// The check's login was on a throwaway device; end it, so its token
+	// doesn't linger in Jellyfin.
+	if err := p.Jellyfin.Logout(ctx, jellyfin.Auth{Token: token, DeviceID: "overfin-claim"}); err != nil {
+		p.Logger.Warn("could not end the claim check's session", "err", err)
+	}
+
+	var undo func()
+	name := username
+	if p.MoveOnClaim {
+		if name, token, undo, err = p.move(ctx, userID, password); err != nil {
+			return nil, nil, err
+		}
+	} else if token, _, err = p.Jellyfin.Authenticate(ctx, DeviceID(userID), username, password); err != nil {
+		return nil, nil, err
+	}
+
 	acct, prof, err := p.Store.CreateAccount(ctx, id.Subject, store.NewOwner{
-		Name: OwnerProfileName, JellyfinUserID: userID, JellyfinUsername: username, JellyfinToken: token,
+		Name: OwnerProfileName, JellyfinUserID: userID, JellyfinUsername: name, JellyfinToken: token,
 	})
 	if err != nil {
+		if undo != nil {
+			undo()
+		}
 		return nil, nil, err
 	}
 	p.attempts.reset(id.Subject)
@@ -340,6 +364,72 @@ func (p *Provisioner) Restrict(ctx context.Context, jellyfinUserID string, ceili
 		policy.Unlimited()
 	}
 	return p.Jellyfin.SetUserPolicy(ctx, admin, jellyfinUserID, policy)
+}
+
+// move takes an existing Jellyfin user over for good: the lock-down, an
+// opaque name, and a password nobody knows, then a fresh token. Its old
+// login stops working. With the old password (when claiming), every step
+// that fails is undone, and the returned undo puts everything back if what
+// follows fails; without it (moving later), there's nothing to restore it to.
+func (p *Provisioner) move(ctx context.Context, userID, oldPassword string) (name, token string, undo func(), err error) {
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	policy, err := p.Jellyfin.UserPolicy(ctx, admin, userID)
+	if err != nil {
+		return "", "", nil, err
+	}
+	original := jellyfin.Policy{}
+	for k, v := range policy {
+		original[k] = v
+	}
+	user, err := p.Jellyfin.UserName(ctx, admin, userID)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	// Steps done so far, undone in reverse on failure.
+	var done []func()
+	undo = func() {
+		for i := len(done) - 1; i >= 0; i-- {
+			done[i]()
+		}
+	}
+	fail := func(e error) (string, string, func(), error) {
+		undo()
+		return "", "", nil, e
+	}
+
+	policy.LockDown()
+	if err := p.Jellyfin.SetUserPolicy(ctx, admin, userID, policy); err != nil {
+		return fail(err)
+	}
+	done = append(done, func() { _ = p.Jellyfin.SetUserPolicy(context.Background(), admin, userID, original) })
+
+	name = "of-" + randomName()
+	if err := p.Jellyfin.RenameUser(ctx, admin, userID, name); err != nil {
+		return fail(err)
+	}
+	done = append(done, func() { _ = p.Jellyfin.RenameUser(context.Background(), admin, userID, user) })
+
+	password := randomSecret()
+	if err := p.Jellyfin.SetPassword(ctx, admin, userID, password); err != nil {
+		return fail(err)
+	}
+	if oldPassword != "" {
+		done = append(done, func() { _ = p.Jellyfin.SetPassword(context.Background(), admin, userID, oldPassword) })
+	}
+
+	if token, _, err = p.Jellyfin.Authenticate(ctx, DeviceID(userID), name, password); err != nil {
+		return fail(err)
+	}
+	return name, token, undo, nil
+}
+
+// MoveLinked moves an account adopted in "link" mode for good, as claiming
+// in "move" mode would have: the operator runs it once the old way to
+// Jellyfin is closed. It returns the new name and token.
+func (p *Provisioner) MoveLinked(ctx context.Context, jellyfinUserID string) (name, token string, err error) {
+	name, token, _, err = p.move(ctx, jellyfinUserID, "")
+	return name, token, err
 }
 
 // Relogin gives a profile's Jellyfin user a new random password and logs in

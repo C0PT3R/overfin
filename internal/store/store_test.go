@@ -291,3 +291,24 @@ func TestKeyCheckAndRecovery(t *testing.T) {
 		t.Errorf("profile after recovery: %+v %v", p, err)
 	}
 }
+
+func TestLinkedProfiles(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	_, created, _ := s.CreateAccount(ctx, "a", owner("1")) // "of-1"
+	_, adopted, _ := s.CreateAccount(ctx, "b", NewOwner{Name: "Me", JellyfinUserID: "jf-alice", JellyfinUsername: "alice", JellyfinToken: "t"})
+
+	linked, err := s.LinkedProfiles(ctx)
+	if err != nil || len(linked) != 1 || linked[0].ProfileID != adopted.ID {
+		t.Fatalf("linked = %+v, %v (created %s)", linked, err, created.ID)
+	}
+	if err := s.SetJellyfinUser(ctx, adopted.ID, "of-moved", "new-token"); err != nil {
+		t.Fatal(err)
+	}
+	if linked, _ := s.LinkedProfiles(ctx); len(linked) != 0 {
+		t.Errorf("still linked after the move: %+v", linked)
+	}
+	if p, _ := s.Profile(ctx, adopted.AccountID, adopted.ID); p.JellyfinUsername != "of-moved" || p.JellyfinToken != "new-token" {
+		t.Errorf("profile after the move: %+v", p)
+	}
+}

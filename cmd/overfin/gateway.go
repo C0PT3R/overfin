@@ -45,6 +45,7 @@ func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
 		RequiredGroup: cfg.Identity.RequiredGroup,
 		LogKey:        sh.keys.LogID,
 		Logger:        sh.logger,
+		MoveOnClaim:   cfg.Adoption.Mode == "move",
 	}
 }
 
@@ -65,6 +66,9 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 	prov := newProvisioner(cfg, sh)
 
 	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
+	if cfg.Adoption.Claim {
+		sessions.ClaimMode = cfg.Adoption.Mode
+	}
 	checker := &pin.Checker{Key: k.PIN, Store: db}
 	identityMiddleware := ids.Middleware
 	if o := cfg.OIDC; o.Enabled() {

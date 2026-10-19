@@ -102,7 +102,7 @@ func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(meJSON{AccountID: acct.ID, ActiveProfile: toProfileJSON(prof)})
 	case errors.Is(err, provision.ErrNoAccount):
-		problem.Send(w, problem.AccountSetupRequired, "")
+		a.Sessions.setupRequired(w)
 	case errors.Is(err, provision.ErrAccountExists):
 		problem.Send(w, problem.AccountExists, "")
 	case errors.Is(err, provision.ErrNotAllowed):
