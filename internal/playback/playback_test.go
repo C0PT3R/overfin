@@ -139,6 +139,11 @@ func TestDescribe(t *testing.T) {
 	if got := Describe(src); got != "2160p HDR · HEVC" {
 		t.Errorf("Describe = %q", got)
 	}
+	// A wide 4K film: 3840x1600.
+	wide := jellyfin.MediaSource{MediaStreams: []jellyfin.MediaStream{{Type: "Video", Width: 3840, Height: 1600, Codec: "hevc"}}}
+	if got := Describe(wide); got != "2160p · HEVC" {
+		t.Errorf("wide 4K: %q", got)
+	}
 	if got := Describe(jellyfin.MediaSource{}); got != "Version" {
 		t.Errorf("no streams: %q", got)
 	}

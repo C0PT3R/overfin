@@ -354,17 +354,7 @@ func Describe(src jellyfin.MediaSource) string {
 		if ms.Type != "Video" {
 			continue
 		}
-		res := ""
-		switch h := ms.Height; {
-		case h >= 2000:
-			res = "2160p"
-		case h >= 1000:
-			res = "1080p"
-		case h >= 700:
-			res = "720p"
-		case h > 0:
-			res = "SD"
-		}
+		res := resolution(ms.Width, ms.Height)
 		if strings.EqualFold(ms.VideoRange, "HDR") {
 			res = strings.TrimSpace(res + " HDR")
 		}
@@ -380,6 +370,23 @@ func Describe(src jellyfin.MediaSource) string {
 		return "Version"
 	}
 	return strings.Join(parts, " · ")
+}
+
+// resolution names a picture size by its width first: films are wide, and
+// a 4K film at 2.39:1 is 3840x1600, which its height alone would call
+// 1080p.
+func resolution(w, h int) string {
+	switch {
+	case w >= 3200 || h >= 2000:
+		return "2160p"
+	case w >= 1800 || h >= 1000:
+		return "1080p"
+	case w >= 1200 || h >= 700:
+		return "720p"
+	case w > 0 || h > 0:
+		return "SD"
+	}
+	return ""
 }
 
 func codecName(c string) string {

@@ -96,6 +96,7 @@ type MediaStream struct {
 	IsForced             bool
 	IsHearingImpaired    bool
 	IsTextSubtitleStream bool
+	Width                int
 	Height               int
 	VideoRange           string
 }
