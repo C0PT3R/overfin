@@ -88,8 +88,15 @@ func (c *Client) header(a Auth) string {
 // do sends one request. path is fixed by the caller, with IDs already
 // validated; in is encoded as JSON when not nil; out is decoded when not nil.
 func (c *Client) do(ctx context.Context, op, method, path string, a Auth, in, out any) error {
+	return c.doQuery(ctx, op, method, path, nil, a, in, out)
+}
+
+// doQuery is do with query parameters, which are encoded into the URL's
+// query, never pasted into its path.
+func (c *Client) doQuery(ctx context.Context, op, method, path string, query url.Values, a Auth, in, out any) error {
 	u := *c.base
 	u.Path += path
+	u.RawQuery = query.Encode()
 
 	var body io.Reader
 	if in != nil {

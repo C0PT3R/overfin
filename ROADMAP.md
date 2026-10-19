@@ -31,6 +31,9 @@ once they are implemented and tested.
 - Same-origin requests only, and JSON for every change (CSRF protection).
 - Adopting an existing Jellyfin account by its password (`POST /me/claim`),
   off by default: administrators refused, attempts limited.
+- Library browsing: libraries, item queries with filters and signed cursors,
+  item details, resume, next up and latest, translated into Overfin's own
+  model with plain-text metadata.
 
 ## Milestone 1: a real site, end to end
 
@@ -40,12 +43,12 @@ Jellyfin server, using only the public API.
 1. Configuration reload without restart.
 2. Adoption extras: optional matching by name or email (operator opt-in),
    and pseudonymizing adopted accounts once the old access path is retired.
-3. Library endpoints, with the image pipeline (decode, check, re-encode,
-   cache, access checks).
-4. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
+3. Image pipeline: access checks, decoding limits, re-encoding, caching.
+4. Repeatable random order (`sort=random` with a seed).
+5. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
    limits, transcode cleanup.
-5. Profiles, PINs and step-up.
-6. A minimal demo site in plain HTML and JavaScript.
+6. Profiles, PINs and step-up.
+7. A minimal demo site in plain HTML and JavaScript.
 
 ## Designed, to implement after milestone 1
 

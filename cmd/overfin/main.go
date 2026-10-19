@@ -91,7 +91,10 @@ func run(logger *slog.Logger) error {
 		Logger:        logger,
 	}
 
-	handler, err := server.New(logger, ids, api.Account{Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim})
+	handler, err := server.New(logger, ids,
+		api.Account{Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
+		api.Library{Provisioner: prov, Jellyfin: jf, CursorKey: k.Cursor, Logger: logger},
+	)
 	if err != nil {
 		return err
 	}
