@@ -146,6 +146,15 @@ built on Overfin without changing it:
   server), while external IDs name the title itself. They also work across
   Overfin servers, and for titles not in the library. Episodes are the
   show's external ID plus season and episode numbers.
+- **Title or copy:** some posts are about the title ("great ending"), some
+  about the copy on this server ("audio drifts", "wrong subtitles"); the
+  external ID stays the same when the file is replaced. So Overfin would also
+  give each media version a **fingerprint** that changes with the file
+  (size, duration, container, codecs, resolution), hashed with a key of the
+  server's own, so it can't be compared between servers or reveal which
+  release someone has. The service stores both; when the fingerprint no
+  longer matches, the site shows the post as about an earlier copy. Problem
+  reports proper stay with Seerr's issues (the requests plugin).
 - It stores no metadata; sites fetch titles and posters from Overfin.
 - **Visibility:** before showing anything that names a title, the site looks
   it up through Overfin as the viewer, and hides it on `not-found`. A kids
