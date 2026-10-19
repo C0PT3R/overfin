@@ -339,7 +339,7 @@ func (p *Provider) verify(ctx context.Context, m *metadata, token, nonce string)
 	now := p.clock()
 	switch {
 	case c.Iss != m.Issuer:
-		return nil, errors.New("oidc: wrong issuer")
+		return nil, fmt.Errorf("oidc: token issued by %q, expected %q", c.Iss, m.Issuer)
 	case !slices.Contains(aud, p.ClientID), len(aud) > 1 && c.Azp != p.ClientID:
 		return nil, errors.New("oidc: token is for another client")
 	case c.Exp == nil || now.After(time.Unix(*c.Exp, 0).Add(skew)):
