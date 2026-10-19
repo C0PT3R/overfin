@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Identity is who the visitor is.
@@ -39,11 +41,17 @@ type Resolver struct {
 	proxies      []netip.Prefix
 	userHeader   string
 	groupsHeader string
+	groupsSep    string
 }
 
-// NewForwardAuth trusts identity headers from the given proxies only.
-func NewForwardAuth(proxies []netip.Prefix, userHeader, groupsHeader string) *Resolver {
-	return &Resolver{mode: "forwardauth", proxies: proxies, userHeader: userHeader, groupsHeader: groupsHeader}
+// NewForwardAuth trusts identity headers from the given proxies only. sep
+// separates groups in the groups header: "|" for Authentik, "," for
+// Authelia.
+func NewForwardAuth(proxies []netip.Prefix, userHeader, groupsHeader, sep string) *Resolver {
+	if sep == "" {
+		sep = "|"
+	}
+	return &Resolver{mode: "forwardauth", proxies: proxies, userHeader: userHeader, groupsHeader: groupsHeader, groupsSep: sep}
 }
 
 // NewAnonymous gives every visitor the anonymous identity. Identity headers
@@ -83,7 +91,7 @@ func (r *Resolver) Resolve(req *http.Request) (id Identity, ok bool, client neti
 			return Identity{}, false, client
 		}
 	}
-	groups, valid := parseGroups(groupsValue)
+	groups, valid := parseGroups(groupsValue, r.groupsSep)
 	if !valid {
 		return Identity{}, false, client
 	}
@@ -143,28 +151,45 @@ func lastForwardedFor(h http.Header) (netip.Addr, bool) {
 	return addr.Unmap(), true
 }
 
-// parseGroups splits a groups header on "|" or ",". An empty header means no
-// groups; anything over the limits makes the whole identity invalid.
-func parseGroups(header string) ([]string, bool) {
+// parseGroups splits a groups header on the configured separator only. Group
+// names may contain spaces and accents ("authentik Admins", "Utilisateurs
+// médias"). An unusable name is dropped rather than voiding the identity:
+// dropping a group can only remove access, never add it. Too many groups, or
+// an oversized header, still make the identity invalid.
+func parseGroups(header, sep string) ([]string, bool) {
 	if header == "" {
 		return nil, true
 	}
-	fields := strings.FieldsFunc(header, func(r rune) bool { return r == '|' || r == ',' })
+	if len(header) > maxGroups*(maxGroupLen+1) {
+		return nil, false
+	}
+	fields := strings.Split(header, sep)
 	if len(fields) > maxGroups {
 		return nil, false
 	}
 	groups := make([]string, 0, len(fields))
 	for _, g := range fields {
 		g = strings.TrimSpace(g)
-		if g == "" {
-			continue
+		if validGroup(g) {
+			groups = append(groups, g)
 		}
-		if !validValue(g, maxGroupLen) {
-			return nil, false
-		}
-		groups = append(groups, g)
 	}
 	return groups, true
+}
+
+// validGroup accepts printable text up to maxGroupLen bytes: letters in any
+// language, digits, spaces and punctuation, but no control characters and no
+// invalid UTF-8.
+func validGroup(g string) bool {
+	if g == "" || len(g) > maxGroupLen || !utf8.ValidString(g) {
+		return false
+	}
+	for _, r := range g {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // validValue accepts non-empty printable ASCII up to max bytes. Identity

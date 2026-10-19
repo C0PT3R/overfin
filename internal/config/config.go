@@ -45,8 +45,11 @@ type Identity struct {
 	TrustedProxies []string `toml:"trusted_proxies"`
 	// UserHeader carries the stable user ID set by the proxy.
 	UserHeader string `toml:"user_header"`
-	// GroupsHeader carries the user's groups, separated by "|" or ",".
+	// GroupsHeader carries the user's groups, separated by GroupsSeparator.
 	GroupsHeader string `toml:"groups_header"`
+	// GroupsSeparator separates groups: "|" (Authentik, the default) or ","
+	// (Authelia).
+	GroupsSeparator string `toml:"groups_separator"`
 	// RequiredGroup, when set, is the group a user must be in to be
 	// provisioned.
 	RequiredGroup string `toml:"required_group"`
@@ -109,7 +112,7 @@ func defaults() Config {
 		Storage: Storage{Path: "/data/overfin.db"},
 		// No default identity headers: they depend on the proxy, and naming
 		// them explicitly avoids trusting the wrong one by accident.
-		Identity: Identity{Mode: "forwardauth"},
+		Identity: Identity{Mode: "forwardauth", GroupsSeparator: "|"},
 		Limits: Limits{
 			MaxStreamsPerAccount: 2,
 			MaxTranscodesTotal:   4,
@@ -217,6 +220,9 @@ func (c *Config) validate() error {
 	case "anonymous":
 	default:
 		add("identity.mode must be \"forwardauth\" or \"anonymous\", got %q", c.Identity.Mode)
+	}
+	if c.Identity.GroupsSeparator != "|" && c.Identity.GroupsSeparator != "," {
+		add("identity.groups_separator must be \"|\" or \",\"")
 	}
 	for _, p := range c.Identity.TrustedProxies {
 		prefix, err := parsePrefix(p)

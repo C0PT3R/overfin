@@ -15,7 +15,7 @@ const (
 )
 
 func TestForwardAuth(t *testing.T) {
-	res := NewForwardAuth(proxy, "Remote-User", "Remote-Groups")
+	res := NewForwardAuth(proxy, "Remote-User", "Remote-Groups", "|")
 
 	tests := []struct {
 		name        string
@@ -28,9 +28,15 @@ func TestForwardAuth(t *testing.T) {
 		{"trusted proxy with user", trustedPeer,
 			map[string]string{"Remote-User": "abc123", "Remote-Groups": "media|family"},
 			true, "abc123", 2},
-		{"comma-separated groups", trustedPeer,
-			map[string]string{"Remote-User": "abc123", "Remote-Groups": "media, family"},
+		{"groups with spaces and accents", trustedPeer,
+			map[string]string{"Remote-User": "abc123", "Remote-Groups": "authentik Admins|Utilisateurs médias"},
 			true, "abc123", 2},
+		{"a comma is part of a name, not a separator", trustedPeer,
+			map[string]string{"Remote-User": "abc123", "Remote-Groups": "staff,media-users"},
+			true, "abc123", 1},
+		{"an unusable group is dropped, not the identity", trustedPeer,
+			map[string]string{"Remote-User": "abc123", "Remote-Groups": "media|bad\x07name"},
+			true, "abc123", 1},
 		{"trusted proxy without user", trustedPeer, nil, false, "", 0},
 		{"untrusted peer with user header", untrustedPeer,
 			map[string]string{"Remote-User": "admin"}, false, "", 0},
@@ -63,7 +69,7 @@ func TestForwardAuth(t *testing.T) {
 }
 
 func TestClientIP(t *testing.T) {
-	res := NewForwardAuth(proxy, "Remote-User", "")
+	res := NewForwardAuth(proxy, "Remote-User", "", "|")
 
 	tests := []struct {
 		name, peer, xff, want string
@@ -102,7 +108,7 @@ func TestAnonymousIgnoresIdentityHeaders(t *testing.T) {
 }
 
 func TestIPv4MappedPeer(t *testing.T) {
-	res := NewForwardAuth(proxy, "Remote-User", "")
+	res := NewForwardAuth(proxy, "Remote-User", "", "|")
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "[::ffff:198.51.100.7]:40000"
 	req.Header.Set("Remote-User", "abc")
@@ -114,7 +120,7 @@ func TestIPv4MappedPeer(t *testing.T) {
 // A client-sent header next to the proxy's must not win, so two values mean
 // no identity at all.
 func TestDuplicateIdentityHeaders(t *testing.T) {
-	res := NewForwardAuth(proxy, "Remote-User", "Remote-Groups")
+	res := NewForwardAuth(proxy, "Remote-User", "Remote-Groups", "|")
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = trustedPeer
@@ -131,5 +137,17 @@ func TestDuplicateIdentityHeaders(t *testing.T) {
 	req.Header.Add("Remote-Groups", "media")
 	if _, ok, _ := res.Resolve(req); ok {
 		t.Error("two groups headers were accepted")
+	}
+}
+
+func TestCommaSeparator(t *testing.T) {
+	res := NewForwardAuth(proxy, "Remote-User", "Remote-Groups", ",")
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = trustedPeer
+	req.Header.Set("Remote-User", "abc")
+	req.Header.Set("Remote-Groups", "media, family")
+	id, ok, _ := res.Resolve(req)
+	if !ok || len(id.Groups) != 2 || id.Groups[1] != "family" {
+		t.Errorf("got %+v, ok=%v", id, ok)
 	}
 }

@@ -30,7 +30,7 @@ func (whoami) Register(r *plugin.Registrar) error {
 }
 
 func newTestServer(t *testing.T) *httptest.Server {
-	return newServerWith(t, identity.NewForwardAuth(loopback, "Remote-User", ""))
+	return newServerWith(t, identity.NewForwardAuth(loopback, "Remote-User", "", "|"))
 }
 
 func newServerWith(t *testing.T, ids *identity.Resolver) *httptest.Server {
@@ -134,7 +134,7 @@ func TestProtectedRouteNeedsIdentity(t *testing.T) {
 // When the peer isn't a trusted proxy, identity headers mean nothing.
 func TestUntrustedPeerCannotClaimIdentity(t *testing.T) {
 	other := []netip.Prefix{netip.MustParsePrefix("198.51.100.7/32")}
-	srv := newServerWith(t, identity.NewForwardAuth(other, "Remote-User", ""))
+	srv := newServerWith(t, identity.NewForwardAuth(other, "Remote-User", "", "|"))
 
 	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/whoami", nil)
 	req.Header.Set("Remote-User", "admin")
@@ -150,7 +150,7 @@ func TestUntrustedPeerCannotClaimIdentity(t *testing.T) {
 
 func TestHealthIsPublic(t *testing.T) {
 	other := []netip.Prefix{netip.MustParsePrefix("198.51.100.7/32")}
-	srv := newServerWith(t, identity.NewForwardAuth(other, "Remote-User", ""))
+	srv := newServerWith(t, identity.NewForwardAuth(other, "Remote-User", "", "|"))
 	res, err := http.Get(srv.URL + "/api/v1/health")
 	if err != nil {
 		t.Fatal(err)

@@ -73,7 +73,7 @@ func run(logger *slog.Logger) error {
 	var ids *identity.Resolver
 	switch cfg.Identity.Mode {
 	case "forwardauth":
-		ids = identity.NewForwardAuth(cfg.Identity.Proxies, cfg.Identity.UserHeader, cfg.Identity.GroupsHeader)
+		ids = identity.NewForwardAuth(cfg.Identity.Proxies, cfg.Identity.UserHeader, cfg.Identity.GroupsHeader, cfg.Identity.GroupsSeparator)
 	case "anonymous":
 		ids = identity.NewAnonymous(cfg.Identity.Proxies)
 	default:
