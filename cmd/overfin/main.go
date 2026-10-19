@@ -13,13 +13,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/identity"
+	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
+	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
 	"github.com/C0PT3R/overfin/internal/store"
 )
+
+// version is set at build time with -ldflags "-X main.version=…".
+var version = "dev"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -72,7 +78,20 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("identity mode %q is not supported", cfg.Identity.Mode)
 	}
 
-	handler, err := server.New(logger, ids)
+	jf, err := jellyfin.New(cfg.Jellyfin.URL, version)
+	if err != nil {
+		return err
+	}
+	prov := &provision.Provisioner{
+		Store:         db,
+		Jellyfin:      jf,
+		AdminKey:      cfg.Secrets.JellyfinAdminKey,
+		RequiredGroup: cfg.Identity.RequiredGroup,
+		LogKey:        k.LogID,
+		Logger:        logger,
+	}
+
+	handler, err := server.New(logger, ids, api.Account{Provisioner: prov, Logger: logger})
 	if err != nil {
 		return err
 	}

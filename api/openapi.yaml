@@ -115,6 +115,8 @@ paths:
     get:
       operationId: getMe
       summary: The current account and active profile
+      description: On the first visit, this creates the account, its owner
+        profile and the matching media server user.
       tags: [account]
       responses:
         "200":
@@ -125,6 +127,21 @@ paths:
                 $ref: "#/components/schemas/Me"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: This identity may not use the service, because it isn't
+            in the required group or its account is disabled
+            (`account-not-allowed`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "429":
+          description: Too many new accounts at once (`rate-limited`). Try
+            again shortly.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
     delete:
       operationId: deleteAccount
       summary: Delete the account and everything Overfin holds about it

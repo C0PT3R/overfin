@@ -1,0 +1,106 @@
+package jellyfin
+
+import (
+	"context"
+	"errors"
+	"net/http"
+)
+
+// CreateUser creates a Jellyfin user and returns its ID. Admin only.
+func (c *Client) CreateUser(ctx context.Context, admin Auth, name, password string) (string, error) {
+	var out struct{ Id string }
+	in := map[string]string{"Name": name, "Password": password}
+	if err := c.do(ctx, "create user", http.MethodPost, "/Users/New", admin, in, &out); err != nil {
+		return "", err
+	}
+	return NormalizeID(out.Id)
+}
+
+// DeleteUser deletes a Jellyfin user. Admin only.
+func (c *Client) DeleteUser(ctx context.Context, admin Auth, userID string) error {
+	id, err := NormalizeID(userID)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, "delete user", http.MethodDelete, "/Users/"+id, admin, nil, nil)
+}
+
+// Policy is a user's full Jellyfin policy, kept as raw fields: Jellyfin
+// requires the whole object back, including fields Overfin doesn't know.
+type Policy map[string]any
+
+// UserPolicy reads a user's current policy. Admin only.
+func (c *Client) UserPolicy(ctx context.Context, admin Auth, userID string) (Policy, error) {
+	id, err := NormalizeID(userID)
+	if err != nil {
+		return nil, err
+	}
+	var out struct{ Policy Policy }
+	if err := c.do(ctx, "get user", http.MethodGet, "/Users/"+id, admin, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Policy == nil {
+		return nil, errors.New("jellyfin: user has no policy")
+	}
+	return out.Policy, nil
+}
+
+// SetUserPolicy replaces a user's policy. Admin only.
+func (c *Client) SetUserPolicy(ctx context.Context, admin Auth, userID string, p Policy) error {
+	id, err := NormalizeID(userID)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, "set policy", http.MethodPost, "/Users/"+id+"/Policy", admin, p, nil)
+}
+
+// LockDown applies the restrictions every Overfin-managed user gets: no
+// administration, hidden from login screens, no deleting, sharing or
+// managing anything, no controlling other users. Playback stays allowed.
+func (p Policy) LockDown() {
+	for k, v := range map[string]any{
+		"IsAdministrator":                  false,
+		"IsHidden":                         true,
+		"IsDisabled":                       false,
+		"EnableContentDeletion":            false,
+		"EnableContentDeletionFromFolders": []string{},
+		"EnableCollectionManagement":       false,
+		"EnableSubtitleManagement":         false,
+		"EnableLyricManagement":            false,
+		"EnableLiveTvManagement":           false,
+		"EnablePublicSharing":              false,
+		"EnableRemoteControlOfOtherUsers":  false,
+		"EnableSharedDeviceControl":        false,
+		"EnableContentDownloading":         false,
+		"EnableUserPreferenceAccess":       false,
+		"SyncPlayAccess":                   "None",
+		"EnableMediaPlayback":              true,
+		"EnableAudioPlaybackTranscoding":   true,
+		"EnableVideoPlaybackTranscoding":   true,
+		"EnablePlaybackRemuxing":           true,
+		"EnableRemoteAccess":               true,
+	} {
+		p[k] = v
+	}
+}
+
+// Authenticate logs in as a user and returns its token and ID.
+func (c *Client) Authenticate(ctx context.Context, deviceID, username, password string) (token, userID string, err error) {
+	var out struct {
+		AccessToken string
+		User        struct{ Id string }
+	}
+	in := map[string]string{"Username": username, "Pw": password}
+	if err := c.do(ctx, "authenticate", http.MethodPost, "/Users/AuthenticateByName",
+		Auth{DeviceID: deviceID}, in, &out); err != nil {
+		return "", "", err
+	}
+	if out.AccessToken == "" {
+		return "", "", errors.New("jellyfin: authenticate: no token in response")
+	}
+	id, err := NormalizeID(out.User.Id)
+	if err != nil {
+		return "", "", err
+	}
+	return out.AccessToken, id, nil
+}

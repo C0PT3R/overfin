@@ -17,10 +17,13 @@ const (
 	NotFound         Type = "not-found"
 	NotAuthenticated Type = "not-authenticated"
 	OwnerOnly        Type = "owner-only"
-	InvalidRequest   Type = "invalid-request"
-	InvalidCursor    Type = "invalid-cursor"
-	RateLimited      Type = "rate-limited"
-	Internal         Type = "internal-error"
+	// AccountNotAllowed: the identity may not use this instance (not in
+	// the required group, or its account is disabled).
+	AccountNotAllowed Type = "account-not-allowed"
+	InvalidRequest    Type = "invalid-request"
+	InvalidCursor     Type = "invalid-cursor"
+	RateLimited       Type = "rate-limited"
+	Internal          Type = "internal-error"
 )
 
 type info struct {
@@ -31,13 +34,14 @@ type info struct {
 // registry holds the status and title of every type. The title is the same
 // for every occurrence of a type.
 var registry = map[Type]info{
-	NotFound:         {http.StatusNotFound, "Not found"},
-	NotAuthenticated: {http.StatusUnauthorized, "Not logged in"},
-	OwnerOnly:        {http.StatusForbidden, "Only the account owner can do this"},
-	InvalidRequest:   {http.StatusBadRequest, "Invalid request"},
-	InvalidCursor:    {http.StatusBadRequest, "Invalid cursor"},
-	RateLimited:      {http.StatusTooManyRequests, "Too many requests"},
-	Internal:         {http.StatusInternalServerError, "Internal error"},
+	NotFound:          {http.StatusNotFound, "Not found"},
+	NotAuthenticated:  {http.StatusUnauthorized, "Not logged in"},
+	OwnerOnly:         {http.StatusForbidden, "Only the account owner can do this"},
+	AccountNotAllowed: {http.StatusForbidden, "This account may not use this service"},
+	InvalidRequest:    {http.StatusBadRequest, "Invalid request"},
+	InvalidCursor:     {http.StatusBadRequest, "Invalid cursor"},
+	RateLimited:       {http.StatusTooManyRequests, "Too many requests"},
+	Internal:          {http.StatusInternalServerError, "Internal error"},
 }
 
 // Problem is one error response. Extra fields specific to a type (such as
