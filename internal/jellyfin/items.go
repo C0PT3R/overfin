@@ -93,6 +93,9 @@ type UserData struct {
 type ItemPage struct {
 	Items            []RawItem
 	TotalRecordCount int
+	// NoCount is set when the total wasn't asked for, so TotalRecordCount
+	// means nothing.
+	NoCount bool `json:"-"`
 }
 
 // Fields asked for in lists, and additionally on detail pages.
@@ -218,13 +221,16 @@ func pageValues(userID string, startIndex, limit int) url.Values {
 	}
 }
 
-// Resume lists items started but not finished.
+// Resume lists items started but not finished. It doesn't ask for a total:
+// on a large library, counting makes Jellyfin's resume query about 40%
+// slower, and a "continue watching" row never shows the number.
 func (c *Client) Resume(ctx context.Context, a Auth, userID string, types []string, startIndex, limit int) (*ItemPage, error) {
 	v := pageValues(userID, startIndex, limit)
+	v.Set("enableTotalRecordCount", "false")
 	if len(types) > 0 {
 		v.Set("includeItemTypes", strings.Join(types, ","))
 	}
-	var out ItemPage
+	out := ItemPage{NoCount: true}
 	if err := c.get(ctx, "resume", "/UserItems/Resume", a, v, &out); err != nil {
 		return nil, err
 	}

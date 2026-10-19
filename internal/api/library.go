@@ -416,8 +416,9 @@ func (l Library) page(w http.ResponseWriter, r *http.Request, p *store.Profile,
 			out.Items = append(out.Items, s)
 		}
 	}
+	// Without a total, a full page means there may be more.
 	next := start + len(res.Items)
-	if len(res.Items) == limit && next < res.TotalRecordCount {
+	if len(res.Items) == limit && (res.NoCount || next < res.TotalRecordCount) {
 		c, err := cursor.Encode(l.CursorKey, binding, []byte(strconv.Itoa(next)))
 		if err == nil {
 			out.NextCursor = c
@@ -425,8 +426,10 @@ func (l Library) page(w http.ResponseWriter, r *http.Request, p *store.Profile,
 	}
 	// Jellyfin counts with the profile's own token, so hidden items are
 	// already excluded (rule 56).
-	total := res.TotalRecordCount
-	out.TotalCount = &total
+	if !res.NoCount {
+		total := res.TotalRecordCount
+		out.TotalCount = &total
+	}
 	writeOK(w, out)
 }
 
