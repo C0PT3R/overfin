@@ -249,7 +249,7 @@ export class Overfin {
   claimAccount(username: string, password: string): Promise<Me>;
   logout(): Promise<{ logoutUrl?: string }>;
   deleteAccount(): Promise<{ history: 'deleted' | 'kept' }>;
-  exportData(): Promise<Record<string, unknown>>;
+  exportData(pin?: string): Promise<Record<string, unknown>>;
 
   profiles(): Promise<Profile[]>;
   profile(id: string): Promise<Profile>;

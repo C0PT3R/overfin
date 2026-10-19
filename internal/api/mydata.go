@@ -115,13 +115,28 @@ type exportSessionJSON struct {
 
 // export answers with what Overfin holds about the account (from the owner
 // profile) or about the active profile only (from any other), plus the watch
-// history read live, never secrets (rule 52). After a fresh login.
+// history read live, never secrets (rule 52). The whole account needs the
+// account holder's fresh login; a profile's own data needs only that
+// profile's PIN, if it has one: the people using other profiles don't know
+// the account's login, and without a PIN the profile is open to anyone at
+// the device anyway.
 func (a Account) export(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PIN string `json:"pin"`
+	}
+	if r.ContentLength != 0 && !decode(r, &req) {
+		problem.Send(w, problem.InvalidRequest, "")
+		return
+	}
 	c := a.Sessions.Current(w, r)
 	if c == nil {
 		return
 	}
-	if !a.Sessions.RequireFresh(w, c) {
+	if c.IsOwner() {
+		if !a.Sessions.RequireFresh(w, c) {
+			return
+		}
+	} else if !checkPIN(w, r.Context(), a.PINs, a.Logger, c.Account.ID, c.Profile.ID, req.PIN) {
 		return
 	}
 	ctx := r.Context()

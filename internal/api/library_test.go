@@ -244,10 +244,11 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
+	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
 	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb},
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true},
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,
-			PINs: &pin.Checker{Key: []byte("pin-key"), Store: st}},
+			PINs: checker},
 	}, extra...)
 	h, err := server.New(logger, identify, plugins...)
 	if err != nil {

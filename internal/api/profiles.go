@@ -335,7 +335,13 @@ func (p Profiles) changeLimits(w http.ResponseWriter, r *http.Request, c *Caller
 // checkPIN checks a profile's PIN. It writes the problem and returns false
 // when the PIN is missing, wrong or can't be tried yet.
 func (p Profiles) checkPIN(w http.ResponseWriter, ctx context.Context, accountID, profileID, given string) bool {
-	err := p.PINs.Check(ctx, accountID, profileID, given)
+	return checkPIN(w, ctx, p.PINs, p.Logger, accountID, profileID, given)
+}
+
+// checkPIN checks a profile's PIN with checker, writing the problem and
+// returning false when it's missing, wrong, or can't be tried yet.
+func checkPIN(w http.ResponseWriter, ctx context.Context, checker *pin.Checker, logger *slog.Logger, accountID, profileID, given string) bool {
+	err := checker.Check(ctx, accountID, profileID, given)
 	var wait *pin.WaitError
 	switch {
 	case err == nil:
@@ -355,7 +361,7 @@ func (p Profiles) checkPIN(w http.ResponseWriter, ctx context.Context, accountID
 	case errors.Is(err, store.ErrNotFound):
 		problem.Send(w, problem.NotFound, "")
 	default:
-		p.Logger.Error("checking a PIN failed", "err", err)
+		logger.Error("checking a PIN failed", "err", err)
 		problem.Send(w, problem.Internal, "")
 	}
 	return false

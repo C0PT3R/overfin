@@ -266,11 +266,12 @@ function accountPage() {
       await action();
     } catch (err) {
       if (err.type === 'step-up-required' && err.problem.stepUpUrl) return overfin.stepUp(err);
+      if (err.type === 'pin-required') return withFreshLogin(() => action(prompt('Your PIN') || ''));
       msg.textContent = explain(err);
     }
   }
-  const download = h('button', { onclick: () => withFreshLogin(async () => {
-    const data = await overfin.exportData();
+  const download = h('button', { onclick: () => withFreshLogin(async (pin) => {
+    const data = await overfin.exportData(pin);
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     h('a', { href: url, download: 'my-data.json' }).click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);

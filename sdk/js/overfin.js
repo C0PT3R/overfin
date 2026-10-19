@@ -88,8 +88,12 @@ export class Overfin {
    * needs a fresh login (step-up). Resolves with { history: 'deleted' | 'kept' }.
    */
   deleteAccount() { return this.request('DELETE', '/me'); }
-  /** What Overfin holds about the account (owner) or this profile, with the watch history. Needs a fresh login. */
-  exportData() { return this.request('POST', '/me/export', {}); }
+  /**
+   * What Overfin holds about the account (from the owner profile, after a
+   * fresh login) or about this profile only (with its PIN, if it has one),
+   * with the watch history.
+   */
+  exportData(pin) { return this.request('POST', '/me/export', pin ? { pin } : {}); }
   /** Ends this session (and the login). Resolves with { logoutUrl? }. */
   logout() { return this.request('POST', '/logout', {}); }
 

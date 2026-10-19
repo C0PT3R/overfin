@@ -87,10 +87,12 @@ comes from the internet, and media files can be written by anyone.
     database. PINs are hashed with that key, so a leaked database alone can't
     be used to guess them.
 21. Rare, destructive actions (profile transfer, profile deletion, account
-    deletion, data export, PIN reset) require a fresh login through the
-    identity provider. Frequent sensitive actions (switching to a PIN-protected
-    profile, changing a kids profile's rating ceiling or turning it into a
-    standard profile) require the PIN.
+    deletion, exporting the whole account, PIN reset) require a fresh login
+    through the identity provider. Frequent sensitive actions (switching to a
+    PIN-protected profile, changing a kids profile's rating ceiling or turning
+    it into a standard profile) require the PIN. A profile exporting only its
+    own data needs its own PIN, if it has one: the people using other
+    profiles don't know the account's login.
 22. Each wrong PIN adds a growing delay. After a set number of wrong PINs
     (operator setting, default 5), PIN entry on that profile is blocked until
     the account owner logs in again through the identity provider.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/images"
+	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/plugin"
 	"github.com/C0PT3R/overfin/internal/problem"
 	"github.com/C0PT3R/overfin/internal/provision"
@@ -28,6 +29,8 @@ type Account struct {
 	KeepOnDelete bool
 	// Images, when set, forgets a deleted account's image access.
 	Images *images.Pipeline
+	// PINs checks a profile's PIN before it downloads its own data.
+	PINs *pin.Checker
 }
 
 func (Account) Name() string { return "account" }

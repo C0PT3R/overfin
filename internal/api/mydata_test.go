@@ -78,3 +78,29 @@ func between(s, start, end string) string {
 	v, _, _ := strings.Cut(after, end)
 	return v
 }
+
+// Someone on another profile doesn't know the account's login: their own
+// data needs only their own PIN, if they set one.
+func TestExportFromAnotherProfile(t *testing.T) {
+	idp := newFakeIdP(t)
+	srv, _ := newServerWith(t, options{provider: idp.provider()})
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Partner"}`)
+	partner := between(body, `"id":"`, `"`)
+	post(t, srv, "/api/v1/profiles/"+partner+"/activate", `{}`)
+
+	code, body := post(t, srv, "/api/v1/me/export", `{}`)
+	if code != 200 || strings.Contains(body, `"account"`) || strings.Contains(body, `"name":"Main"`) ||
+		!strings.Contains(body, `"name":"Partner"`) {
+		t.Fatalf("export of an unprotected profile: %d %s", code, body)
+	}
+
+	if code, body := put(t, srv, "PUT", "/api/v1/profiles/"+partner+"/pin", `{"pin":"2580"}`); code != 204 {
+		t.Fatalf("partner sets a PIN: %d %s", code, body)
+	}
+	if code, body := post(t, srv, "/api/v1/me/export", `{}`); code != 403 || !strings.Contains(body, "pin-required") {
+		t.Errorf("without the PIN: %d %s", code, body)
+	}
+	if code, _ := post(t, srv, "/api/v1/me/export", `{"pin":"2580"}`); code != 200 {
+		t.Errorf("with the PIN: %d", code)
+	}
+}

@@ -105,7 +105,7 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 	// operator enables.
 	plugins := []plugin.Plugin{
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim,
-			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images},
+			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images, PINs: checker},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 	}
