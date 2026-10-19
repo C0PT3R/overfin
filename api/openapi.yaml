@@ -694,9 +694,9 @@ paths:
     get:
       operationId: listSimilar
       summary: Items like this one
-      description: Where the suggestions come from (Jellyfin, TMDB through
-        Seerr, or Overfin's own scoring) is the operator's choice; the shape
-        is always the same.
+      description: Where the suggestions come from (Jellyfin, TMDB, or
+        Overfin's own scoring) is the operator's choice; the shape is always
+        the same.
       tags: [library]
       parameters:
         - $ref: "#/components/parameters/Limit"
@@ -852,12 +852,13 @@ paths:
   /search:
     post:
       operationId: search
-      summary: Search the library and, when enabled, titles to request
+      summary: Search the library and, when enabled, the TMDB catalog
       description: |
         Terms travel in the body so they stay out of URLs and logs. Results
         come in labeled sections; a site can show them together or apart, or
-        ask for only one with `sources`. The `requestable` section exists only
-        when the operator has enabled requests.
+        ask for only one with `sources`. The `catalog` section exists only
+        when the operator has enabled the TMDB catalog, and its titles carry
+        request status only when requests are enabled too.
       tags: [library]
       requestBody:
         required: true
@@ -1235,21 +1236,21 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  # ---- Requests (Seerr plugin) -----------------------------------------------
+  # ---- Catalog (TMDB plugin) -------------------------------------------------
   #
-  # These exist only when the operator enables requests (`requests` in
-  # `Info.features`). Kids profiles only ever see and request titles within
-  # their rating ceiling. Approvals happen in Seerr itself, never here.
+  # These exist only when the operator enables the TMDB catalog (`catalog` in
+  # `Info.features`). Overfin fetches TMDB itself and caches the results;
+  # browsers never contact TMDB. Kids profiles only see titles within their
+  # rating ceiling.
 
   /discover:
     get:
       operationId: discover
-      summary: Trending, popular and upcoming titles, from TMDB through Seerr
+      summary: Trending, popular and upcoming titles from TMDB
       description: Filter with `availability` to get, for example, "trending
-        in our library" (`library`) or "trending titles you could request"
-        (`requestable`). Titles already in the library carry
-        `libraryItemId`.
-      tags: [requests]
+        in our library" (`library`) or "trending titles we don't have"
+        (`missing`). Titles already in the library carry `libraryItemId`.
+      tags: [catalog]
       parameters:
         - name: list
           in: query
@@ -1267,7 +1268,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [all, library, requestable]
+            enum: [all, library, missing]
             default: all
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
@@ -1285,9 +1286,9 @@ paths:
                       items:
                         type: array
                         items:
-                          $ref: "#/components/schemas/RequestableTitle"
+                          $ref: "#/components/schemas/CatalogTitle"
 
-  /requestable/{mediaKind}/{tmdbId}:
+  /catalog/{mediaKind}/{tmdbId}:
     parameters:
       - name: mediaKind
         in: path
@@ -1302,18 +1303,25 @@ paths:
           type: string
           pattern: "^[0-9]{1,12}$"
     get:
-      operationId: getRequestable
+      operationId: getCatalogTitle
       summary: A title's details, with per-season status for series
-      tags: [requests]
+      tags: [catalog]
       responses:
         "200":
           description: The title.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RequestableDetail"
+                $ref: "#/components/schemas/CatalogDetail"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  # ---- Requests (Seerr plugin) -----------------------------------------------
+  #
+  # These exist only when the operator enables requests (`requests` in
+  # `Info.features`), which also needs the TMDB catalog. Kids profiles only
+  # request titles within their rating ceiling. Approvals happen in Seerr
+  # itself, never here.
 
   /requests:
     get:
@@ -1627,7 +1635,14 @@ components:
             values.
           items:
             type: string
-          examples: [[profiles, requests, music]]
+          examples: [[profiles, catalog, requests, music]]
+        attributions:
+          type: array
+          description: Data sources whose terms require the site to credit
+            them, e.g. `tmdb` when the TMDB catalog is enabled. Open set.
+          items:
+            type: string
+          examples: [[tmdb]]
         login:
           type: object
           properties:
@@ -2173,7 +2188,7 @@ components:
           description: Which sections to return. Default is all available.
           items:
             type: string
-            enum: [library, requestable]
+            enum: [library, catalog]
         kind:
           type: array
           maxItems: 10
@@ -2192,18 +2207,19 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ItemSummary"
-        requestable:
-          description: Present only when requests are enabled and asked for.
+        catalog:
+          description: Present only when the TMDB catalog is enabled and
+            asked for.
           type: array
           items:
-            $ref: "#/components/schemas/RequestableTitle"
+            $ref: "#/components/schemas/CatalogTitle"
 
-    RequestableTitle:
-      description: A title found through Seerr. If it is already in the
-        library, `libraryItemId` points to it, so a site can show Play
+    CatalogTitle:
+      description: A title known from TMDB, in the library or not. If it is
+        in the library, `libraryItemId` points to it, so a site can show Play
         instead of Request.
       type: object
-      required: [tmdbId, mediaKind, name, status]
+      required: [tmdbId, mediaKind, name, availability]
       properties:
         tmdbId:
           type: string
@@ -2220,18 +2236,22 @@ components:
           description: Plain text.
         image:
           $ref: "#/components/schemas/ImageRef"
-        status:
+        availability:
           type: string
-          description: Open set; clients must handle unknown values.
-          examples: [available, partiallyAvailable, requested, notRequested]
+          description: How much of it the library has. Open set.
+          examples: [available, partiallyAvailable, missing]
+        requestStatus:
+          type: string
+          description: Present only when requests are enabled. Open set.
+          examples: [requested, processing, declined]
         libraryItemId:
           type: string
 
-    # ---- Requests -----------------------------------------------------------
+    # ---- Catalog and requests -----------------------------------------------
 
-    RequestableDetail:
+    CatalogDetail:
       allOf:
-        - $ref: "#/components/schemas/RequestableTitle"
+        - $ref: "#/components/schemas/CatalogTitle"
         - type: object
           properties:
             officialRating:
@@ -2260,7 +2280,7 @@ components:
               description: For series, each season's status.
               items:
                 type: object
-                required: [number, status]
+                required: [number, availability]
                 properties:
                   number:
                     type: integer
@@ -2270,9 +2290,14 @@ components:
                   episodeCount:
                     type: integer
                     minimum: 0
-                  status:
+                  availability:
                     type: string
-                    description: Same open set as `RequestableTitle.status`.
+                    description: Same open set as
+                      `CatalogTitle.availability`.
+                  requestStatus:
+                    type: string
+                    description: Same open set as
+                      `CatalogTitle.requestStatus`.
 
     MediaRequest:
       type: object
@@ -2282,7 +2307,7 @@ components:
           type: string
           examples: [req_4n7x2k9m5q1w]
         title:
-          $ref: "#/components/schemas/RequestableTitle"
+          $ref: "#/components/schemas/CatalogTitle"
         seasons:
           type: array
           items:
