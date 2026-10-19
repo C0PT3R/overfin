@@ -492,6 +492,8 @@ async function startStream(ctx, choice) {
   // Progress: every 10 seconds, and on pause, seek and end.
   const report = (extra = {}) => {
     if (me.stopped) return;
+    // Keep the address at the current time, so a reload resumes here.
+    history.replaceState(null, '', `#/play/${itemId}?t=${Math.floor(video.currentTime)}`);
     api('POST', `/playback/${pb.id}/progress`, { positionMs: Math.round(video.currentTime * 1000), paused: video.paused, ...extra })
       .catch((err) => ended(me, err));
   };
