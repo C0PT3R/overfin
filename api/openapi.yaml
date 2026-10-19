@@ -65,6 +65,12 @@ info:
     (`rate-limited`, 429), and several in a row lock the PIN (`pin-locked`,
     403); both carry `retryAfter` in seconds, also sent as `Retry-After`.
 
+    **Profiles.** Most requests act as the session's active profile. When
+    the owner profile has a PIN, a new session has none until one is chosen
+    with `POST /profiles/{id}/activate`; until then, everything except the
+    account, the profile list and switching profile answers
+    `profile-required` (403), and the site shows the profile list.
+
     **Step-up.** Some actions need a fresh login. Overfin then answers
     with a `step-up-required` error naming what is needed (`login`)
     and a `stepUpUrl` to send the user to: navigate the whole page to
@@ -2076,7 +2082,7 @@ components:
 
     Me:
       type: object
-      required: [accountId, activeProfile]
+      required: [accountId]
       properties:
         accountId:
           type: string
@@ -2085,6 +2091,8 @@ components:
           type: string
           description: From the identity provider, when it provides one.
         activeProfile:
+          description: Absent while this session has no profile chosen; the
+            site then shows the profile list.
           $ref: "#/components/schemas/Profile"
 
     ProfileName:

@@ -66,8 +66,9 @@ type profileJSON struct {
 }
 
 type meJSON struct {
-	AccountID     string      `json:"accountId"`
-	ActiveProfile profileJSON `json:"activeProfile"`
+	AccountID string `json:"accountId"`
+	// ActiveProfile is absent while this session has none chosen.
+	ActiveProfile *profileJSON `json:"activeProfile,omitempty"`
 }
 
 func (a Account) me(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +80,7 @@ func (a Account) me(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	c := a.Sessions.Current(w, r)
+	c := a.Sessions.CurrentAccount(w, r)
 	if c == nil {
 		return
 	}
@@ -115,7 +116,12 @@ func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store
 	case err == nil:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(meJSON{AccountID: acct.ID, ActiveProfile: toProfileJSON(prof)})
+		out := meJSON{AccountID: acct.ID}
+		if prof != nil {
+			pj := toProfileJSON(prof)
+			out.ActiveProfile = &pj
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	case errors.Is(err, provision.ErrNoAccount):
 		a.Sessions.setupRequired(w)
 	case errors.Is(err, provision.ErrAccountExists):

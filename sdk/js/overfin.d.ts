@@ -33,7 +33,8 @@ export interface Profile {
 
 export interface Me {
   accountId: string;
-  activeProfile: Profile;
+  /** Absent until a profile is chosen (when the owner profile has a PIN). */
+  activeProfile?: Profile;
 }
 
 export interface Session {

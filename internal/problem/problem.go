@@ -50,6 +50,9 @@ const (
 	PINRequired  Type = "pin-required"
 	PINIncorrect Type = "pin-incorrect"
 	PINLocked    Type = "pin-locked"
+	// ProfileRequired: this session has no profile chosen yet; the site
+	// shows the profile list ("Who's watching?").
+	ProfileRequired Type = "profile-required"
 	// StepUpRequired: the action needs a fresh login with the identity
 	// provider.
 	StepUpRequired Type = "step-up-required"
@@ -89,6 +92,7 @@ var registry = map[Type]info{
 	PINIncorrect:         {http.StatusForbidden, "Wrong PIN"},
 	PINLocked:            {http.StatusForbidden, "Too many wrong PINs; try again later"},
 	StepUpRequired:       {http.StatusForbidden, "Please log in again to do this"},
+	ProfileRequired:      {http.StatusForbidden, "Choose a profile first"},
 	Internal:             {http.StatusInternalServerError, "Internal error"},
 }
 

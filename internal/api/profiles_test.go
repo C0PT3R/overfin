@@ -265,3 +265,57 @@ func mustURL(s string) *url.URL {
 	}
 	return u
 }
+
+// With a PIN on the owner profile, no session ever lands on it without the
+// PIN: not a new browser, not one whose profile was deleted.
+func TestNoFallbackToAProtectedOwner(t *testing.T) {
+	idp := newFakeIdP(t)
+	srv, _ := newServerWith(t, options{provider: idp.provider()})
+	owner := ownerID(t, srv)
+	put(t, srv, "PUT", "/api/v1/profiles/"+owner+"/pin", `{"pin":"1234"}`)
+
+	// A new browser on the same account: no profile until one is chosen.
+	b := &http.Client{Transport: srv.Client().Transport}
+	b.Jar, _ = cookiejar.New(nil)
+	ask := func(method, path, body string) (int, string) {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Remote-User", subject)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		res, err := b.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		out, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(out)
+	}
+	if code, body := ask("GET", "/api/v1/me", ""); code != 200 || strings.Contains(body, "activeProfile") {
+		t.Errorf("me on a new browser: %d %s", code, body)
+	}
+	if code, body := ask("GET", "/api/v1/libraries", ""); code != 403 || !strings.Contains(body, "profile-required") {
+		t.Errorf("library on a new browser: %d %s", code, body)
+	}
+	if code, _ := ask("GET", "/api/v1/profiles", ""); code != 200 {
+		t.Errorf("the profile list must work without a profile: %d", code)
+	}
+	if code, body := ask("POST", "/api/v1/profiles/"+owner+"/activate", `{}`); code != 403 || !strings.Contains(body, "pin-required") {
+		t.Errorf("owner without PIN: %d %s", code, body)
+	}
+
+	// A child's kids profile is deleted: their session doesn't become the
+	// owner's.
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","ratingCeiling":"G"}`)
+	kid := between(body, `"id":"`, `"`)
+	if code, body := ask("POST", "/api/v1/profiles/"+kid+"/activate", `{}`); code != 200 {
+		t.Fatalf("kid: %d %s", code, body)
+	}
+	stepUp(t, srv, idp, subject, time.Now())
+	if code, body := put(t, srv, "DELETE", "/api/v1/profiles/"+kid, ""); code != 204 {
+		t.Fatalf("delete kid: %d %s", code, body)
+	}
+	if code, body := ask("GET", "/api/v1/libraries", ""); code != 403 || !strings.Contains(body, "profile-required") {
+		t.Errorf("after the kids profile was deleted: %d %s", code, body)
+	}
+}

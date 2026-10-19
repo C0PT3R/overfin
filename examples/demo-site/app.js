@@ -78,7 +78,7 @@ function renderHeader() {
     ...state.libraries.map((lib) =>
       h('a', { href: `#/library/${lib.id}`, class: route.startsWith(`#/library/${lib.id}`) ? 'active' : '' }, lib.name)),
   );
-  $('#who').textContent = state.me.activeProfile.name;
+  $('#who').textContent = state.me.activeProfile?.name || 'Choose a profile';
 }
 
 // card is one item in a row or grid: poster, title, progress.
@@ -259,7 +259,7 @@ async function personPage(id) {
 // fresh login; the SDK sends the browser through it and back here.
 function accountPage() {
   const msg = h('p', { class: 'error' });
-  const owner = state.me.activeProfile.owner;
+  const owner = state.me.activeProfile?.owner;
   async function withFreshLogin(action) {
     msg.textContent = '';
     try {
@@ -286,7 +286,7 @@ function accountPage() {
       : 'Your account and your watch history are deleted.');
     location.href = '/';
   }) }, 'Delete my account');
-  const kids = state.me.activeProfile.kind === 'kids';
+  const kids = state.me.activeProfile?.kind === 'kids';
   render(h('div', { class: 'center' }, h('h1', {}, 'Account'),
     !kids && h('div', { class: 'panel' },
       h('p', {}, owner ? 'Everything this service holds about your account, with your watch history.'
@@ -353,6 +353,8 @@ async function profilesPage() {
       await overfin.activateProfile(p.id, pin);
       sessionStorage.setItem('overfin-demo-picked', '1');
       state.me = await overfin.me();
+      // Each profile sees its own libraries (kids limits included).
+      state.libraries = await overfin.libraries().catch(() => []);
       location.hash = '#/'; // the hashchange shows home
     } catch (err) {
       if (err.type === 'pin-required') return askPIN(p);
@@ -367,7 +369,7 @@ async function profilesPage() {
     input.focus();
   }
 
-  const add = state.me.activeProfile.owner &&
+  const add = state.me.activeProfile?.owner &&
     h('button', { class: 'profile', onclick: () => newProfile() }, h('div', { class: 'avatar' }, '+'), 'Add profile');
 
   render(h('h1', { class: 'center' }, "Who's watching?"),
@@ -494,6 +496,8 @@ async function route() {
       default: return notFound();
     }
   } catch (err) {
+    // No profile chosen yet (the owner's is protected): "Who's watching?".
+    if (err.type === 'profile-required') { location.hash = '#/profiles'; return; }
     if (err instanceof OverfinError && err.status === 404) return notFound();
     console.error(err);
     render(h('div', { class: 'center' }, h('p', { class: 'error' }, explain(err)), h('a', { href: '#/' }, 'Back home')));
@@ -513,7 +517,7 @@ async function start() {
   const [libraries, profiles] = await Promise.all([overfin.libraries().catch(() => []), overfin.profiles()]);
   state.libraries = libraries;
   // "Who's watching?" once per tab, when there's a choice.
-  if (profiles.length > 1 && !sessionStorage.getItem('overfin-demo-picked') &&
+  if ((!state.me.activeProfile || (profiles.length > 1 && !sessionStorage.getItem('overfin-demo-picked'))) &&
       !location.hash.startsWith('#/play/') && location.hash !== '#/profiles') {
     location.hash = '#/profiles'; // the hashchange shows it
     return;

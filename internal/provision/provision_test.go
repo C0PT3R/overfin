@@ -369,3 +369,15 @@ func TestClaimLinkKeepsTheLogin(t *testing.T) {
 		t.Errorf("move later: %q %q %v", name, token, err)
 	}
 }
+
+func TestRemovedFromTheGroup(t *testing.T) {
+	fake := &fakeJellyfin{}
+	p := setup(t, fake, "media")
+	ctx := context.Background()
+	if _, _, err := p.Ensure(ctx, identity.Identity{Subject: "s", Groups: []string{"media"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := p.Find(ctx, identity.Identity{Subject: "s", Groups: []string{"other"}}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("out of the group, still in: %v", err)
+	}
+}

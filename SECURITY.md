@@ -70,8 +70,9 @@ comes from the internet, and media files can be written by anyone.
     interval (with Overfin's login, by refresh token every 10 minutes by
     default; if the provider stays unreachable for an hour, logins fail
     closed). A provider that gives no refresh tokens gets logins that last
-    12 hours at most, without extension. Disabling an identity ends its sessions and revokes its Jellyfin
-    tokens.
+    12 hours at most, without extension. Disabling an identity ends its
+    sessions and revokes its Jellyfin tokens. The required group is checked
+    on every request, so someone taken out of it is out at once.
 17. Session cookies use the `__Host-` prefix and are `HttpOnly`, `Secure` and
     `SameSite=Strict`.
 18. Only same-origin requests are accepted (`Sec-Fetch-Site: same-origin`, or
@@ -93,7 +94,10 @@ comes from the internet, and media files can be written by anyone.
     it into a standard profile) require the PIN. A standard profile exporting
     only its own data needs its own PIN, if it has one: the people using
     other profiles don't know the account's login. Kids profiles can't export
-    themselves; their data is in the owner's export.
+    themselves; their data is in the owner's export. No session ever falls
+    back to a PIN-protected owner profile: when the owner has a PIN, a new
+    session, or one whose profile was deleted, has no profile until one is
+    chosen (`profile-required`).
 22. Each wrong PIN adds a growing delay. After a set number of wrong PINs
     (operator setting, default 5), PIN entry on that profile is blocked until
     the account owner logs in again through the identity provider.

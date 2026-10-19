@@ -61,7 +61,7 @@ func (p Profiles) Register(r *plugin.Registrar) error {
 }
 
 func (p Profiles) list(w http.ResponseWriter, r *http.Request) {
-	c := p.Sessions.Current(w, r)
+	c := p.Sessions.CurrentAccount(w, r)
 	if c == nil {
 		return
 	}
@@ -504,7 +504,7 @@ func (p Profiles) activate(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.InvalidRequest, "")
 		return
 	}
-	c := p.Sessions.Current(w, r)
+	c := p.Sessions.CurrentAccount(w, r)
 	if c == nil {
 		return
 	}
@@ -515,7 +515,7 @@ func (p Profiles) activate(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	if id != c.Profile.ID && !p.checkPIN(w, ctx, c.Account.ID, id, req.PIN) {
+	if (c.Profile == nil || id != c.Profile.ID) && !p.checkPIN(w, ctx, c.Account.ID, id, req.PIN) {
 		return
 	}
 	if err := p.Store.SetActiveProfile(ctx, c.Session.ID, c.Account.ID, id); err != nil {

@@ -54,6 +54,7 @@ func (s *Sessions) RequireFresh(w http.ResponseWriter, c *Caller) bool {
 }
 
 // Caller is who is making a request: account, session, active profile.
+// Profile is nil while the session has none chosen (see CurrentAccount).
 type Caller struct {
 	Account *store.Account
 	Session *store.Session
@@ -62,14 +63,30 @@ type Caller struct {
 }
 
 // IsOwner reports whether the active profile is the account's owner.
-func (c *Caller) IsOwner() bool { return c.Profile.ID == c.Owner.ID }
+func (c *Caller) IsOwner() bool { return c.Profile != nil && c.Profile.ID == c.Owner.ID }
 
 // touchEvery limits how often a session's activity is written.
 const touchEvery = time.Minute
 
 // Current resolves the caller, starting a session if needed. It writes the
-// problem and returns nil when there is no usable account.
+// problem and returns nil when there is no usable account, or no profile
+// chosen yet.
 func (s *Sessions) Current(w http.ResponseWriter, r *http.Request) *Caller {
+	c := s.CurrentAccount(w, r)
+	if c != nil && c.Profile == nil {
+		problem.Send(w, problem.ProfileRequired, "")
+		return nil
+	}
+	return c
+}
+
+// CurrentAccount is Current for the few routes that work before a profile
+// is chosen: the account, the profile list, switching profile, step-up.
+//
+// A session starts on the owner profile, unless the owner protected it with
+// a PIN: then it starts with none, and so does a session whose profile was
+// deleted. Falling back to the owner profile would skip its PIN.
+func (s *Sessions) CurrentAccount(w http.ResponseWriter, r *http.Request) *Caller {
 	id, _ := identity.FromContext(r.Context())
 	ctx := r.Context()
 	acct, owner, err := s.Provisioner.Find(ctx, id)
@@ -99,7 +116,11 @@ func (s *Sessions) Current(w http.ResponseWriter, r *http.Request) *Caller {
 		}
 	}
 	if sess == nil {
-		created, token, err := s.Store.CreateSession(ctx, acct.ID, owner.ID, deviceName(r.UserAgent()), s.Lifetime)
+		start := owner.ID
+		if owner.HasPIN {
+			start = ""
+		}
+		created, token, err := s.Store.CreateSession(ctx, acct.ID, start, deviceName(r.UserAgent()), s.Lifetime)
 		if err != nil {
 			s.Logger.Error("could not create a session", "err", err)
 			problem.Send(w, problem.Internal, "")
@@ -111,11 +132,17 @@ func (s *Sessions) Current(w http.ResponseWriter, r *http.Request) *Caller {
 		_ = s.Store.TouchSession(ctx, sess.ID, s.Lifetime)
 	}
 
-	prof := owner
-	if sess.ActiveProfileID != "" && sess.ActiveProfileID != owner.ID {
+	var prof *store.Profile
+	switch {
+	case sess.ActiveProfileID == owner.ID:
+		prof = owner
+	case sess.ActiveProfileID != "":
 		if p, err := s.Store.Profile(ctx, acct.ID, sess.ActiveProfileID); err == nil {
 			prof = p
 		}
+	}
+	if prof == nil && !owner.HasPIN {
+		prof = owner // nothing to protect: the owner profile is the default
 	}
 	return &Caller{Account: acct, Session: sess, Profile: prof, Owner: owner}
 }

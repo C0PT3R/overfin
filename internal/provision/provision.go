@@ -85,7 +85,15 @@ func (p *Provisioner) Find(ctx context.Context, id identity.Identity) (*store.Ac
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil, ErrNoAccount
 	}
-	return acct, prof, err
+	if err != nil {
+		return nil, nil, err
+	}
+	// The required group is checked on every request, not only at
+	// creation: someone taken out of it is out at once (rule 16).
+	if p.RequiredGroup != "" && !slices.Contains(id.Groups, p.RequiredGroup) {
+		return nil, nil, ErrNotAllowed
+	}
+	return acct, prof, nil
 }
 
 // Ensure returns the account for id, creating a fresh one on the first

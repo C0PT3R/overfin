@@ -236,7 +236,7 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 // ---- Step-up ------------------------------------------------------------------------
 
 func (a *Auth) startStepUp(w http.ResponseWriter, r *http.Request) {
-	c := a.Sessions.Current(w, r)
+	c := a.Sessions.CurrentAccount(w, r)
 	if c == nil {
 		return
 	}
@@ -393,7 +393,7 @@ func (a *Auth) finishStepUp(w http.ResponseWriter, r *http.Request, p pendingAut
 		problem.Send(w, problem.NotAuthenticated, "")
 		return
 	}
-	c := a.Sessions.Current(w, r)
+	c := a.Sessions.CurrentAccount(w, r)
 	if c == nil {
 		return
 	}
