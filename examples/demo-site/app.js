@@ -404,12 +404,23 @@ function capabilities() {
 // The playback on screen, if any, so leaving the page can stop it.
 let current = null;
 
+// Where the next playback starts, when the user just chose (resume, or from
+// the start). After a reload there's no choice: the server's last known
+// position is used, as reported during playback.
+let chosenStart = null;
+
 function play(itemId, positionMs) {
-  location.hash = `#/play/${itemId}?t=${Math.floor(positionMs / 1000)}`;
+  chosenStart = positionMs;
+  location.hash = `#/play/${itemId}`;
 }
 
-async function playerPage(itemId, params) {
-  const startMs = (parseInt(params.get('t'), 10) || 0) * 1000;
+async function playerPage(itemId) {
+  let startMs = chosenStart;
+  chosenStart = null;
+  if (startMs === null) {
+    const item = await api('GET', `/items/${itemId}`);
+    startMs = item.userState?.positionMs || 0;
+  }
   const video = h('video', { controls: true, autoplay: true, playsinline: true });
   const title = h('div', { class: 'title' });
   const audio = h('select', { 'aria-label': 'Audio' });
@@ -492,8 +503,6 @@ async function startStream(ctx, choice) {
   // Progress: every 10 seconds, and on pause, seek and end.
   const report = (extra = {}) => {
     if (me.stopped) return;
-    // Keep the address at the current time, so a reload resumes here.
-    history.replaceState(null, '', `#/play/${itemId}?t=${Math.floor(video.currentTime)}`);
     api('POST', `/playback/${pb.id}/progress`, { positionMs: Math.round(video.currentTime * 1000), paused: video.paused, ...extra })
       .catch((err) => ended(me, err));
   };
@@ -575,7 +584,7 @@ async function route() {
       case undefined: return await home();
       case 'library': return await libraryPage(parts[1], params);
       case 'item': return await itemPage(parts[1]);
-      case 'play': return await playerPage(parts[1], params);
+      case 'play': return await playerPage(parts[1]);
       default: return notFound();
     }
   } catch (err) {

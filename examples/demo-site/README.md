@@ -14,8 +14,9 @@ screen shows how a client uses one part of the API.
   the browser declares; audio and subtitle choice, "Skip intro", progress
   reporting, resume, and a clear message when another device takes over.
 
-Every screen lives in the address (`#/item/…`, `#/play/…?t=…`), so a reload
-comes back to it. Text from the server is only ever set with `textContent`.
+Every screen lives in the address (`#/item/…`, `#/play/…`), so a reload
+comes back to it; playback resumes from the position the player last
+reported. Text from the server is only ever set with `textContent`.
 
 ## Running it
 
