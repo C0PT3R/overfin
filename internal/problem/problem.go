@@ -30,6 +30,7 @@ const (
 	ClaimFailed          Type = "claim-failed"
 	ClaimNotAllowed      Type = "claim-not-allowed"
 	CrossSiteRequest     Type = "cross-site-request"
+	NotPlayable          Type = "not-playable"
 	UnsupportedMediaType Type = "unsupported-media-type"
 	InvalidRequest       Type = "invalid-request"
 	InvalidCursor        Type = "invalid-cursor"
@@ -54,6 +55,7 @@ var registry = map[Type]info{
 	ClaimFailed:          {http.StatusForbidden, "Wrong username or password"},
 	ClaimNotAllowed:      {http.StatusForbidden, "This media server account can't be brought over"},
 	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},
+	NotPlayable:          {http.StatusConflict, "This item can't be played"},
 	UnsupportedMediaType: {http.StatusUnsupportedMediaType, "Requests must be JSON"},
 	InvalidRequest:       {http.StatusBadRequest, "Invalid request"},
 	InvalidCursor:        {http.StatusBadRequest, "Invalid cursor"},

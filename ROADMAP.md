@@ -39,6 +39,10 @@ once they are implemented and tested.
   that strips all metadata, bounded memory cache and concurrency.
 - Repeatable random order: `sort=random` with a seed, shuffled by Overfin so
   pages never overlap and a reload shows the same order.
+- Starting playback (`POST /playback`): capabilities translated into a
+  Jellyfin device profile, the direct/remux/transcode decision, stream
+  tickets, tracks, versions and skip markers; remote sources and unexpected
+  upstream URLs refused.
 
 ## Milestone 1: a real site, end to end
 

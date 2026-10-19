@@ -19,6 +19,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
+	"github.com/C0PT3R/overfin/internal/playback"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
@@ -92,9 +93,12 @@ func run(logger *slog.Logger) error {
 		Logger:        logger,
 	}
 
+	lib := api.Library{Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger}
 	handler, err := server.New(logger, ids,
 		api.Account{Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
-		api.Library{Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger},
+		lib,
+		api.Playback{Library: lib, Tickets: playback.NewTickets(6 * time.Hour),
+			MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, Logger: logger},
 	)
 	if err != nil {
 		return err

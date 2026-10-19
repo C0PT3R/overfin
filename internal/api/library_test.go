@@ -16,10 +16,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
+	"github.com/C0PT3R/overfin/internal/playback"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
@@ -53,7 +55,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	f.lastQury = q
-	if q.Get("userId") != userJF {
+	if q.Get("userId") != userJF && !strings.HasPrefix(r.URL.Path, "/MediaSegments/") {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -81,6 +83,25 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"Items": items, "TotalRecordCount": 7})
 	case r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 1):
 		json.NewEncoder(w).Encode(movie(0))
+	case r.Method == "POST" && r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 1)+"/PlaybackInfo":
+		json.NewEncoder(w).Encode(map[string]any{
+			"PlaySessionId": "abc123",
+			"MediaSources": []map[string]any{{
+				"Id": fmt.Sprintf("%032x", 1), "Name": "1080p", "Protocol": "File", "Path": "/mnt/media/secret.mkv",
+				"SupportsTranscoding": true, "TranscodingSubProtocol": "hls",
+				"TranscodingUrl": "/videos/" + fmt.Sprintf("%032x", 1) + "/master.m3u8?ApiKey=" + token + "&MediaSourceId=x",
+				"RunTimeTicks":   72000000000,
+				"MediaStreams": []map[string]any{
+					{"Index": 1, "Type": "Audio", "Codec": "eac3", "Language": "fre", "DisplayTitle": "Français - EAC3 5.1", "Channels": 6, "IsDefault": true},
+					{"Index": 3, "Type": "Subtitle", "Codec": "srt", "Language": "eng", "DisplayTitle": "English", "IsTextSubtitleStream": true},
+					{"Index": 4, "Type": "Subtitle", "Codec": "PGSSUB", "DisplayTitle": "Blu-ray"},
+				},
+			}},
+		})
+	case r.URL.Path == "/MediaSegments/"+fmt.Sprintf("%032x", 1):
+		json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{
+			{"Type": "Intro", "StartTicks": 50000000, "EndTicks": 900000000},
+		}})
 	case strings.HasPrefix(r.URL.Path, "/Items/"):
 		w.WriteHeader(http.StatusNotFound) // not visible to this user
 	default:
@@ -110,7 +131,9 @@ func newServer(t *testing.T) (*httptest.Server, *fakeJellyfin) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	prov := &provision.Provisioner{Store: st, Jellyfin: jf, LogKey: []byte("k"), Logger: logger}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "")
-	h, err := server.New(logger, ids, api.Library{Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger})
+	lib := api.Library{Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
+	h, err := server.New(logger, ids, lib,
+		api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,5 +308,74 @@ func TestRandomPagesCoverEverythingOnce(t *testing.T) {
 	}
 	if len(seen) != 7 {
 		t.Errorf("pages covered %d of 7 items", len(seen))
+	}
+}
+
+func post(t *testing.T, srv *httptest.Server, path, body string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
+	req.Header.Set("Remote-User", subject)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(b)
+}
+
+func TestStartPlaybackNeverLeaksUpstream(t *testing.T) {
+	srv, _ := newServer(t)
+	code, body := post(t, srv, "/api/v1/playback",
+		`{"itemId":"item_`+fmt.Sprintf("%032x", 1)+`","capabilities":{"containers":["mp4"],"videoCodecs":["h264"],"audioCodecs":["aac"]}}`)
+	if code != http.StatusCreated {
+		t.Fatalf("status %d: %s", code, body)
+	}
+	for _, leak := range []string{token, "ApiKey", "/videos/", "/mnt/", "abc123", "MediaSourceId"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("response contains %q: %s", leak, body)
+		}
+	}
+	var s struct {
+		ID, Method     string
+		Stream         struct{ URL, Protocol string }
+		DurationMs     int64
+		AudioTracks    []struct{ ID, Label, Language string }
+		SubtitleTracks []struct{ ID, URL string }
+		Segments       []struct{ Kind string }
+	}
+	json.Unmarshal([]byte(body), &s)
+	if !strings.HasPrefix(s.ID, "play_") || s.Method != "transcode" || s.Stream.Protocol != "hls" ||
+		!strings.HasPrefix(s.Stream.URL, "/api/v1/stream/") || !strings.HasSuffix(s.Stream.URL, "/master.m3u8") {
+		t.Errorf("session: %+v", s)
+	}
+	if s.DurationMs != 7_200_000 || len(s.AudioTracks) != 1 || s.AudioTracks[0].ID != "a1" || s.AudioTracks[0].Language != "fre" {
+		t.Errorf("tracks/duration: %+v", s)
+	}
+	// Text subtitles get a WebVTT URL; image subtitles don't (they're burned in).
+	if len(s.SubtitleTracks) != 2 || s.SubtitleTracks[0].URL == "" || s.SubtitleTracks[1].URL != "" {
+		t.Errorf("subtitles: %+v", s.SubtitleTracks)
+	}
+	if len(s.Segments) != 1 || s.Segments[0].Kind != "intro" {
+		t.Errorf("segments: %+v", s.Segments)
+	}
+}
+
+func TestStartPlaybackRefuses(t *testing.T) {
+	srv, _ := newServer(t)
+	for _, body := range []string{
+		`{"itemId":"not-an-id","capabilities":{}}`,
+		`{"itemId":"item_` + fmt.Sprintf("%032x", 1) + `","capabilities":{},"audioTrack":"s1"}`,
+		`{"itemId":"item_` + fmt.Sprintf("%032x", 1) + `","capabilities":{},"startPositionMs":-5}`,
+		`{"itemId":"item_` + fmt.Sprintf("%032x", 1) + `","capabilities":{},"extra":true}`,
+	} {
+		if code, _ := post(t, srv, "/api/v1/playback", body); code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", body, code)
+		}
+	}
+	// An item the profile may not see.
+	if code, _ := post(t, srv, "/api/v1/playback", `{"itemId":"item_`+fmt.Sprintf("%032x", 99)+`","capabilities":{}}`); code != http.StatusNotFound {
+		t.Errorf("hidden item: status %d", code)
 	}
 }
