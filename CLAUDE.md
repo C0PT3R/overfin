@@ -24,6 +24,10 @@ website someone else builds. MIT, public.
   `node --test sdk/js/overfin.test.js` for the JavaScript SDK.
 - `examples/demo-site/overfin.js` is a copy of `sdk/js/overfin.js`; a test
   keeps them identical, so copy it over after changing the SDK.
+- After editing `api/openapi.yaml`, check it still parses:
+  `python3 -c "import yaml; yaml.safe_load(open('api/openapi.yaml'))"`.
+  A colon followed by a space inside a plain-text description breaks it.
+- CI (`.github/workflows/ci.yml`) runs all of the above on every push.
 
 ## Layout
 - `cmd/overfin`: entry point
