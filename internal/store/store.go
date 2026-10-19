@@ -531,3 +531,83 @@ func scanSession(sc scanner) (*Session, error) {
 	}
 	return &sess, nil
 }
+
+// ---- Kids profiles and PINs -------------------------------------------------------
+
+// ErrPINExists is returned when setting a PIN on a profile that has one;
+// changing an existing PIN needs a fresh login (rule 21).
+var ErrPINExists = errors.New("store: profile already has a PIN")
+
+// SetKind changes a profile's kind and rating ceiling, within its account.
+func (s *Store) SetKind(ctx context.Context, accountID, profileID, kind, ceiling string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET kind = ?, rating_ceiling = ? WHERE id = ? AND account_id = ?`,
+		kind, nullable(ceiling), profileID, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetPIN stores a PIN's keyed hash on a profile that has none yet.
+func (s *Store) SetPIN(ctx context.Context, accountID, profileID string, hash []byte) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE profiles SET pin_hash = ?, pin_failures = 0, pin_failed_at = NULL, pin_locked_until = NULL
+		WHERE id = ? AND account_id = ? AND pin_hash IS NULL`, hash, profileID, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if _, err := s.Profile(ctx, accountID, profileID); err != nil {
+			return ErrNotFound
+		}
+		return ErrPINExists
+	}
+	return nil
+}
+
+// PINState is what checking a PIN needs.
+type PINState struct {
+	Hash        []byte
+	Failures    int
+	FailedAt    time.Time
+	LockedUntil time.Time
+}
+
+// PIN returns a profile's PIN state, within its account.
+func (s *Store) PIN(ctx context.Context, accountID, profileID string) (*PINState, error) {
+	var st PINState
+	var failedAt, lockedUntil sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT pin_hash, pin_failures, pin_failed_at, pin_locked_until FROM profiles
+		WHERE id = ? AND account_id = ?`, profileID, accountID,
+	).Scan(&st.Hash, &st.Failures, &failedAt, &lockedUntil)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if failedAt.Valid {
+		st.FailedAt = time.Unix(failedAt.Int64, 0).UTC()
+	}
+	if lockedUntil.Valid {
+		st.LockedUntil = time.Unix(lockedUntil.Int64, 0).UTC()
+	}
+	return &st, nil
+}
+
+// RecordPIN stores the outcome of a PIN attempt.
+func (s *Store) RecordPIN(ctx context.Context, profileID string, failures int, failedAt, lockedUntil time.Time) error {
+	toUnix := func(t time.Time) any {
+		if t.IsZero() {
+			return nil
+		}
+		return t.Unix()
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE profiles SET pin_failures = ?, pin_failed_at = ?, pin_locked_until = ? WHERE id = ?`,
+		failures, toUnix(failedAt), toUnix(lockedUntil), profileID)
+	return err
+}

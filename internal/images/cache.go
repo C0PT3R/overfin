@@ -2,6 +2,7 @@ package images
 
 import (
 	"container/list"
+	"strings"
 	"sync"
 	"time"
 )
@@ -95,6 +96,16 @@ func (a *accessCache) allowed(key string, now time.Time) (map[string]string, boo
 	}
 	delete(a.entries, key)
 	return nil, false
+}
+
+func (a *accessCache) forget(prefix string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k := range a.entries {
+		if strings.HasPrefix(k, prefix) {
+			delete(a.entries, k)
+		}
+	}
 }
 
 func (a *accessCache) allow(key string, tags map[string]string, now time.Time) {

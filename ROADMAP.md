@@ -66,8 +66,12 @@ Jellyfin server, using only the public API.
 1. Configuration reload without restart.
 2. Adoption extras: optional matching by name or email (operator opt-in),
    and pseudonymizing adopted accounts once the old access path is retired.
-3. Kids profiles (rating ceilings enforced by Jellyfin) and PINs.
+3. ~~Kids profiles (rating ceilings enforced by Jellyfin) and PINs.~~ Done,
+   with two stopgaps until step-up exists: a locked PIN unlocks by itself
+   after 15 minutes, and an existing PIN can't be changed or removed.
 4. Step-up for destructive actions (needs a way to detect a fresh login).
+   Then: PIN locks lifted by the owner's fresh login (rule 22), changing and
+   removing PINs, and making the lock threshold an operator setting.
 5. A minimal demo site in plain HTML and JavaScript.
 
 ## Designed, to implement after milestone 1

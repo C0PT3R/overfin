@@ -22,6 +22,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
+	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/playback"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
@@ -42,8 +43,9 @@ type fakeJellyfin struct {
 	mu        sync.Mutex
 	badAuth   int
 	lastQury  url.Values
-	calls     []string // playstate and encoding calls, in order
-	lastToken string   // the token of the last library call
+	calls     []string       // playstate and encoding calls, in order
+	lastToken string         // the token of the last library call
+	policy    map[string]any // the last policy set by the admin
 }
 
 func (f *fakeJellyfin) called(prefix string) int {
@@ -76,6 +78,11 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"Id": partnerJF})
 		case "GET /Users/" + partnerJF:
 			json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": false}})
+		case "POST /Users/" + partnerJF + "/Policy":
+			json.NewDecoder(r.Body).Decode(&f.policy)
+			w.WriteHeader(http.StatusNoContent)
+		case "GET /Localization/ParentalRatings":
+			io.WriteString(w, `[{"Name":"PG-13","RatingScore":{"score":13}},{"Name":"G","RatingScore":{"score":0}},{"Name":"PG","Value":10}]`)
 		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -205,7 +212,8 @@ func newServerLimited(t *testing.T, maxStreams int) (*httptest.Server, *fakeJell
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
 	h, err := server.New(logger, ids, lib, pb, api.Stream{Playback: pb},
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true},
-		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger})
+		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,
+			PINs: &pin.Checker{Key: []byte("pin-key"), Store: st}})
 	if err != nil {
 		t.Fatal(err)
 	}

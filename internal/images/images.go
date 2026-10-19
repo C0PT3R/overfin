@@ -162,6 +162,12 @@ func (p *Pipeline) Image(ctx context.Context, v Viewer, ref Ref, size string) ([
 	return data, contentType, nil
 }
 
+// Forget drops what the pipeline remembers about a profile's access, after
+// its limits changed, so a lowered rating ceiling applies to images at once.
+func (p *Pipeline) Forget(profileID string) {
+	p.access.forget(profileID + "/")
+}
+
 // checkAccess asks Jellyfin, with the profile's own token, whether it may
 // see the item, and returns the item's current image tags by "type/index".
 func (p *Pipeline) checkAccess(ctx context.Context, v Viewer, itemID string) (map[string]string, error) {

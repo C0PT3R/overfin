@@ -3,11 +3,14 @@ package api_test
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSessionCookie(t *testing.T) {
@@ -69,7 +72,7 @@ func TestProfilesAndSwitching(t *testing.T) {
 	if code, _ := post(t, srv, "/api/v1/profiles", `{"name":"Partner"}`); code != http.StatusConflict {
 		t.Errorf("same name twice: %d", code)
 	}
-	for _, bad := range []string{`{"name":""}`, `{"name":"<b>x</b>"}`, `{"name":"x","kind":"kids"}`, `{"name":"` + strings.Repeat("a", 40) + `"}`} {
+	for _, bad := range []string{`{"name":""}`, `{"name":"<b>x</b>"}`, `{"name":"x","kind":"kids"}`, `{"name":"x","pin":"1234"}`, `{"name":"` + strings.Repeat("a", 40) + `"}`} {
 		if code, _ := post(t, srv, "/api/v1/profiles", bad); code != http.StatusBadRequest {
 			t.Errorf("%s: %d", bad, code)
 		}
@@ -102,6 +105,118 @@ func TestProfilesAndSwitching(t *testing.T) {
 	if code, list := getAs(t, srv, subject, "/api/v1/profiles"); code != 200 || !strings.Contains(list, `"Partner"`) || !strings.Contains(list, `"Main"`) {
 		t.Errorf("profile list: %d %s", code, list)
 	}
+}
+
+func put(t *testing.T, srv *httptest.Server, method, path, body string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+	req.Header.Set("Remote-User", subject)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := client(srv, subject).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(b)
+}
+
+func TestKidsProfiles(t *testing.T) {
+	srv, fake := newServer(t)
+
+	if code, body := getAs(t, srv, subject, "/api/v1/ratings"); code != 200 || !strings.Contains(body, `[{"name":"G"},{"name":"PG"},{"name":"PG-13"}]`) {
+		t.Errorf("ratings, least mature first: %d %s", code, body)
+	}
+	for _, bad := range []string{`{"name":"Kid","kind":"kids"}`, `{"name":"Kid","kind":"kids","ratingCeiling":"X"}`,
+		`{"name":"Kid","ratingCeiling":"PG"}`, `{"name":"Kid","kind":"teen","ratingCeiling":"PG"}`} {
+		if code, _ := post(t, srv, "/api/v1/profiles", bad); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", bad, code)
+		}
+	}
+	code, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","ratingCeiling":"PG"}`)
+	if code != http.StatusCreated || !strings.Contains(body, `"ratingCeiling":"PG"`) {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	var kid struct{ ID string }
+	json.Unmarshal([]byte(body), &kid)
+	// The limit is in the same policy write as the lock-down.
+	if fake.policy["MaxParentalRating"] != 10.0 || fake.policy["IsHidden"] != true || fake.policy["BlockUnratedItems"] == nil {
+		t.Errorf("kids policy: %v", fake.policy)
+	}
+
+	// The owner's PIN guards limits once the owner has one.
+	if code, body := put(t, srv, "PUT", "/api/v1/profiles/"+ownerID(t, srv)+"/pin", `{"pin":"1234"}`); code != 204 {
+		t.Fatalf("set owner PIN: %d %s", code, body)
+	}
+	if code, body := put(t, srv, "PUT", "/api/v1/profiles/"+ownerID(t, srv)+"/pin", `{"pin":"9999"}`); code != 403 || !strings.Contains(body, "step-up-required") {
+		t.Errorf("changing a PIN: %d %s", code, body)
+	}
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"ratingCeiling":"PG-13"}`); code != 403 || !strings.Contains(body, "pin-required") {
+		t.Errorf("raise without PIN: %d %s", code, body)
+	}
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"ratingCeiling":"PG-13","pin":"0000"}`); code != 403 || !strings.Contains(body, "pin-incorrect") {
+		t.Errorf("raise with a wrong PIN: %d %s", code, body)
+	}
+	// Right PIN, but too soon after a wrong one.
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"ratingCeiling":"PG-13","pin":"1234"}`); code != 429 || !strings.Contains(body, `"retryAfter":1`) {
+		t.Errorf("right PIN too soon: %d %s", code, body)
+	}
+	time.Sleep(time.Second)
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"ratingCeiling":"PG-13","pin":"1234"}`); code != 200 || !strings.Contains(body, `"PG-13"`) {
+		t.Errorf("raise: %d %s", code, body)
+	}
+	if fake.policy["MaxParentalRating"] != 13.0 {
+		t.Errorf("policy after raising: %v", fake.policy)
+	}
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"kind":"standard","pin":"1234"}`); code != 200 || strings.Contains(body, "ratingCeiling") {
+		t.Errorf("graduate: %d %s", code, body)
+	}
+	if fake.policy["MaxParentalRating"] != nil {
+		t.Errorf("policy after graduating: %v", fake.policy)
+	}
+}
+
+func TestSwitchingNeedsThePIN(t *testing.T) {
+	srv, _ := newServer(t)
+	owner := ownerID(t, srv)
+	put(t, srv, "PUT", "/api/v1/profiles/"+owner+"/pin", `{"pin":"1234"}`)
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","ratingCeiling":"G"}`)
+	var kid struct{ ID string }
+	json.Unmarshal([]byte(body), &kid)
+
+	// Into an unprotected profile: no PIN.
+	if code, body := post(t, srv, "/api/v1/profiles/"+kid.ID+"/activate", `{}`); code != 200 {
+		t.Fatalf("activate kid: %d %s", code, body)
+	}
+	// A kids profile can't lock itself, nor manage another's PIN.
+	if code, _ := put(t, srv, "PUT", "/api/v1/profiles/"+kid.ID+"/pin", `{"pin":"5555"}`); code != 403 {
+		t.Errorf("kid set its own PIN: %d", code)
+	}
+	if code, body := post(t, srv, "/api/v1/profiles/"+owner+"/activate", `{}`); code != 403 || !strings.Contains(body, "pin-required") {
+		t.Errorf("back to the owner without PIN: %d %s", code, body)
+	}
+	if code, body := post(t, srv, "/api/v1/profiles/"+owner+"/activate", `{"pin":"1234"}`); code != 200 {
+		t.Errorf("back to the owner with PIN: %d %s", code, body)
+	}
+}
+
+func ownerID(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	_, body := getAs(t, srv, subject, "/api/v1/profiles")
+	var out struct {
+		Items []struct {
+			ID    string
+			Owner bool
+		}
+	}
+	json.Unmarshal([]byte(body), &out)
+	for _, p := range out.Items {
+		if p.Owner {
+			return p.ID
+		}
+	}
+	t.Fatal("no owner profile")
+	return ""
 }
 
 // A stream URL only works in the session that started the playback.

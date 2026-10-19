@@ -88,6 +88,8 @@ comes from the internet, and media files can be written by anyone.
 22. Each wrong PIN adds a growing delay. After a set number of wrong PINs
     (operator setting, default 5), PIN entry on that profile is blocked until
     the account owner logs in again through the identity provider.
+    *Until step-up exists, the threshold is fixed at 5 and the block lasts
+    15 minutes.*
 
 ### Authorization
 23. Every Overfin resource ID (profiles, playback sessions, stream tickets,

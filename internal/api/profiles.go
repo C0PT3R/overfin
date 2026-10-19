@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -8,6 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/C0PT3R/overfin/internal/images"
+	"github.com/C0PT3R/overfin/internal/jellyfin"
+	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/plugin"
 	"github.com/C0PT3R/overfin/internal/problem"
 	"github.com/C0PT3R/overfin/internal/provision"
@@ -20,6 +24,10 @@ type Profiles struct {
 	Sessions    *Sessions
 	Provisioner *provision.Provisioner
 	Store       *store.Store
+	PINs        *pin.Checker
+	// Images, when set, forgets a profile's image access when its limits
+	// change.
+	Images      *images.Pipeline
 	MaxProfiles int
 	// LogoutURL is where the site sends a user to also leave the identity
 	// provider; empty when there is none.
@@ -36,6 +44,9 @@ func (p Profiles) Register(r *plugin.Registrar) error {
 		"GET /api/v1/profiles/{id}":           p.get,
 		"PATCH /api/v1/profiles/{id}":         p.update,
 		"POST /api/v1/profiles/{id}/activate": p.activate,
+		"PUT /api/v1/profiles/{id}/pin":       p.setPIN,
+		"DELETE /api/v1/profiles/{id}/pin":    p.removePIN,
+		"GET /api/v1/ratings":                 p.ratings,
 		"GET /api/v1/sessions":                p.sessions,
 		"DELETE /api/v1/sessions":             p.endOtherSessions,
 		"DELETE /api/v1/sessions/{id}":        p.endSession,
@@ -80,9 +91,13 @@ func (p Profiles) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type profileRequest struct {
-	Name     *string `json:"name"`
-	Kind     *string `json:"kind"`
-	Language *string `json:"language"`
+	Name          *string `json:"name"`
+	Kind          *string `json:"kind"`
+	Language      *string `json:"language"`
+	RatingCeiling *string `json:"ratingCeiling"`
+	// PIN is the owner's PIN, needed to change a profile's limits when the
+	// owner has one.
+	PIN string `json:"pin"`
 }
 
 var languageTagRe = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
@@ -92,9 +107,52 @@ func validName(s string) bool {
 	return s != "" && len(s) <= 32 && utf8.ValidString(s) && textclean.Plain(s, 32) == s
 }
 
+// errUnknownRating: a rating ceiling the server doesn't know.
+var errUnknownRating = errors.New("unknown rating")
+
+// rating finds a rating by name among the server's ratings.
+func (p Profiles) rating(ctx context.Context, name string) (*jellyfin.Rating, error) {
+	all, err := p.Provisioner.Ratings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range all {
+		if r.Name == name {
+			return &r, nil
+		}
+	}
+	return nil, errUnknownRating
+}
+
+// ratings lists the rating names a kids profile's ceiling can be, from least
+// to most mature.
+func (p Profiles) ratings(w http.ResponseWriter, r *http.Request) {
+	if p.Sessions.Current(w, r) == nil {
+		return
+	}
+	all, err := p.Provisioner.Ratings(r.Context())
+	if err != nil {
+		p.Logger.Error("listing ratings failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	type ratingJSON struct {
+		Name string `json:"name"`
+	}
+	out := []ratingJSON{}
+	seen := map[string]bool{}
+	for _, rt := range all {
+		if !seen[rt.Name] && validName(rt.Name) {
+			seen[rt.Name] = true
+			out = append(out, ratingJSON{rt.Name})
+		}
+	}
+	writeOK(w, map[string]any{"items": out})
+}
+
 func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 	var req profileRequest
-	if !decode(r, &req) || req.Name == nil || !validName(*req.Name) ||
+	if !decode(r, &req) || req.Name == nil || !validName(*req.Name) || req.PIN != "" ||
 		(req.Language != nil && !languageTagRe.MatchString(*req.Language)) {
 		problem.Send(w, problem.InvalidRequest, "")
 		return
@@ -103,9 +161,9 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 	if req.Kind != nil {
 		kind = *req.Kind
 	}
-	if kind != "standard" {
-		// Kids profiles arrive with rating ceilings and PINs.
-		problem.Send(w, problem.InvalidRequest, "only standard profiles for now")
+	// A kids profile needs a ceiling; any other profile can't have one.
+	if (kind != "standard" && kind != "kids") || (kind == "kids") != (req.RatingCeiling != nil) {
+		problem.Send(w, problem.InvalidRequest, "")
 		return
 	}
 	c := p.Sessions.Current(w, r)
@@ -120,7 +178,20 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 	if req.Language != nil {
 		np.Language = *req.Language
 	}
-	prof, err := p.Provisioner.AddProfile(r.Context(), c.Account.ID, np, p.MaxProfiles)
+	var ceiling *jellyfin.Rating
+	if req.RatingCeiling != nil {
+		var err error
+		if ceiling, err = p.rating(r.Context(), *req.RatingCeiling); errors.Is(err, errUnknownRating) {
+			problem.Send(w, problem.InvalidRequest, "unknown rating")
+			return
+		} else if err != nil {
+			p.Logger.Error("listing ratings failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+		np.RatingCeiling = ceiling.Name
+	}
+	prof, err := p.Provisioner.AddProfile(r.Context(), c.Account.ID, np, ceiling, p.MaxProfiles)
 	switch {
 	case errors.Is(err, store.ErrNameTaken):
 		problem.Send(w, problem.NameTaken, "")
@@ -138,9 +209,11 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 
 func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	var req profileRequest
-	if !decode(r, &req) || req.Kind != nil || (req.Name == nil && req.Language == nil) ||
+	if !decode(r, &req) ||
+		(req.Name == nil && req.Language == nil && req.Kind == nil && req.RatingCeiling == nil) ||
 		(req.Name != nil && !validName(*req.Name)) ||
-		(req.Language != nil && *req.Language != "" && !languageTagRe.MatchString(*req.Language)) {
+		(req.Language != nil && *req.Language != "" && !languageTagRe.MatchString(*req.Language)) ||
+		(req.Kind != nil && *req.Kind != "standard" && *req.Kind != "kids") {
 		problem.Send(w, problem.InvalidRequest, "")
 		return
 	}
@@ -150,13 +223,21 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	id := r.PathValue("id")
-	if _, err := p.Store.Profile(ctx, c.Account.ID, id); err != nil {
+	pr, err := p.Store.Profile(ctx, c.Account.ID, id)
+	if err != nil {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
 	if !c.IsOwner() {
 		problem.Send(w, problem.OwnerOnly, "")
 		return
+	}
+	// Limits first: they can fail on the PIN, and nothing else should
+	// change then.
+	if req.Kind != nil || req.RatingCeiling != nil {
+		if !p.changeLimits(w, r, c, pr, req) {
+			return
+		}
 	}
 	if req.Name != nil {
 		if err := p.Store.RenameProfile(ctx, c.Account.ID, id, *req.Name); errors.Is(err, store.ErrNameTaken) {
@@ -173,16 +254,186 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	pr, err := p.Store.Profile(ctx, c.Account.ID, id)
-	if err != nil {
+	if pr, err = p.Store.Profile(ctx, c.Account.ID, id); err != nil {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
 	writeOK(w, toProfileJSON(pr))
 }
 
-// activate switches this session to a profile. PINs arrive with kids
-// profiles; until then no profile has one.
+// changeLimits makes a profile a kids profile, changes its rating ceiling, or
+// makes it a standard profile again. Only the owner can, with the owner's PIN
+// if there is one. It writes the problem and returns false on failure.
+func (p Profiles) changeLimits(w http.ResponseWriter, r *http.Request, c *Caller, pr *store.Profile, req profileRequest) bool {
+	ctx := r.Context()
+	if pr.Owner {
+		problem.Send(w, problem.InvalidRequest, "the owner profile has no limits")
+		return false
+	}
+	kind := pr.Kind
+	if req.Kind != nil {
+		kind = *req.Kind
+	}
+	name := pr.RatingCeiling
+	if req.RatingCeiling != nil {
+		name = *req.RatingCeiling
+	}
+	if kind == "standard" {
+		if req.RatingCeiling != nil {
+			problem.Send(w, problem.InvalidRequest, "a standard profile has no rating ceiling")
+			return false
+		}
+		name = ""
+	}
+	var ceiling *jellyfin.Rating
+	if kind == "kids" {
+		var err error
+		if ceiling, err = p.rating(ctx, name); errors.Is(err, errUnknownRating) {
+			problem.Send(w, problem.InvalidRequest, "unknown rating")
+			return false
+		} else if err != nil {
+			p.Logger.Error("listing ratings failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return false
+		}
+	}
+	if !p.checkPIN(w, ctx, c.Account.ID, c.Owner.ID, req.PIN) {
+		return false
+	}
+
+	// Whatever fails half-way must leave the profile limited: Jellyfin
+	// enforces the limit, so it is tightened before the record changes,
+	// and loosened only after.
+	restrict := func() bool {
+		if err := p.Provisioner.Restrict(ctx, pr.JellyfinUserID, ceiling); err != nil {
+			p.Logger.Error("changing a profile's limits failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return false
+		}
+		return true
+	}
+	record := func() bool {
+		if err := p.Store.SetKind(ctx, c.Account.ID, pr.ID, kind, name); err != nil {
+			problem.Send(w, problem.NotFound, "")
+			return false
+		}
+		return true
+	}
+	ok := false
+	if ceiling != nil {
+		ok = restrict() && record()
+	} else {
+		ok = record() && restrict()
+	}
+	if p.Images != nil {
+		p.Images.Forget(pr.ID)
+	}
+	return ok
+}
+
+// checkPIN checks a profile's PIN. It writes the problem and returns false
+// when the PIN is missing, wrong or can't be tried yet.
+func (p Profiles) checkPIN(w http.ResponseWriter, ctx context.Context, accountID, profileID, given string) bool {
+	err := p.PINs.Check(ctx, accountID, profileID, given)
+	var wait *pin.WaitError
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, pin.ErrRequired):
+		problem.Send(w, problem.PINRequired, "")
+	case errors.Is(err, pin.ErrIncorrect):
+		problem.Send(w, problem.PINIncorrect, "")
+	case errors.As(err, &wait):
+		t := problem.RateLimited
+		if wait.Locked {
+			t = problem.PINLocked
+		}
+		pb := problem.New(t, "")
+		pb.RetryAfter = int((wait.Wait + time.Second - 1) / time.Second)
+		problem.Write(w, pb)
+	case errors.Is(err, store.ErrNotFound):
+		problem.Send(w, problem.NotFound, "")
+	default:
+		p.Logger.Error("checking a PIN failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+	}
+	return false
+}
+
+// pinAllowed reports whether the caller may set a profile's PIN: the owner
+// for any profile, a standard profile for itself. Kids profiles can't lock
+// themselves.
+func pinAllowed(c *Caller, pr *store.Profile) bool {
+	return c.IsOwner() || (pr.ID == c.Profile.ID && c.Profile.Kind == "standard")
+}
+
+// setPIN gives a profile a PIN. Changing an existing one needs a fresh login
+// (rule 21), which isn't available yet: until then a PIN can only be set
+// where there is none.
+func (p Profiles) setPIN(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PIN      string `json:"pin"`
+		OwnerPIN string `json:"ownerPin"`
+	}
+	if !decode(r, &req) || !pin.Valid(req.PIN) {
+		problem.Send(w, problem.InvalidRequest, "a PIN is 4 to 8 digits")
+		return
+	}
+	c := p.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	ctx := r.Context()
+	pr, err := p.Store.Profile(ctx, c.Account.ID, r.PathValue("id"))
+	if err != nil {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	if !pinAllowed(c, pr) {
+		problem.Send(w, problem.OwnerOnly, "")
+		return
+	}
+	if pr.HasPIN {
+		problem.Send(w, problem.StepUpRequired, "changing a PIN needs a fresh login, which isn't available yet")
+		return
+	}
+	// The owner protecting someone else's profile proves it's the owner.
+	if !pr.Owner && c.IsOwner() && !p.checkPIN(w, ctx, c.Account.ID, c.Owner.ID, req.OwnerPIN) {
+		return
+	}
+	if err := p.Store.SetPIN(ctx, c.Account.ID, pr.ID, p.PINs.Hash(pr.ID, req.PIN)); errors.Is(err, store.ErrPINExists) {
+		problem.Send(w, problem.StepUpRequired, "changing a PIN needs a fresh login, which isn't available yet")
+		return
+	} else if err != nil {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// removePIN needs a fresh login (rule 21), which isn't available yet.
+func (p Profiles) removePIN(w http.ResponseWriter, r *http.Request) {
+	c := p.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	pr, err := p.Store.Profile(r.Context(), c.Account.ID, r.PathValue("id"))
+	if err != nil {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	if !pinAllowed(c, pr) {
+		problem.Send(w, problem.OwnerOnly, "")
+		return
+	}
+	if !pr.HasPIN {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	problem.Send(w, problem.StepUpRequired, "removing a PIN needs a fresh login, which isn't available yet")
+}
+
+// activate switches this session to a profile, with its PIN if it has one.
 func (p Profiles) activate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PIN string `json:"pin"`
@@ -195,13 +446,17 @@ func (p Profiles) activate(w http.ResponseWriter, r *http.Request) {
 	if c == nil {
 		return
 	}
+	ctx := r.Context()
 	id := r.PathValue("id")
-	pr, err := p.Store.Profile(r.Context(), c.Account.ID, id)
+	pr, err := p.Store.Profile(ctx, c.Account.ID, id)
 	if err != nil {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	if err := p.Store.SetActiveProfile(r.Context(), c.Session.ID, c.Account.ID, id); err != nil {
+	if id != c.Profile.ID && !p.checkPIN(w, ctx, c.Account.ID, id, req.PIN) {
+		return
+	}
+	if err := p.Store.SetActiveProfile(ctx, c.Session.ID, c.Account.ID, id); err != nil {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}

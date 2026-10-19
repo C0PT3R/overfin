@@ -19,6 +19,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
+	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/playback"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
@@ -94,7 +95,8 @@ func run(logger *slog.Logger) error {
 	}
 
 	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
-	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger}
+	imgs := images.New(jf, 64<<20)
+	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, Images: imgs, CursorKey: k.Cursor, Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(24 * time.Hour),
 		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
 		MaxStreams: cfg.Limits.MaxStreamsPerAccount, MaxTranscodes: cfg.Limits.MaxTranscodesTotal,
@@ -102,6 +104,7 @@ func run(logger *slog.Logger) error {
 	handler, err := server.New(logger, ids,
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
+			PINs: &pin.Checker{Key: k.PIN, Store: db}, Images: imgs,
 			LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 		lib, pb, api.Stream{Playback: pb},
 	)

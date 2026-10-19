@@ -59,9 +59,15 @@ info:
     **Language.** Metadata comes in the language of the `Accept-Language`
     header, unless the active profile sets its own.
 
-    **Step-up.** Some actions need a fresh confirmation. Overfin then answers
-    with a `step-up-required` error naming what is needed (`pin` or `login`)
-    and, for a login, a `stepUpUrl` to send the user to. After confirming, the
+    **PINs.** Frequent sensitive actions need a profile's PIN, sent in the
+    request. A missing PIN gives `pin-required`, a wrong one `pin-incorrect`
+    (both 403). Each wrong PIN makes the next attempt wait longer
+    (`rate-limited`, 429), and several in a row lock the PIN (`pin-locked`,
+    403); both carry `retryAfter` in seconds, also sent as `Retry-After`.
+
+    **Step-up.** Some actions need a fresh login. Overfin then answers
+    with a `step-up-required` error naming what is needed (`login`)
+    and a `stepUpUrl` to send the user to. After confirming, the
     client retries the same request. A confirmed login stays fresh for a few
     minutes. After a login or step-up, users are only ever sent back to the
     same origin or to an origin the operator allows, never to an address
@@ -338,6 +344,32 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /ratings:
+    get:
+      operationId: listRatings
+      summary: List the age ratings a kids profile's ceiling can be
+      description: The media server's ratings for its configured country,
+        least mature first.
+      tags: [profiles]
+      responses:
+        "200":
+          description: The ratings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                          examples: [PG]
+
   /profiles/{profileId}:
     parameters:
       - $ref: "#/components/parameters/ProfileId"
@@ -380,6 +412,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
     delete:
       operationId: deleteProfile
       summary: Delete a profile and its history
@@ -400,7 +434,8 @@ paths:
     post:
       operationId: activateProfile
       summary: Switch this session to a profile ("Who's watching?")
-      description: Needs the profile's PIN when it has one.
+      description: Needs the profile's PIN when it has one, unless the session
+        already uses that profile.
       tags: [profiles]
       requestBody:
         content:
@@ -421,6 +456,8 @@ paths:
           $ref: "#/components/responses/StepUpRequired"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /profiles/{profileId}/pin:
     parameters:
@@ -428,8 +465,11 @@ paths:
     put:
       operationId: setProfilePin
       summary: Set or change a profile's PIN
-      description: Owner profile only. Changing an existing PIN needs a fresh
-        login.
+      description: The owner profile can set any profile's PIN; a standard
+        profile can set its own; a kids profile can't. Setting another
+        profile's PIN needs `ownerPin` when the owner profile has a PIN.
+        Changing an existing PIN needs a fresh login (not available yet, so
+        always `step-up-required`).
       tags: [profiles]
       requestBody:
         required: true
@@ -441,6 +481,8 @@ paths:
               properties:
                 pin:
                   $ref: "#/components/schemas/Pin"
+                ownerPin:
+                  $ref: "#/components/schemas/Pin"
       responses:
         "204":
           description: The PIN is set.
@@ -451,7 +493,8 @@ paths:
     delete:
       operationId: removeProfilePin
       summary: Remove a profile's PIN
-      description: Owner profile only, and needs a fresh login.
+      description: Same profiles as setting it, and needs a fresh login (not
+        available yet; always `step-up-required` when there is a PIN).
       tags: [profiles]
       responses:
         "204":
@@ -1849,6 +1892,10 @@ components:
           type: string
           description: Human-readable explanation of this occurrence. Never
             parse it.
+        retryAfter:
+          type: integer
+          description: For `rate-limited` and `pin-locked`, seconds to wait
+            before trying again.
         stepUp:
           type: string
           description: For `step-up-required`, what is needed. Open set.
@@ -1978,17 +2025,21 @@ components:
 
     ProfileCreate:
       type: object
-      required: [name, kind]
+      required: [name]
       properties:
         name:
           $ref: "#/components/schemas/ProfileName"
         kind:
           type: string
           enum: [standard, kids]
+          default: standard
         language:
           type: string
         ratingCeiling:
           type: string
+          description: Required for a kids profile, refused for any other;
+            one of the names from `GET /ratings`. Items above it, and unrated
+            items, are hidden from the profile by the media server itself.
 
     ProfileUpdate:
       description: Only the fields sent are changed.
@@ -3184,9 +3235,16 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
     StepUpRequired:
-      description: A fresh confirmation is needed (`step-up-required`); see
-        `stepUp` and `stepUpUrl`. Also used for a wrong PIN (`pin-incorrect`)
-        and a locked PIN (`pin-locked`).
+      description: A fresh login is needed (`step-up-required`; see
+        `stepUp` and `stepUpUrl`), or a PIN is missing (`pin-required`),
+        wrong (`pin-incorrect`) or locked (`pin-locked`, with `retryAfter`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    RateLimited:
+      description: Too many attempts (`rate-limited`); `retryAfter` and the
+        `Retry-After` header say when to try again.
       content:
         application/problem+json:
           schema:
@@ -3200,7 +3258,8 @@ components:
             $ref: "#/components/schemas/Problem"
     StepUpOrOwnerOnly:
       description: Either a fresh confirmation is needed
-        (`step-up-required`, `pin-incorrect`, `pin-locked`), or only the
+        (`step-up-required`, `pin-required`, `pin-incorrect`, `pin-locked`),
+        or only the
         account's owner profile may do this (`owner-only`).
       content:
         application/problem+json:

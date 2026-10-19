@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -219,7 +220,7 @@ func (p *Provisioner) existing(ctx context.Context, subject string) (*store.Acco
 }
 
 func (p *Provisioner) create(ctx context.Context, subject string) (*store.Account, *store.Profile, error) {
-	u, rollback, err := p.newJellyfinUser(ctx)
+	u, rollback, err := p.newJellyfinUser(ctx, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -235,8 +236,10 @@ func (p *Provisioner) create(ctx context.Context, subject string) (*store.Accoun
 }
 
 // AddProfile creates another profile in an account, with its own Jellyfin
-// user, so its watch history and limits are its own.
-func (p *Provisioner) AddProfile(ctx context.Context, accountID string, np store.NewProfile, maxProfiles int) (*store.Profile, error) {
+// user, so its watch history and limits are its own. A kids profile gets its
+// rating ceiling in the same policy write as the lock-down: it never exists
+// without its limit, even for a moment.
+func (p *Provisioner) AddProfile(ctx context.Context, accountID string, np store.NewProfile, ceiling *jellyfin.Rating, maxProfiles int) (*store.Profile, error) {
 	// Check first, so a refusal doesn't create and delete a Jellyfin user.
 	existing, err := p.Store.Profiles(ctx, accountID)
 	if err != nil {
@@ -251,7 +254,11 @@ func (p *Provisioner) AddProfile(ctx context.Context, accountID string, np store
 		}
 	}
 
-	u, rollback, err := p.newJellyfinUser(ctx)
+	var restrict func(jellyfin.Policy)
+	if ceiling != nil {
+		restrict = func(pol jellyfin.Policy) { pol.LimitTo(*ceiling) }
+	}
+	u, rollback, err := p.newJellyfinUser(ctx, restrict)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +278,7 @@ type jellyfinUser struct {
 // newJellyfinUser creates a locked-down Jellyfin user with an opaque name and
 // a random password, logs in once to get its token, and forgets the
 // password. rollback deletes the user again, for when a later step fails.
-func (p *Provisioner) newJellyfinUser(ctx context.Context) (_ jellyfinUser, rollback func(), err error) {
+func (p *Provisioner) newJellyfinUser(ctx context.Context, restrict func(jellyfin.Policy)) (_ jellyfinUser, rollback func(), err error) {
 	username := "of-" + randomName()
 	password := randomSecret()
 	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
@@ -295,6 +302,9 @@ func (p *Provisioner) newJellyfinUser(ctx context.Context) (_ jellyfinUser, roll
 		return jellyfinUser{}, nil, err
 	}
 	policy.LockDown()
+	if restrict != nil {
+		restrict(policy)
+	}
 	if err = p.Jellyfin.SetUserPolicy(ctx, admin, userID, policy); err != nil {
 		return jellyfinUser{}, nil, err
 	}
@@ -309,6 +319,34 @@ func (p *Provisioner) newJellyfinUser(ctx context.Context) (_ jellyfinUser, roll
 		return jellyfinUser{}, nil, errors.New("provision: logged in as a different user than created")
 	}
 	return jellyfinUser{ID: userID, Username: username, Token: token}, undo, nil
+}
+
+// Restrict sets or lifts a profile's rating ceiling on its Jellyfin user;
+// nil lifts it. Jellyfin enforces it from then on, for every request made
+// with that profile's token.
+func (p *Provisioner) Restrict(ctx context.Context, jellyfinUserID string, ceiling *jellyfin.Rating) error {
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	policy, err := p.Jellyfin.UserPolicy(ctx, admin, jellyfinUserID)
+	if err != nil {
+		return err
+	}
+	if ceiling != nil {
+		policy.LimitTo(*ceiling)
+	} else {
+		policy.Unlimited()
+	}
+	return p.Jellyfin.SetUserPolicy(ctx, admin, jellyfinUserID, policy)
+}
+
+// Ratings lists the server's parental ratings, from least to most mature.
+func (p *Provisioner) Ratings(ctx context.Context) ([]jellyfin.Rating, error) {
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	rs, err := p.Jellyfin.ParentalRatings(ctx, admin)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(rs, func(i, j int) bool { return rs[i].Score < rs[j].Score })
+	return rs, nil
 }
 
 // DeviceID is the stable Jellyfin device ID of a profile's Jellyfin user.

@@ -8,6 +8,7 @@ package problem
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 )
 
 // Type is a stable, machine-readable error name.
@@ -43,7 +44,16 @@ const (
 	InvalidRequest       Type = "invalid-request"
 	InvalidCursor        Type = "invalid-cursor"
 	RateLimited          Type = "rate-limited"
-	Internal             Type = "internal-error"
+	// PINRequired: the profile has a PIN and none was given. PINIncorrect:
+	// a wrong PIN. PINLocked: too many wrong PINs; retryAfter says when
+	// another attempt is possible.
+	PINRequired  Type = "pin-required"
+	PINIncorrect Type = "pin-incorrect"
+	PINLocked    Type = "pin-locked"
+	// StepUpRequired: the action needs a fresh login with the identity
+	// provider.
+	StepUpRequired Type = "step-up-required"
+	Internal       Type = "internal-error"
 )
 
 type info struct {
@@ -75,6 +85,10 @@ var registry = map[Type]info{
 	InvalidRequest:       {http.StatusBadRequest, "Invalid request"},
 	InvalidCursor:        {http.StatusBadRequest, "Invalid cursor"},
 	RateLimited:          {http.StatusTooManyRequests, "Too many requests"},
+	PINRequired:          {http.StatusForbidden, "This profile is protected by a PIN"},
+	PINIncorrect:         {http.StatusForbidden, "Wrong PIN"},
+	PINLocked:            {http.StatusForbidden, "Too many wrong PINs; try again later"},
+	StepUpRequired:       {http.StatusForbidden, "Please log in again to do this"},
 	Internal:             {http.StatusInternalServerError, "Internal error"},
 }
 
@@ -87,6 +101,9 @@ type Problem struct {
 	Detail string `json:"detail,omitempty"`
 	// TakenOverBy names the device that took over a playback.
 	TakenOverBy string `json:"takenOverBy,omitempty"`
+	// RetryAfter is how many seconds to wait before trying again; it is
+	// also sent as the Retry-After header.
+	RetryAfter int `json:"retryAfter,omitempty"`
 }
 
 // New returns the problem for t, with an optional human-readable detail.
@@ -105,6 +122,9 @@ func New(t Type, detail string) Problem {
 // Write sends p as the response.
 func Write(w http.ResponseWriter, p Problem) {
 	w.Header().Set("Content-Type", "application/problem+json")
+	if p.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(p.RetryAfter))
+	}
 	w.WriteHeader(p.Status)
 	_ = json.NewEncoder(w).Encode(p)
 }

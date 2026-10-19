@@ -104,3 +104,54 @@ func (c *Client) Authenticate(ctx context.Context, deviceID, username, password 
 	}
 	return out.AccessToken, id, nil
 }
+
+// Rating is one parental rating the server knows, such as "PG-13".
+type Rating struct {
+	Name     string
+	Score    int
+	SubScore *int
+}
+
+// ParentalRatings lists the ratings the server uses, for its configured
+// country.
+func (c *Client) ParentalRatings(ctx context.Context, a Auth) ([]Rating, error) {
+	var raw []struct {
+		Name        string
+		Value       *int
+		RatingScore *struct {
+			Score    int  `json:"score"`
+			SubScore *int `json:"subScore"`
+		}
+	}
+	if err := c.do(ctx, "parental ratings", http.MethodGet, "/Localization/ParentalRatings", a, nil, &raw); err != nil {
+		return nil, err
+	}
+	var out []Rating
+	for _, r := range raw {
+		switch {
+		case r.RatingScore != nil:
+			out = append(out, Rating{Name: r.Name, Score: r.RatingScore.Score, SubScore: r.RatingScore.SubScore})
+		case r.Value != nil:
+			out = append(out, Rating{Name: r.Name, Score: *r.Value})
+		}
+	}
+	return out, nil
+}
+
+// unratedTypes are all the item types Jellyfin can block when unrated.
+var unratedTypes = []string{"Movie", "Trailer", "Series", "Music", "Book", "LiveTvChannel", "LiveTvProgram", "ChannelContent", "Other"}
+
+// LimitTo restricts a policy to a rating ceiling. Unrated items of every
+// type are blocked too: a film missing its rating fails closed.
+func (p Policy) LimitTo(r Rating) {
+	p["MaxParentalRating"] = r.Score
+	p["MaxParentalSubRating"] = r.SubScore
+	p["BlockUnratedItems"] = unratedTypes
+}
+
+// Unlimited removes any rating ceiling.
+func (p Policy) Unlimited() {
+	p["MaxParentalRating"] = nil
+	p["MaxParentalSubRating"] = nil
+	p["BlockUnratedItems"] = []string{}
+}
