@@ -90,9 +90,10 @@ comes from the internet, and media files can be written by anyone.
     deletion, exporting the whole account, PIN reset) require a fresh login
     through the identity provider. Frequent sensitive actions (switching to a
     PIN-protected profile, changing a kids profile's rating ceiling or turning
-    it into a standard profile) require the PIN. A profile exporting only its
-    own data needs its own PIN, if it has one: the people using other
-    profiles don't know the account's login.
+    it into a standard profile) require the PIN. A standard profile exporting
+    only its own data needs its own PIN, if it has one: the people using
+    other profiles don't know the account's login. Kids profiles can't export
+    themselves; their data is in the owner's export.
 22. Each wrong PIN adds a growing delay. After a set number of wrong PINs
     (operator setting, default 5), PIN entry on that profile is blocked until
     the account owner logs in again through the identity provider.

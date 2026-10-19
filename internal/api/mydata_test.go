@@ -104,3 +104,13 @@ func TestExportFromAnotherProfile(t *testing.T) {
 		t.Errorf("with the PIN: %d", code)
 	}
 }
+
+func TestKidsCantExport(t *testing.T) {
+	srv, _ := newServer(t)
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","ratingCeiling":"G"}`)
+	kid := between(body, `"id":"`, `"`)
+	post(t, srv, "/api/v1/profiles/"+kid+"/activate", `{}`)
+	if code, body := post(t, srv, "/api/v1/me/export", `{}`); code != 403 || !strings.Contains(body, "owner-only") {
+		t.Errorf("kids export: %d %s", code, body)
+	}
+}

@@ -292,7 +292,8 @@ paths:
         needs a fresh login. From any other profile, it covers only that
         profile's own data, since profiles are private from each other, and
         needs that profile's `pin` if it has one (the people using other
-        profiles don't know the account's login). Secrets (tokens, PIN
+        profiles don't know the account's login). Kids profiles get
+        `owner-only`: their data is in the owner's export. Secrets (tokens, PIN
         hashes, keys) are never included. Each profile's watch history
         (watched, in progress, favorites, with external IDs) is read from the
         media server for the download; Overfin doesn't keep it.

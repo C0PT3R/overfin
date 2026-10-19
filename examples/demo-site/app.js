@@ -286,8 +286,9 @@ function accountPage() {
       : 'Your account and your watch history are deleted.');
     location.href = '/';
   }) }, 'Delete my account');
+  const kids = state.me.activeProfile.kind === 'kids';
   render(h('div', { class: 'center' }, h('h1', {}, 'Account'),
-    h('div', { class: 'panel' },
+    !kids && h('div', { class: 'panel' },
       h('p', {}, owner ? 'Everything this service holds about your account, with your watch history.'
         : 'Everything this service holds about this profile, with its watch history.'), download),
     remove && h('div', { class: 'panel' }, h('p', {}, 'Delete your account, its profiles and their history.'), remove),

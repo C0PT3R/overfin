@@ -119,7 +119,8 @@ type exportSessionJSON struct {
 // account holder's fresh login; a profile's own data needs only that
 // profile's PIN, if it has one: the people using other profiles don't know
 // the account's login, and without a PIN the profile is open to anyone at
-// the device anyway.
+// the device anyway. Kids profiles can't export themselves: their data is
+// in the owner's export.
 func (a Account) export(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PIN string `json:"pin"`
@@ -130,6 +131,12 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 	}
 	c := a.Sessions.Current(w, r)
 	if c == nil {
+		return
+	}
+	if c.Profile.Kind == "kids" {
+		// A child's data is the account holder's to handle: it's in the
+		// owner's whole-account export.
+		problem.Send(w, problem.OwnerOnly, "")
 		return
 	}
 	if c.IsOwner() {
