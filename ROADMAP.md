@@ -132,6 +132,24 @@ SDK part, so operators build the admin page they want.
 - **Jellyfin companion plugin**, only where the Jellyfin API falls short.
 - **A full reference website**, possibly growing out of the demo site.
 
+## Companion projects
+
+Features that need data Overfin doesn't keep (SECURITY.md rule 46) belong in
+separate projects, with their own storage and their own rules for it. The
+first idea: a reusable **social service** (friends, posts, lists, comments),
+built on Overfin without changing it:
+
+- It logs users in with the same identity provider, so it knows the same
+  user IDs without asking Overfin.
+- It refers to titles by Overfin's item IDs and stores no metadata; sites
+  fetch titles and posters from Overfin.
+- **Visibility:** before showing anything that names a title, the site looks
+  the item up through Overfin as the viewer, and hides it on `not-found`. A
+  kids profile, or a viewer without access to a library, never learns of a
+  title through a friend; Overfin's per-profile limits protect the feed too.
+- Overfin's part: document that item IDs are stable while Jellyfin keeps the
+  item, so they're safe to store elsewhere.
+
 ## Open questions
 
 - Step-up checks the login time in the ID token rather than trusting
