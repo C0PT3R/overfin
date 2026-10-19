@@ -419,23 +419,27 @@ async function playerPage(itemId, params) {
     h('div', { class: 'bar' },
       h('button', { onclick: () => history.back() }, '← Back'), title, audio, subs));
   render(box);
-  await startStream({ itemId, positionMs: startMs, video, title, audio, subs, skip, box });
+  await startStream({ itemId, positionMs: startMs, choice: {}, video, title, audio, subs, skip, box });
 }
 
-async function startStream(ctx, choice = {}) {
+// startStream starts (or restarts) the playback described by ctx: the item,
+// where to start, and the audio and subtitle choice.
+async function startStream(ctx, choice) {
   const { itemId, video, title, audio, subs, skip, box } = ctx;
+  if (choice) ctx.choice = { ...ctx.choice, ...choice };
   await stopCurrent();
+  box.querySelector('.notice')?.remove();
   let pb;
   try {
     pb = await api('POST', '/playback', {
-      itemId, capabilities: capabilities(), startPositionMs: Math.round(ctx.positionMs), ...choice,
+      itemId, capabilities: capabilities(), startPositionMs: Math.round(ctx.positionMs), ...ctx.choice,
     });
   } catch (err) {
     box.append(h('div', { class: 'notice' }, h('div', {}, h('p', {}, explain(err)),
       h('button', { onclick: () => history.back() }, 'Back'))));
     return;
   }
-  const me = { pb, video, hls: null, timer: null, stopped: false };
+  const me = { pb, ctx, video, hls: null, timer: null, stopped: false, pausedAt: 0 };
   current = me;
   title.textContent = pb.item.name + (pb.method !== 'direct' ? ` · ${pb.method}` : '');
 
@@ -492,23 +496,43 @@ async function startStream(ctx, choice = {}) {
       .catch((err) => ended(me, err));
   };
   me.timer = setInterval(() => { if (!video.paused) report(); }, 10000);
-  video.onpause = () => report();
+  video.onpause = () => { me.pausedAt = Date.now(); report(); };
+  // After a long pause the server has likely freed the stream; check, and
+  // recover at once if so.
+  video.onplay = () => {
+    if (me.pausedAt && Date.now() - me.pausedAt > 90000) checkEnded(me);
+    me.pausedAt = 0;
+  };
   video.onseeked = () => report();
   video.onended = () => { report({ ended: true }); stopCurrent(); };
 }
 
-// ended shows why a playback stopped on the server: taken over by another
-// device, expired, or stopped.
+// ended handles a playback the server no longer has. Freed after a pause or
+// a lost connection: start again at the same place, without a word. Taken
+// over by another device: say so, and offer to continue here.
 function ended(me, err) {
   if (me !== current || err.status !== 410) return;
+  const { ctx, video } = me;
   const p = err.problem;
+  ctx.positionMs = video.currentTime * 1000;
+  if (p.type === 'playback-expired') {
+    const wasPlaying = !video.paused;
+    cleanup(me);
+    current = null;
+    video.autoplay = wasPlaying;
+    startStream(ctx);
+    return;
+  }
+  cleanup(me);
+  current = null;
+  video.pause();
   const text = p.type === 'playback-taken-over'
     ? `Playback continued on ${p.takenOverBy || 'another device'}.`
     : explain(err);
-  cleanup(me);
-  me.video.pause();
-  me.video.closest('.player')?.append(h('div', { class: 'notice' },
-    h('div', {}, h('p', {}, text), h('button', { onclick: () => history.back() }, 'Back'))));
+  ctx.box.append(h('div', { class: 'notice' }, h('div', {}, h('p', {}, text),
+    h('div', { class: 'actions' },
+      h('button', { class: 'primary', onclick: () => { video.autoplay = true; startStream(ctx); } }, 'Continue here'),
+      h('button', { onclick: () => history.back() }, 'Back')))));
 }
 
 async function checkEnded(me) {
