@@ -76,7 +76,31 @@ Jellyfin server, using only the public API.
 5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done:
    [examples/demo-site](examples/demo-site).
 
-## Designed, to implement after milestone 1
+## Milestone 2: administration
+
+A private admin side, to run an instance without touching Jellyfin's
+dashboard, where Overfin's users only appear under pseudonyms. Its own
+listener, never on the internet (SECURITY.md rule 58), with its own API and
+SDK part, so operators build the admin page they want.
+
+1. The admin listener: private addresses only, admin group, step-up for
+   every change, an admin part of the JavaScript SDK.
+2. Users: list and search accounts with their profiles, disable, re-enable,
+   delete (with their Jellyfin users), account expiry, per-account limits,
+   PIN-lock resets, sessions, adoption of existing Jellyfin users, labels.
+3. Invites: links with an expiry, a number of uses and a template (profiles,
+   kids limits, stream limit, account expiry); optionally, accounts only by
+   invite.
+4. Live view: who's watching, method and bitrate, transcode load; stopping a
+   stream; history and activity read live from Jellyfin, never stored.
+5. Identity provider connectors, optional: Authentik first (create users,
+   groups, password-reset emails, disable), so user management needs no
+   trip to the provider's own admin pages. Their tokens are used only by the
+   admin side.
+6. Notices, off by default: invite used, account expiring (email, webhook),
+   carrying account events only, never viewing activity.
+
+## Designed, to implement later
 
 - TMDB catalog plugin: discover, catalog titles, curated lists.
 - Seerr requests plugin: requests, quotas, problem reports.
@@ -101,8 +125,6 @@ Jellyfin server, using only the public API.
   with TypeScript types), for native apps.
 - **Jellyfin 10.11 adapter**, so servers that haven't upgraded aren't left
   behind.
-- **Overfin's own administration**, on a separate listener for the
-  operator's private network only (SECURITY.md rule 58).
 - **Live updates** (server-sent events): new items, playback taken over,
   request status.
 - **Casting** to Chromecast and similar devices, using stream tickets.

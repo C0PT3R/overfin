@@ -15,7 +15,8 @@ These rules are the point of the project; a change that breaks one is a bug.
    travels as encoded query or body values: parameters come from fixed sets of
    allowed values, and free text (such as a search term) is length-capped.
 3. User actions run with that user's own Jellyfin token. The Jellyfin admin key
-   is used only by provisioning code. Seerr has no per-user tokens, so Seerr
+   is used only by provisioning code and the admin API (rule 58), never by
+   the public API's user routes. Seerr has no per-user tokens, so Seerr
    calls use its API key with the acting user named in the request; that user
    is always the account's own Seerr user, derived from the session.
 4. Upstream tokens never reach the browser, including inside stream URLs and
@@ -149,14 +150,19 @@ comes from the internet, and media files can be written by anyone.
 ### Privacy
 40. Overfin stores only what it needs to run: the account-to-Jellyfin mapping,
     encrypted tokens, sessions, profiles (with their uploaded avatars), which
-    profile made each request, and short-lived playback state. Watch history
-    stays in Jellyfin, which already keeps it.
+    profile made each request, and short-lived playback state; with the admin
+    side, also invites, account expiry and limits, and labels the operator
+    sets. Watch history stays in Jellyfin, which already keeps it. The admin
+    side reads history and activity from Jellyfin live, for the page being
+    viewed, and never stores or caches it. Names and emails from the identity
+    provider are shown live through its connector, never stored.
 41. No analytics, no telemetry, no calls home. Metrics are aggregate counts
     with no user labels.
 42. Client IPs are used in memory (rate limiting) and never stored by Overfin.
 43. Overfin never sends the browser to a third party: images, including TMDB
     posters, are served by the gateway.
-44. An API response never reveals other users' data or activity.
+44. A public API response never reveals other users' data or activity. Only
+    the admin API (rule 58) shows users, to the operator's admins.
 45. Deleting an account deletes everything Overfin holds about it. Its Jellyfin
     and Seerr users are deleted or disabled, as the operator configures, and
     the site tells the user which.
@@ -192,9 +198,15 @@ comes from the internet, and media files can be written by anyone.
     says so; browsers still never contact TMDB (rule 43).
 
 ### Administration
-58. Overfin's own administration, when it exists, is served only on a separate
-    listener meant for the operator's private network, never on the public API.
-    Until then, operators manage Overfin through its configuration file.
+58. Overfin's administration is never exposed to the internet. It exists
+    only on its own listener, off by default; no admin route can be
+    registered on the public API. That listener answers only clients with
+    private addresses (loopback, private ranges, unique-local IPv6), and
+    refuses any request a proxy relays for a public address, so routing it
+    through a public reverse proxy fails closed. How admins reach it (LAN,
+    VPN, SSH tunnel) is the operator's choice. Admins log in through the
+    identity provider, must belong to the configured admin group, and every
+    change needs a fresh login.
 
 ### Code supply
 59. No code copied or ported from other projects. Dependencies are few, chosen
@@ -217,7 +229,9 @@ comes from the internet, and media files can be written by anyone.
 ## Deployment
 
 Jellyfin must not be reachable from the internet. Ideally its port is reachable
-only from Overfin's host and the operator's admin network. Overfin never offers
+only from Overfin's host and the operator's admin network. Overfin's admin
+listener must not be either: publish it only on the LAN or a VPN, never
+through the reverse proxy that serves the site (rule 58). Overfin never offers
 a route to Jellyfin's dashboard; operators reach it privately (LAN, VPN, SSH
 tunnel).
 

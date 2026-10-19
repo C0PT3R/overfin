@@ -95,7 +95,11 @@ It's both a starting point and a reference for using the API.
 
 ## Coming next
 
-A TMDB catalog (discover, curated lists, titles not in the library yet),
+**Administration** is next: a private admin side, never on the internet, to
+manage users (accounts, invites, expiry, limits), see who's watching, and
+read history live from Jellyfin, without Jellyfin's dashboard, where
+Overfin's users only appear under pseudonyms. Optional connectors (Authentik
+first) will manage identities from there too. After that: a TMDB catalog (discover, curated lists, titles not in the library yet),
 Seerr requests, profile transfers between accounts, queues, seek-bar
 previews, and Jellyfin 10.11 support. The full list and
 order are in [ROADMAP.md](ROADMAP.md).
