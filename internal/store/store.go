@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -763,4 +764,86 @@ func (s *Store) DeleteExpiredLogins(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// ---- Key check and recovery ---------------------------------------------------------
+
+// ErrWrongKey means the secret key isn't the one the database was made with:
+// nothing sealed with the old one can be read.
+var ErrWrongKey = errors.New("store: OVERFIN_SECRET_KEY is not the key this database was created with")
+
+// CheckKey compares the key's check value with the one stored. A database
+// without one (older, or new) records it.
+func (s *Store) CheckKey(ctx context.Context, check []byte) error {
+	var stored []byte
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'key-check'`).Scan(&stored)
+	if errors.Is(err, sql.ErrNoRows) {
+		return s.SetKeyCheck(ctx, check)
+	}
+	if err != nil {
+		return err
+	}
+	if !hmac.Equal(stored, check) {
+		return ErrWrongKey
+	}
+	return nil
+}
+
+// SetKeyCheck records the key's check value, replacing any other.
+func (s *Store) SetKeyCheck(ctx context.Context, check []byte) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('key-check', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, check)
+	return err
+}
+
+// Unreadable is a profile whose Jellyfin token can't be opened with the
+// current key.
+type Unreadable struct {
+	ProfileID        string
+	JellyfinUserID   string
+	JellyfinUsername string
+}
+
+// UnreadableTokens lists the profiles whose Jellyfin token can't be opened.
+func (s *Store) UnreadableTokens(ctx context.Context) ([]Unreadable, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, jellyfin_user_id, jellyfin_username, jellyfin_token FROM profiles`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Unreadable
+	for rows.Next() {
+		var u Unreadable
+		var sealed []byte
+		if err := rows.Scan(&u.ProfileID, &u.JellyfinUserID, &u.JellyfinUsername, &sealed); err != nil {
+			return nil, err
+		}
+		if _, err := s.box.Open(sealed, u.ProfileID); err != nil {
+			out = append(out, u)
+		}
+	}
+	return out, rows.Err()
+}
+
+// SetJellyfinToken replaces a profile's Jellyfin token.
+func (s *Store) SetJellyfinToken(ctx context.Context, profileID, token string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET jellyfin_token = ? WHERE id = ?`,
+		s.box.Seal([]byte(token), profileID), profileID)
+	return oneRow(res, err)
+}
+
+// ForgetSealed removes what can't be used after a key change: PINs (keyed
+// with the old key) and logins (their refresh tokens were sealed with it).
+func (s *Store) ForgetSealed(ctx context.Context) (pins, logins int64, err error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET pin_hash = NULL, pin_failures = 0,
+		pin_failed_at = NULL, pin_locked_until = NULL WHERE pin_hash IS NOT NULL`)
+	if err != nil {
+		return 0, 0, err
+	}
+	pins, _ = res.RowsAffected()
+	if res, err = s.db.ExecContext(ctx, `DELETE FROM logins`); err != nil {
+		return pins, 0, err
+	}
+	logins, _ = res.RowsAffected()
+	return pins, logins, nil
 }

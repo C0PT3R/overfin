@@ -129,7 +129,13 @@ func (c *Checker) Check(ctx context.Context, accountID, profileID, pin string) e
 			lockedUntil = now.Add(c.UnlockAfter)
 		}
 	}
-	if err := c.Store.RecordPIN(ctx, profileID, failures, now, lockedUntil); err != nil {
+	// The store keeps whole seconds: round up, so a wait is never shorter
+	// than it should be.
+	failedAt := now.Truncate(time.Second)
+	if failedAt.Before(now) {
+		failedAt = failedAt.Add(time.Second)
+	}
+	if err := c.Store.RecordPIN(ctx, profileID, failures, failedAt, lockedUntil); err != nil {
 		return err
 	}
 	if !lockedUntil.IsZero() {

@@ -244,3 +244,50 @@ func TestActiveProfileStaysInTheAccount(t *testing.T) {
 		t.Error("another account sees the session")
 	}
 }
+
+func TestKeyCheckAndRecovery(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "test.db")
+	oldBox, _ := seal.New(bytes.Repeat([]byte{1}, 32))
+	s, err := Open(ctx, path, oldBox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckKey(ctx, []byte("old")); err != nil {
+		t.Fatalf("first check records it: %v", err)
+	}
+	_, prof, _ := s.CreateAccount(ctx, "subject", owner("1"))
+	s.Close()
+
+	// The key was lost: a new one doesn't pass, and the token can't be read.
+	newBox, _ := seal.New(bytes.Repeat([]byte{2}, 32))
+	s, err = Open(ctx, path, newBox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.CheckKey(ctx, []byte("new")); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("new key accepted: %v", err)
+	}
+	broken, err := s.UnreadableTokens(ctx)
+	if err != nil || len(broken) != 1 || broken[0].ProfileID != prof.ID || broken[0].JellyfinUsername != "of-1" {
+		t.Fatalf("unreadable = %+v, %v", broken, err)
+	}
+
+	// Recovery: a fresh token, then the new key is the database's.
+	if err := s.SetJellyfinToken(ctx, prof.ID, "fresh"); err != nil {
+		t.Fatal(err)
+	}
+	if broken, _ := s.UnreadableTokens(ctx); len(broken) != 0 {
+		t.Errorf("still unreadable: %+v", broken)
+	}
+	if err := s.SetKeyCheck(ctx, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckKey(ctx, []byte("new")); err != nil {
+		t.Errorf("after recovery: %v", err)
+	}
+	if p, err := s.Profile(ctx, prof.AccountID, prof.ID); err != nil || p.JellyfinToken != "fresh" {
+		t.Errorf("profile after recovery: %+v %v", p, err)
+	}
+}

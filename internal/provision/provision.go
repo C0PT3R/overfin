@@ -342,6 +342,24 @@ func (p *Provisioner) Restrict(ctx context.Context, jellyfinUserID string, ceili
 	return p.Jellyfin.SetUserPolicy(ctx, admin, jellyfinUserID, policy)
 }
 
+// Relogin gives a profile's Jellyfin user a new random password and logs in
+// with it, returning a fresh token: for recovering after the secret key was
+// lost. Only for users Overfin created; an adopted user's password is its
+// owner's, and is never touched.
+func (p *Provisioner) Relogin(ctx context.Context, jellyfinUserID, username string) (string, error) {
+	if !strings.HasPrefix(username, "of-") {
+		return "", fmt.Errorf("provision: %s was adopted, not created by Overfin", username)
+	}
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	password := randomSecret()
+	if err := p.Jellyfin.SetPassword(ctx, admin, jellyfinUserID, password); err != nil {
+		return "", err
+	}
+	// Same device ID as before: Jellyfin replaces the old session.
+	token, _, err := p.Jellyfin.Authenticate(ctx, DeviceID(jellyfinUserID), username, password)
+	return token, err
+}
+
 // DeleteJellyfinUser deletes a profile's Jellyfin user, with its watch
 // history. A user already gone counts as deleted.
 func (p *Provisioner) DeleteJellyfinUser(ctx context.Context, jellyfinUserID string) error {

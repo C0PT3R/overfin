@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 )
 
 // CreateUser creates a Jellyfin user and returns its ID. Admin only.
@@ -82,6 +83,16 @@ func (p Policy) LockDown() {
 	} {
 		p[k] = v
 	}
+}
+
+// SetPassword gives a user a new password. Admin only.
+func (c *Client) SetPassword(ctx context.Context, admin Auth, userID, password string) error {
+	id, err := NormalizeID(userID)
+	if err != nil {
+		return err
+	}
+	return c.doQuery(ctx, "set password", http.MethodPost, "/Users/Password", url.Values{"userId": {id}}, admin,
+		map[string]string{"NewPw": password}, nil)
 }
 
 // Authenticate logs in as a user and returns its token and ID.

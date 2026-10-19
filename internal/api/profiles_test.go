@@ -158,10 +158,13 @@ func TestKidsProfiles(t *testing.T) {
 		t.Errorf("raise with a wrong PIN: %d %s", code, body)
 	}
 	// Right PIN, but too soon after a wrong one.
-	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"ratingCeiling":"PG-13","pin":"1234"}`); code != 429 || !strings.Contains(body, `"retryAfter":1`) {
+	code, body = put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"ratingCeiling":"PG-13","pin":"1234"}`)
+	var wait struct{ RetryAfter int }
+	json.Unmarshal([]byte(body), &wait)
+	if code != 429 || wait.RetryAfter < 1 || wait.RetryAfter > 2 {
 		t.Errorf("right PIN too soon: %d %s", code, body)
 	}
-	time.Sleep(time.Second)
+	time.Sleep(time.Duration(wait.RetryAfter) * time.Second)
 	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+kid.ID, `{"ratingCeiling":"PG-13","pin":"1234"}`); code != 200 || !strings.Contains(body, `"PG-13"`) {
 		t.Errorf("raise: %d %s", code, body)
 	}

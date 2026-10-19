@@ -50,6 +50,8 @@ func run(logger *slog.Logger) error {
 		defaultPath = "/etc/overfin/overfin.toml"
 	}
 	configPath := flag.String("config", defaultPath, "path to the configuration file")
+	recoverTokens := flag.Bool("recover-tokens", false,
+		"after the secret key was lost: give every profile a fresh Jellyfin token sealed with the current key, then exit")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath, os.Getenv)
@@ -72,6 +74,14 @@ func run(logger *slog.Logger) error {
 	}
 	defer db.Close()
 	logger.Info("database ready", "path", cfg.Storage.Path)
+	if !*recoverTokens {
+		if err := db.CheckKey(context.Background(), k.Check); errors.Is(err, store.ErrWrongKey) {
+			return fmt.Errorf("%w. Restore the original key; if it's lost for good, run overfin -recover-tokens once "+
+				"with the new key (profiles keep their history; PINs and logins are reset)", err)
+		} else if err != nil {
+			return err
+		}
+	}
 
 	var ids *identity.Resolver
 	switch cfg.Identity.Mode {
@@ -96,6 +106,10 @@ func run(logger *slog.Logger) error {
 		RequiredGroup: cfg.Identity.RequiredGroup,
 		LogKey:        k.LogID,
 		Logger:        logger,
+	}
+
+	if *recoverTokens {
+		return recoverTokensWith(context.Background(), logger, db, prov, k.Check)
 	}
 
 	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
@@ -210,4 +224,41 @@ func purgeExpired(ctx context.Context, db *store.Store, logger *slog.Logger) {
 		case <-t.C:
 		}
 	}
+}
+
+// recoverTokensWith gives every profile whose Jellyfin token can't be read (sealed
+// with a lost key) a fresh one sealed with the current key, then makes the
+// current key the database's key. Profiles keep their Jellyfin users, so
+// their history. PINs and logins, tied to the old key, are reset.
+func recoverTokensWith(ctx context.Context, logger *slog.Logger, db *store.Store, prov *provision.Provisioner, check []byte) error {
+	broken, err := db.UnreadableTokens(ctx)
+	if err != nil {
+		return err
+	}
+	logger.Info("recovery: profiles with unreadable tokens", "count", len(broken))
+	failed := 0
+	for _, u := range broken {
+		token, err := prov.Relogin(ctx, u.JellyfinUserID, u.JellyfinUsername)
+		if err == nil {
+			err = db.SetJellyfinToken(ctx, u.ProfileID, token)
+		}
+		if err != nil {
+			failed++
+			logger.Error("recovery: profile not recovered", "profile", u.ProfileID, "err", err)
+			continue
+		}
+		logger.Info("recovery: profile recovered", "profile", u.ProfileID)
+	}
+	if failed > 0 {
+		return fmt.Errorf("recovery: %d profiles not recovered; the key stays unaccepted, fix and run again", failed)
+	}
+	pins, logins, err := db.ForgetSealed(ctx)
+	if err != nil {
+		return err
+	}
+	if err := db.SetKeyCheck(ctx, check); err != nil {
+		return err
+	}
+	logger.Info("recovery: done; PINs cleared and everyone logs in again", "pins", pins, "logins", logins)
+	return nil
 }
