@@ -1,8 +1,10 @@
 # Overfin demo site
 
-A small but complete website built only on Overfin's API, in plain HTML, CSS
-and JavaScript: no framework, no build step. It's meant to be read: every
-screen shows how a client uses one part of the API.
+A small but complete website on Overfin's [JavaScript SDK](../../sdk/js), in
+plain HTML, CSS and JavaScript: no framework, no build step. It's meant to be
+read: every screen shows how a client uses one part of the API, and
+`app.js` is only screens; the SDK does the rest. `overfin.js` here is a copy
+of the SDK, kept identical by a test.
 
 - **Account setup**: start fresh, or bring an existing media server account.
 - **Who's watching?**: profiles, PINs, adding a profile (kids profiles with a

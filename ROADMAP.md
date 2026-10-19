@@ -97,8 +97,8 @@ Jellyfin server, using only the public API.
     listed among the account's devices, never a Jellyfin token;
   - a way through the reverse proxy for token requests, which Overfin then
     checks itself.
-- **TypeScript SDK**, generated from the API specification, with automatic
-  device capability detection.
+- **More SDKs** beyond JavaScript (done: [sdk/js](sdk/js), hand-written,
+  with TypeScript types), for native apps.
 - **Jellyfin 10.11 adapter**, so servers that haven't upgraded aren't left
   behind.
 - **Overfin's own administration**, on a separate listener for the

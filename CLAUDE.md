@@ -20,7 +20,10 @@ website someone else builds. MIT, public.
 ## Style
 - Plain, idiomatic Go. Clear code over clever code: code that is easy to read
   is code that can be reviewed, and review is part of security.
-- `gofmt`, `go vet ./...` and `go test ./...` must pass.
+- `gofmt`, `go vet ./...` and `go test ./...` must pass, and
+  `node --test sdk/js/overfin.test.js` for the JavaScript SDK.
+- `examples/demo-site/overfin.js` is a copy of `sdk/js/overfin.js`; a test
+  keeps them identical, so copy it over after changing the SDK.
 
 ## Layout
 - `cmd/overfin`: entry point

@@ -43,10 +43,18 @@ side, not a fork of someone else's client.
 Your components are native to your own stack: a React carousel, a Svelte
 player, a Discord bot, a wall display.
 
+## The JavaScript SDK
+
+[sdk/js](sdk/js) is one ES module, with no dependencies and no build step,
+plus TypeScript types. It wraps the API and carries what every client needs:
+following the login, typed errors, paging, and a player that reports
+progress, recovers streams and handles takeovers. A site on the SDK is
+mostly screens.
+
 ## See it: the demo site
 
 [examples/demo-site](examples/demo-site) is a small but complete website on
-Overfin, in plain HTML, CSS and JavaScript, with no framework and no build
+the SDK, in plain HTML, CSS and JavaScript, with no framework and no build
 step:
 
 - account setup, "Who's watching?" with PINs and kids profiles;
@@ -89,7 +97,7 @@ It's both a starting point and a reference for using the API.
 
 A TMDB catalog (discover, curated lists, titles not in the library yet),
 Seerr requests, profile transfers between accounts, queues, seek-bar
-previews, a TypeScript SDK, and Jellyfin 10.11 support. The full list and
+previews, and Jellyfin 10.11 support. The full list and
 order are in [ROADMAP.md](ROADMAP.md).
 
 ## Plugins
@@ -249,6 +257,7 @@ separate adapter, so servers that haven't upgraded aren't left behind.
 
 ```sh
 go test ./...
+node --test sdk/js/overfin.test.js
 go run ./cmd/overfin -config overfin.toml
 ```
 
