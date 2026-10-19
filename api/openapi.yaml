@@ -297,6 +297,14 @@ paths:
         (watched, in progress, favorites, with external IDs) is read from the
         media server for the download; Overfin doesn't keep it.
       tags: [account]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pin:
+                  $ref: "#/components/schemas/Pin"
       responses:
         "200":
           description: The account's data.
