@@ -184,7 +184,7 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotPlayable, "")
 		return
 	case errors.Is(err, playback.ErrUnsafeUpstream):
-		pb.Logger.Warn("refused an unexpected stream URL from Jellyfin", "item", req.ItemID)
+		pb.Logger.Warn("refused an unexpected stream URL from Jellyfin", "item", req.ItemID, "err", err)
 		problem.Send(w, problem.NotPlayable, "")
 		return
 	case err != nil:

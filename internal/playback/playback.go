@@ -12,6 +12,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/C0PT3R/overfin/internal/ids"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
+	"github.com/C0PT3R/overfin/internal/textclean"
 )
 
 // ---- Capabilities -------------------------------------------------------------
@@ -75,10 +77,14 @@ func DeviceProfile(c Capabilities, maxBitrate int) jellyfin.DeviceProfile {
 		channels = strconv.Itoa(c.MaxAudioChannels)
 	}
 
+	// Lists start empty, never nil: Go encodes a nil slice as null, and
+	// Jellyfin refuses null where it expects a list.
 	p := jellyfin.DeviceProfile{
 		Name:                "Overfin",
 		MaxStreamingBitrate: maxBitrate,
 		MaxStaticBitrate:    maxBitrate,
+		DirectPlayProfiles:  []jellyfin.DirectPlayProfile{},
+		CodecProfiles:       []jellyfin.CodecProfile{},
 	}
 	if len(containers) > 0 && len(video) > 0 {
 		p.DirectPlayProfiles = append(p.DirectPlayProfiles, jellyfin.DirectPlayProfile{
@@ -145,8 +151,9 @@ type Upstream struct {
 }
 
 // transcodePath matches the relative stream URLs Jellyfin generates for
-// HLS: /videos/{id}/master.m3u8 or /audio/{id}/main.m3u8 and the like.
-var transcodePath = regexp.MustCompile(`(?i)^/(videos|audio)/[0-9a-f]{32}/(master|main)\.m3u8$`)
+// HLS: /videos/{id}/master.m3u8 or /audio/{id}/main.m3u8 and the like. The
+// ID may be written with or without dashes.
+var transcodePath = regexp.MustCompile(`(?i)^/(videos|audio)/([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})/(master|main)\.m3u8$`)
 
 // playSession checks Jellyfin's play session ID like any upstream value
 // (rule 7) before it is sent back to Jellyfin.
@@ -196,9 +203,19 @@ func Decide(info *jellyfin.PlaybackInfo, itemID string, audioItem bool, deviceID
 		return nil, ErrNotPlayable
 	}
 	u, err := url.Parse(src.TranscodingUrl)
-	if err != nil || u.IsAbs() || u.Host != "" || u.User != nil || u.Fragment != "" ||
-		!transcodePath.MatchString(u.Path) {
+	if err != nil {
 		return nil, ErrUnsafeUpstream
+	}
+	m := transcodePath.FindStringSubmatch(u.Path)
+	var pathItem string
+	if m != nil {
+		pathItem, _ = jellyfin.NormalizeID(m[2])
+	}
+	// The URL must also be for the item that was asked for.
+	if u.IsAbs() || u.Host != "" || u.User != nil || u.Fragment != "" || m == nil || pathItem != itemID {
+		// The path is safe to report; the query carries Jellyfin's token
+		// and never is.
+		return nil, fmt.Errorf("%w: path %q", ErrUnsafeUpstream, textclean.Plain(u.Path, 200))
 	}
 	method := "transcode"
 	if src.SupportsDirectStream {

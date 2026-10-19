@@ -37,8 +37,12 @@ func TestDeviceProfile(t *testing.T) {
 		t.Errorf("codec profiles: %+v", p.CodecProfiles)
 	}
 
-	// A client that claims nothing still gets the H.264 fallback.
+	// A client that claims nothing still gets the H.264 fallback, and no
+	// list is null (Jellyfin answers 400 to that).
 	bare := DeviceProfile(Capabilities{}, 1)
+	if raw, _ := json.Marshal(bare); strings.Contains(string(raw), "null") {
+		t.Errorf("null in profile: %s", raw)
+	}
 	if len(bare.DirectPlayProfiles) != 0 || bare.TranscodingProfiles[0].VideoCodec != "h264" {
 		t.Errorf("bare profile: %+v", bare)
 	}
@@ -65,6 +69,11 @@ func TestDecide(t *testing.T) {
 	if err != nil || d.Method != "transcode" || d.Protocol != "hls" || d.Upstream.Query.Get("ApiKey") != "secret-token" {
 		t.Errorf("transcode: %+v, %v", d, err)
 	}
+	// Jellyfin 12 writes the ID with dashes.
+	dashed := "/videos/01234567-89ab-cdef-0123-456789abcdef/master.m3u8?ApiKey=x"
+	if d, err := Decide(info(jellyfin.MediaSource{TranscodingUrl: dashed, TranscodingSubProtocol: "hls"}), item, false, "dev"); err != nil {
+		t.Errorf("dashed ID: %+v, %v", d, err)
+	}
 	d, err = Decide(info(jellyfin.MediaSource{TranscodingUrl: hls, TranscodingSubProtocol: "hls", SupportsDirectStream: true}), item, false, "dev")
 	if err != nil || d.Method != "remux" {
 		t.Errorf("remux: %+v, %v", d, err)
@@ -86,6 +95,8 @@ func TestDecideRefuses(t *testing.T) {
 			TranscodingUrl: "/System/Info"}, ErrUnsafeUpstream},
 		"path traversal": {jellyfin.MediaSource{TranscodingSubProtocol: "hls",
 			TranscodingUrl: "/videos/" + item + "/../../System/master.m3u8"}, ErrUnsafeUpstream},
+		"another item's stream": {jellyfin.MediaSource{TranscodingSubProtocol: "hls",
+			TranscodingUrl: "/videos/" + source + "/master.m3u8"}, ErrUnsafeUpstream},
 		"not hls": {jellyfin.MediaSource{TranscodingSubProtocol: "http",
 			TranscodingUrl: "/videos/" + item + "/stream.mp4"}, ErrNotPlayable},
 		"bad source ID": {jellyfin.MediaSource{SupportsDirectPlay: true, Id: "../x"}, ErrNotPlayable},
