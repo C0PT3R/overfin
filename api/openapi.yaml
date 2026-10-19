@@ -474,6 +474,467 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # ---- Library ---------------------------------------------------------------
+
+  /libraries:
+    get:
+      operationId: listLibraries
+      summary: The libraries the active profile can see
+      tags: [library]
+      responses:
+        "200":
+          description: The libraries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Library"
+
+  /items:
+    get:
+      operationId: queryItems
+      summary: List items, filtered and sorted
+      description: |
+        Every listing is a query on this endpoint: a library's movies, a
+        series' seasons (`parent`), an album's tracks, a genre, a person's
+        work, unwatched items, and so on. Results are already limited to what
+        the active profile may see.
+      tags: [library]
+      parameters:
+        - name: library
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: kind
+          in: query
+          description: One or more item kinds; repeat the parameter for several.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 10
+            items:
+              $ref: "#/components/schemas/ItemKind"
+        - name: parent
+          in: query
+          description: Only direct children of this item, e.g. a series'
+            seasons or an album's tracks.
+          schema:
+            type: string
+            maxLength: 64
+        - name: genre
+          in: query
+          description: Genre name; repeat for several (items matching any).
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 10
+            items:
+              type: string
+              maxLength: 64
+        - name: person
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: studio
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: yearFrom
+          in: query
+          schema:
+            type: integer
+            minimum: 1800
+            maximum: 9999
+        - name: yearTo
+          in: query
+          schema:
+            type: integer
+            minimum: 1800
+            maximum: 9999
+        - name: played
+          in: query
+          schema:
+            type: boolean
+        - name: favorite
+          in: query
+          schema:
+            type: boolean
+        - name: inProgress
+          in: query
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, premiereDate, addedAt, communityRating, lastPlayed, random]
+            default: name
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        - $ref: "#/components/parameters/Seed"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemPage"
+
+  /items/resume:
+    get:
+      operationId: listResumeItems
+      summary: Items started but not finished
+      tags: [library]
+      parameters:
+        - name: kind
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 10
+            items:
+              $ref: "#/components/schemas/ItemKind"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Most recently played first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemPage"
+
+  /items/next-up:
+    get:
+      operationId: listNextUp
+      summary: The next episode to watch for each series in progress
+      tags: [library]
+      parameters:
+        - name: series
+          in: query
+          description: Only this series.
+          schema:
+            type: string
+            maxLength: 64
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of episodes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemPage"
+
+  /items/latest:
+    get:
+      operationId: listLatest
+      summary: Recently added items
+      description: New episodes of the same series are grouped into one entry
+        for the series.
+      tags: [library]
+      parameters:
+        - name: library
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ItemSummary"
+
+  /items/{itemId}:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    get:
+      operationId: getItem
+      summary: Everything about one item, for its detail page
+      tags: [library]
+      responses:
+        "200":
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{itemId}/similar:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    get:
+      operationId: listSimilar
+      summary: Items like this one
+      description: Where the suggestions come from (Jellyfin, TMDB through
+        Seerr, or Overfin's own scoring) is the operator's choice; the shape
+        is always the same.
+      tags: [library]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Similar items in the library.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ItemSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{itemId}/favorite:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    put:
+      operationId: addFavorite
+      summary: Mark as a favorite of the active profile
+      tags: [library]
+      responses:
+        "200":
+          $ref: "#/components/responses/UserStateChanged"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: removeFavorite
+      summary: Unmark as a favorite
+      tags: [library]
+      responses:
+        "200":
+          $ref: "#/components/responses/UserStateChanged"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{itemId}/played:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    put:
+      operationId: markPlayed
+      summary: Mark as watched or listened to
+      description: On a series, season or album, marks all of its children.
+      tags: [library]
+      responses:
+        "200":
+          $ref: "#/components/responses/UserStateChanged"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: markUnplayed
+      summary: Mark as not watched
+      tags: [library]
+      responses:
+        "200":
+          $ref: "#/components/responses/UserStateChanged"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{itemId}/lyrics:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    get:
+      operationId: getLyrics
+      summary: A track's lyrics, timed when available
+      tags: [library]
+      responses:
+        "200":
+          description: The lyrics, as plain text lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lyrics"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{itemId}/trickplay:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    get:
+      operationId: getTrickplay
+      summary: Seek-bar preview thumbnails
+      tags: [library]
+      responses:
+        "200":
+          description: The available preview sets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Trickplay"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /genres:
+    get:
+      operationId: listGenres
+      summary: Genres, for filter menus
+      tags: [library]
+      parameters:
+        - name: library
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+      responses:
+        "200":
+          description: Genres, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Genre"
+
+  /people/{personId}:
+    parameters:
+      - name: personId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 64
+    get:
+      operationId: getPerson
+      summary: A person's page
+      description: Their work is listed with `GET /items?person=…`.
+      tags: [library]
+      responses:
+        "200":
+          description: The person.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /search:
+    post:
+      operationId: search
+      summary: Search the library and, when enabled, titles to request
+      description: |
+        Terms travel in the body so they stay out of URLs and logs. Results
+        come in labeled sections; a site can show them together or apart, or
+        ask for only one with `sources`. The `requestable` section exists only
+        when the operator has enabled requests.
+      tags: [library]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: The results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+
+  /images/{imageId}:
+    parameters:
+      - name: imageId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 128
+    get:
+      operationId: getImage
+      summary: An image, re-encoded and access-checked
+      description: Use the URL from an `ImageRef`. Sizes come from
+        `Info.imageSizes`. Checked against the active profile on every
+        request, also when cached.
+      tags: [library]
+      parameters:
+        - name: size
+          in: query
+          schema:
+            type: string
+            enum: [small, medium, large]
+            default: medium
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /trickplay/{sheetId}:
+    parameters:
+      - name: sheetId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 128
+    get:
+      operationId: getTrickplaySheet
+      summary: One sheet of seek-bar previews
+      description: Use a URL from `Trickplay.sheets`. Checked against the
+        active profile like any image.
+      tags: [library]
+      responses:
+        "200":
+          description: The sheet.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     session:
@@ -500,6 +961,24 @@ components:
       schema:
         type: string
         maxLength: 512
+    Seed:
+      name: seed
+      in: query
+      description: For `sort=random`, makes the shuffle repeatable, so a
+        shuffled list survives a reload. Without it, the server picks one and
+        returns it in the page.
+      schema:
+        type: string
+        maxLength: 32
+        pattern: "^[A-Za-z0-9]+$"
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 64
+        examples: [item_7f3a9c04b1e2]
     ProfileId:
       name: profileId
       in: path
@@ -992,6 +1471,174 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/ItemSummary"
+            seed:
+              type: string
+              description: For random order, the seed used. Put it in the
+                page's URL to keep the same shuffle after a reload.
+
+    Library:
+      type: object
+      required: [id, name, kind]
+      properties:
+        id:
+          type: string
+          examples: [lib_2h7d9k4m1p6s]
+        name:
+          type: string
+        kind:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [movies, shows, music, books, photos, homeVideos, liveTv, mixed]
+        image:
+          $ref: "#/components/schemas/ImageRef"
+
+    Genre:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        itemCount:
+          type: integer
+          minimum: 0
+
+    Person:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          examples: [pers_5t8w1n3k7q2z]
+        name:
+          type: string
+        overview:
+          type: string
+          description: Plain text.
+        image:
+          $ref: "#/components/schemas/ImageRef"
+        birthDate:
+          $ref: "#/components/schemas/CalendarDate"
+        deathDate:
+          $ref: "#/components/schemas/CalendarDate"
+        externalIds:
+          $ref: "#/components/schemas/ExternalIds"
+
+    Lyrics:
+      type: object
+      required: [timed, lines]
+      properties:
+        timed:
+          type: boolean
+          description: Whether lines carry start times (for karaoke-style
+            display).
+        lines:
+          type: array
+          items:
+            type: object
+            required: [text]
+            properties:
+              text:
+                type: string
+              startMs:
+                $ref: "#/components/schemas/Milliseconds"
+
+    Trickplay:
+      description: |
+        One set of seek-bar previews. Each sheet is a grid of `columns` x
+        `rows` tiles, read left to right and top to bottom; tile n shows the
+        video at n x `intervalMs`.
+      type: object
+      required: [tileWidth, tileHeight, columns, rows, intervalMs, tileCount, sheets]
+      properties:
+        tileWidth:
+          type: integer
+          minimum: 1
+        tileHeight:
+          type: integer
+          minimum: 1
+        columns:
+          type: integer
+          minimum: 1
+        rows:
+          type: integer
+          minimum: 1
+        intervalMs:
+          $ref: "#/components/schemas/Milliseconds"
+        tileCount:
+          type: integer
+          minimum: 0
+        sheets:
+          type: array
+          items:
+            type: string
+            format: uri-reference
+
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sources:
+          type: array
+          description: Which sections to return. Default is all available.
+          items:
+            type: string
+            enum: [library, requestable]
+        kind:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/ItemKind"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 20
+
+    SearchResults:
+      type: object
+      properties:
+        library:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemSummary"
+        requestable:
+          description: Present only when requests are enabled and asked for.
+          type: array
+          items:
+            $ref: "#/components/schemas/RequestableTitle"
+
+    RequestableTitle:
+      description: A title found through Seerr. If it is already in the
+        library, `libraryItemId` points to it, so a site can show Play
+        instead of Request.
+      type: object
+      required: [tmdbId, mediaKind, name, status]
+      properties:
+        tmdbId:
+          type: string
+        mediaKind:
+          type: string
+          description: Open set.
+          examples: [movie, series]
+        name:
+          type: string
+        year:
+          type: integer
+        overview:
+          type: string
+          description: Plain text.
+        image:
+          $ref: "#/components/schemas/ImageRef"
+        status:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [available, partiallyAvailable, requested, notRequested]
+        libraryItemId:
+          type: string
 
     # ---- Kind-specific parts -----------------------------------------------
 
@@ -1219,6 +1866,12 @@ components:
           $ref: "#/components/schemas/Timestamp"
 
   responses:
+    UserStateChanged:
+      description: The active profile's updated state for the item.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UserState"
     NotFound:
       description: The resource doesn't exist, or the caller may not see it.
       content:

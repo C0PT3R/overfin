@@ -35,7 +35,9 @@ from the internet, and media files can be written by anyone.
 10. Images are decoded and re-encoded (JPEG, or PNG when transparency is
     needed), which strips embedded metadata. Their dimensions are checked
     before decoding, and oversized images are refused. SVG, HTML and anything
-    that fails to decode are never served.
+    that fails to decode are never served. The one exception is trickplay
+    sheets: Jellyfin generates them itself from video frames, so they are
+    checked (real JPEG bytes, size and dimension limits) but not re-encoded.
 11. Subtitles are served only as sanitized WebVTT. Fonts and other files
     attached to media are never served.
 12. From upstream responses, only the headers streaming needs are passed on:
