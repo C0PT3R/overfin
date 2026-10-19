@@ -65,7 +65,7 @@ once they are implemented and tested.
 The first goal is one complete website running on Overfin against a real
 Jellyfin server, using only the public API.
 
-1. Configuration reload without restart.
+1. ~~Configuration reload without restart.~~ Done: SIGHUP.
 2. Adoption extras: optional matching by name or email (operator opt-in),
    and pseudonymizing adopted accounts once the old access path is retired.
 3. ~~Kids profiles (rating ceilings enforced by Jellyfin) and PINs.~~ Done.

@@ -15,17 +15,12 @@ import (
 
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/config"
-	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
-	"github.com/C0PT3R/overfin/internal/oidc"
-	"github.com/C0PT3R/overfin/internal/pin"
 	"github.com/C0PT3R/overfin/internal/playback"
-	"github.com/C0PT3R/overfin/internal/plugin"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
-	"github.com/C0PT3R/overfin/internal/server"
 	"github.com/C0PT3R/overfin/internal/store"
 )
 
@@ -83,106 +78,40 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
-	var ids *identity.Resolver
-	switch cfg.Identity.Mode {
-	case "forwardauth":
-		ids = identity.NewForwardAuth(cfg.Identity.Proxies, cfg.Identity.UserHeader, cfg.Identity.GroupsHeader, cfg.Identity.GroupsSeparator)
-	case "anonymous":
-		ids = identity.NewAnonymous(cfg.Identity.Proxies)
-	case "oidc":
-		ids = identity.NewHeaderless(cfg.Identity.Proxies)
-	default:
-		return fmt.Errorf("identity mode %q is not supported", cfg.Identity.Mode)
-	}
-
 	jf, err := jellyfin.New(cfg.Jellyfin.URL, version)
 	if err != nil {
 		return err
 	}
-	prov := &provision.Provisioner{
-		Store:         db,
-		Jellyfin:      jf,
-		AdminKey:      cfg.Secrets.JellyfinAdminKey,
-		RequiredGroup: cfg.Identity.RequiredGroup,
-		LogKey:        k.LogID,
-		Logger:        logger,
-	}
+	sh := &shared{logger: logger, db: db, keys: k, jf: jf,
+		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour)}
 
 	if *recoverTokens {
-		return recoverTokensWith(context.Background(), logger, db, prov, k.Check)
+		return recoverTokensWith(context.Background(), logger, db, newProvisioner(cfg, sh), k.Check)
 	}
 
-	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
-	checker := &pin.Checker{Key: k.PIN, Store: db}
-	identityMiddleware := ids.Middleware
-	if o := cfg.OIDC; o.Enabled() {
-		needGroups := cfg.Identity.Mode == "oidc" && cfg.Identity.RequiredGroup != ""
-		groupsClaim := ""
-		if needGroups {
-			groupsClaim = o.GroupsClaim
-		}
-		auth := &api.Auth{Sessions: sessions, Store: db, Provisioner: prov, Logger: logger,
-			FreshFor:      time.Duration(o.FreshForMinutes) * time.Minute,
-			Login:         cfg.Identity.Mode == "oidc",
-			LoginLifetime: 30 * 24 * time.Hour,
-			Recheck:       time.Duration(o.RecheckMinutes) * time.Minute,
-			NeedGroups:    needGroups,
-			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
-				RedirectURL: o.RedirectURL, GroupsClaim: groupsClaim, HTTP: oidc.NewClient(o.Dial)}}
-		sessions.Auth = auth
-		if auth.Login {
-			// The login cookie sets the identity; the headerless resolver
-			// only finds the client address.
-			identityMiddleware = func(h http.Handler) http.Handler { return ids.Middleware(auth.Middleware(h)) }
-		}
-	} else {
-		// Without step-up the owner can't confirm a login, so PIN locks
-		// end by themselves.
-		checker.UnlockAfter = 15 * time.Minute
-	}
-	imgs := images.New(jf, 64<<20)
-	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, Images: imgs, CursorKey: k.Cursor, Logger: logger}
-	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(24 * time.Hour),
-		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
-		MaxStreams: cfg.Limits.MaxStreamsPerAccount, MaxTranscodes: cfg.Limits.MaxTranscodesTotal,
-		RefuseOverLimit: cfg.Limits.OnLimit == "refuse", Logger: logger}
-	// Accounts and profiles are always on; everything else is a plugin the
-	// operator enables.
-	plugins := []plugin.Plugin{
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
-		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
-			PINs: checker, Images: imgs,
-			LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
-	}
-	if sessions.Auth != nil {
-		plugins = append(plugins, sessions.Auth)
-	}
-	if cfg.Plugins.Enabled("library") {
-		plugins = append(plugins, lib)
-	}
-	if cfg.Plugins.Enabled("playback") {
-		plugins = append(plugins, pb, api.Stream{Playback: pb})
-	}
-	logger.Info("plugins", "enabled", cfg.Plugins.Enable)
-	handler, err := server.New(logger, identityMiddleware, plugins...)
+	gw, err := newGateway(*configPath, cfg, sh)
 	if err != nil {
 		return err
 	}
-
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           gw,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		// No WriteTimeout: video streams can legitimately run for hours.
 	}
 
-	// Stop cleanly on Ctrl+C or `docker stop`.
+	// Stop cleanly on Ctrl+C or `docker stop`; reload the configuration on
+	// SIGHUP (`docker kill -s HUP …`).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if cfg.Plugins.Enabled("playback") {
-		go pb.RunJanitor(ctx)
-	}
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+
+	// Playbacks outlive reloads, so their janitor runs for the whole run:
+	// it needs only the registry and Jellyfin.
+	janitor := api.Playback{Library: api.Library{Jellyfin: jf, Logger: logger}, Tickets: sh.tickets, Logger: logger}
+	go janitor.RunJanitor(ctx)
 	go purgeExpired(ctx, db, logger)
 
 	errc := make(chan error, 1)
@@ -191,10 +120,19 @@ func run(logger *slog.Logger) error {
 		errc <- srv.ListenAndServe()
 	}()
 
-	select {
-	case err := <-errc:
-		return err
-	case <-ctx.Done():
+	for running := true; running; {
+		select {
+		case err := <-errc:
+			return err
+		case <-hup:
+			if err := gw.reload(os.Getenv); err != nil {
+				logger.Error("configuration not reloaded; the running one stays", "err", err)
+			} else {
+				logger.Info("configuration reloaded")
+			}
+		case <-ctx.Done():
+			running = false
+		}
 	}
 
 	logger.Info("shutting down")

@@ -1,6 +1,8 @@
 # Overfin configuration example.
 #
-# Copy to overfin.toml and adjust. Secrets never go in this file; set them as
+# Copy to overfin.toml and adjust. Changes apply on restart, or live on
+# SIGHUP (docker kill -s HUP overfin) except listen, storage.path,
+# jellyfin.url and the secret key. Secrets never go in this file; set them as
 # environment variables (or NAME_FILE pointing to a file, for Docker secrets):
 #
 #   OVERFIN_JELLYFIN_ADMIN_KEY   Jellyfin API key, used only to create users

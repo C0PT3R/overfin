@@ -270,6 +270,12 @@ SQLite). Settings are read from `/etc/overfin/overfin.toml` by default
 (`-config` or `OVERFIN_CONFIG` to change it); unknown or invalid settings stop
 Overfin at startup.
 
+To apply changed settings without a restart, send Overfin `SIGHUP`
+(`docker kill -s HUP overfin`): playbacks in progress carry on. A file that
+doesn't load is refused and the running settings stay, as are changes that
+need a restart (`listen`, `storage.path`, `jellyfin.url`, the secret key).
+The log says which.
+
 ## AI-assisted development
 
 Overfin is developed with the help of AI. Much of the code and documentation
