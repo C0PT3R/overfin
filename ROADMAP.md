@@ -141,14 +141,23 @@ built on Overfin without changing it:
 
 - It logs users in with the same identity provider, so it knows the same
   user IDs without asking Overfin.
-- It refers to titles by Overfin's item IDs and stores no metadata; sites
-  fetch titles and posters from Overfin.
+- It refers to titles by **external IDs** (TMDB, IMDb, TVDB), not Overfin's
+  item IDs: Jellyfin can give an item a new ID (a moved file, a rebuilt
+  server), while external IDs name the title itself. They also work across
+  Overfin servers, and for titles not in the library. Episodes are the
+  show's external ID plus season and episode numbers.
+- It stores no metadata; sites fetch titles and posters from Overfin.
 - **Visibility:** before showing anything that names a title, the site looks
-  the item up through Overfin as the viewer, and hides it on `not-found`. A
-  kids profile, or a viewer without access to a library, never learns of a
-  title through a friend; Overfin's per-profile limits protect the feed too.
-- Overfin's part: document that item IDs are stable while Jellyfin keeps the
-  item, so they're safe to store elsewhere.
+  it up through Overfin as the viewer, and hides it on `not-found`. A kids
+  profile, or a viewer without access to a library, never learns of a title
+  through a friend; Overfin's per-profile limits protect the feed too.
+- Overfin's part: `GET /items/lookup?tmdb=…` (or `imdb`, `tvdb`, with
+  season and episode), answering with the local item or `not-found`.
+  Jellyfin can't search by an external ID's value, so Overfin keeps an index
+  from external IDs to items: library-wide, in memory only, no user data,
+  rebuilt after a restart. Every answer is the item fetched with the
+  viewer's own token. Building the index with the Jellyfin admin key needs a
+  narrow exception to SECURITY.md rule 3.
 
 ## Open questions
 
