@@ -216,13 +216,15 @@ func (t *Tickets) Transcodes() int {
 	return n
 }
 
-// Latest returns the most recently started playback of a session.
-func (t *Tickets) Latest(sessionID string, now time.Time) (*Stream, bool) {
+// Latest returns the most recently started playback of a session by one
+// of its profiles.
+func (t *Tickets) Latest(sessionID, profileID string, now time.Time) (*Stream, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var best *Stream
 	for _, s := range t.byID {
-		if s.SessionID == sessionID && t.live(s, now) && (best == nil || s.started.After(best.started)) {
+		if s.SessionID == sessionID && s.ProfileID == profileID && t.live(s, now) &&
+			(best == nil || s.started.After(best.started)) {
 			best = s
 		}
 	}

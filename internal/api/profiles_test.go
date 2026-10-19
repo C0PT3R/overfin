@@ -319,3 +319,20 @@ func TestNoFallbackToAProtectedOwner(t *testing.T) {
 		t.Errorf("after the kids profile was deleted: %d %s", code, body)
 	}
 }
+
+// After switching profile on the same device, "what was playing?" doesn't
+// tell the new profile what the previous one watched.
+func TestCurrentPlaybackIsPerProfile(t *testing.T) {
+	srv, _ := newServer(t)
+	if code, body := post(t, srv, "/api/v1/playback", `{"itemId":"item_`+fmt.Sprintf("%032x", 1)+`","capabilities":{}}`); code != 201 {
+		t.Fatalf("start: %d %s", code, body)
+	}
+	if code, _ := getAs(t, srv, subject, "/api/v1/playback/current"); code != 200 {
+		t.Fatalf("own current playback: %d", code)
+	}
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Partner"}`)
+	post(t, srv, "/api/v1/profiles/"+between(body, `"id":"`, `"`)+"/activate", `{}`)
+	if code, body := getAs(t, srv, subject, "/api/v1/playback/current"); code != 404 {
+		t.Errorf("another profile's playback: %d %s", code, body)
+	}
+}

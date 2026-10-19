@@ -192,14 +192,15 @@ func (pb Playback) get(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// current restores this session's latest playback, at its last reported
-// position, after a reload.
+// current restores this session's latest playback by the active profile, at
+// its last reported position, after a reload. Another profile's playback on
+// the same device stays private (rule 50).
 func (pb Playback) current(w http.ResponseWriter, r *http.Request) {
 	c := pb.Library.Sessions.Current(w, r)
 	if c == nil {
 		return
 	}
-	s, ok := pb.Tickets.Latest(c.Session.ID, time.Now())
+	s, ok := pb.Tickets.Latest(c.Session.ID, c.Profile.ID, time.Now())
 	if !ok {
 		problem.Send(w, problem.NotFound, "")
 		return
