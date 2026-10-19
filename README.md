@@ -89,8 +89,9 @@ startup rather than being ignored.
 Overfin logs users in itself, with any OpenID Connect provider (Authentik,
 Authelia, Keycloak, Pocket ID…): one client registration covers logging in
 and confirming a fresh login before destructive actions. Logins are
-re-checked with the provider every few minutes, so a user disabled there is
-out shortly after. No identity headers are involved, so there are none to
+re-checked with the provider every few minutes when it hands out refresh
+tokens, so a user disabled there is out shortly after; without them, a login
+lasts 12 hours. No identity headers are involved, so there are none to
 spoof.
 
 To keep the site's own pages private too, let the reverse proxy ask Overfin

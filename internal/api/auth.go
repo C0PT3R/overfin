@@ -86,6 +86,9 @@ const (
 	pendingFor = 10 * time.Minute
 	// maxPending caps waiting logins and step-ups; the oldest go first.
 	maxPending = 10_000
+	// shortLogin is how long a login lasts when the provider gives no
+	// refresh token to re-check it with. It doesn't slide with activity.
+	shortLogin = 12 * time.Hour
 	// outageGrace keeps logins working while the provider is unreachable,
 	// counted from the last successful check. After that, they fail closed.
 	outageGrace = time.Hour
@@ -137,8 +140,8 @@ func (a *Auth) current(ctx context.Context, token string) *store.Login {
 	if err != nil {
 		return nil
 	}
-	if time.Since(l.Checked) < a.Recheck {
-		return l
+	if l.RefreshToken == "" || time.Since(l.Checked) < a.Recheck {
+		return l // nothing to re-check with, or checked recently
 	}
 	// One re-check at a time per login: a page of posters mustn't send
 	// twenty refreshes, and a rotated refresh token can only be used once.
@@ -353,10 +356,13 @@ func (a *Auth) finishLogin(w http.ResponseWriter, r *http.Request, p pendingAuth
 		problem.Send(w, problem.NotAuthenticated, "the login could not be confirmed")
 		return
 	}
+	lifetime := a.LoginLifetime
 	if login.RefreshToken == "" {
-		a.Logger.Error("the identity provider gave no refresh token; allow the offline_access scope")
-		problem.Send(w, problem.Internal, "")
-		return
+		// Without a refresh token the login can't be re-checked, so it
+		// gets a short, fixed life instead.
+		lifetime = min(shortLogin, a.LoginLifetime)
+		a.Logger.Warn("the identity provider gave no refresh token, so logins last 12 hours " +
+			"and aren't re-checked; allow refresh tokens (usually the offline_access scope) to fix that")
 	}
 	var groups []string
 	if a.NeedGroups {
@@ -369,14 +375,14 @@ func (a *Auth) finishLogin(w http.ResponseWriter, r *http.Request, p pendingAuth
 		problem.Send(w, problem.AccountNotAllowed, "")
 		return
 	}
-	_, token, err := a.Store.CreateLogin(ctx, login.Subject, groups, login.RefreshToken, a.LoginLifetime)
+	_, token, err := a.Store.CreateLogin(ctx, login.Subject, groups, login.RefreshToken, lifetime)
 	if err != nil {
 		a.Logger.Error("saving a login failed", "err", err)
 		problem.Send(w, problem.Internal, "")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: LoginCookie, Value: token, Path: "/", MaxAge: int(a.LoginLifetime.Seconds()),
+		Name: LoginCookie, Value: token, Path: "/", MaxAge: int(lifetime.Seconds()),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, p.Return, http.StatusSeeOther)

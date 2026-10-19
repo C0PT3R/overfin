@@ -47,9 +47,10 @@ logout_url = ""
 
 [oidc]
 # Overfin's registration at the identity provider: a confidential
-# OAuth2/OpenID client with the redirect URL below, the offline_access scope
-# (logins are re-checked with refresh tokens), and in forwardauth mode a
-# subject equal to the user ID the proxy sends. Set
+# OAuth2/OpenID client with the redirect URL below, and in forwardauth mode a
+# subject equal to the user ID the proxy sends. Recommended: allow refresh
+# tokens (usually the offline_access scope), so logins are re-checked every
+# few minutes; without them a login simply lasts 12 hours. Set
 # OVERFIN_OIDC_CLIENT_SECRET. In forwardauth mode this section is optional
 # and only enables step-up: without it, destructive actions (deleting a
 # profile, changing or removing a PIN) are refused, and a locked PIN unlocks
@@ -62,8 +63,8 @@ redirect_url = "https://example.org/api/v1/auth/callback"
 dial = ""
 # How long a confirmed login counts as fresh for destructive actions.
 fresh_for_minutes = 5
-# How often a login is confirmed again with the provider: a user disabled
-# there is out within this time.
+# How often a login is confirmed again with the provider, when it gives
+# refresh tokens: a user disabled there is out within this time.
 recheck_minutes = 10
 # The ID token claim listing the user's groups (oidc mode, with
 # required_group).

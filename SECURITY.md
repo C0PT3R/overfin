@@ -68,7 +68,8 @@ comes from the internet, and media files can be written by anyone.
 16. Sessions are revalidated with the identity provider at a configured
     interval (with Overfin's login, by refresh token every 10 minutes by
     default; if the provider stays unreachable for an hour, logins fail
-    closed). Disabling an identity ends its sessions and revokes its Jellyfin
+    closed). A provider that gives no refresh tokens gets logins that last
+    12 hours at most, without extension. Disabling an identity ends its sessions and revokes its Jellyfin
     tokens.
 17. Session cookies use the `__Host-` prefix and are `HttpOnly`, `Secure` and
     `SameSite=Strict`.

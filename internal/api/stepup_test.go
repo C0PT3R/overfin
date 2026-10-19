@@ -30,6 +30,7 @@ type fakeIdP struct {
 	refresh   map[string]string // refresh token -> subject
 	revoked   map[string]bool   // subjects logged out at the provider
 	refreshes int
+	noRefresh bool // hand out no refresh tokens
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -66,6 +67,10 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			delete(f.codes, r.FormValue("code"))
 			if !ok {
 				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if f.noRefresh {
+				json.NewEncoder(w).Encode(map[string]string{"id_token": f.sign(claims)})
 				return
 			}
 			rt := oidc.Random(16)

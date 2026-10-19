@@ -148,3 +148,27 @@ func TestLoginThenNewAccount(t *testing.T) {
 		t.Errorf("me before setup: %d %s", res.StatusCode, body)
 	}
 }
+
+// A provider without refresh tokens still works: the login just can't be
+// re-checked, and gets a short, fixed life instead.
+func TestLoginWithoutRefreshTokens(t *testing.T) {
+	idp := newFakeIdP(t)
+	idp.noRefresh = true
+	srv, _ := newServerWith(t, options{provider: idp.provider(), login: true})
+	b := newBrowser(srv)
+	res := logIn(t, b, srv, idp, subject, "/")
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("finish: %d", res.StatusCode)
+	}
+	for _, c := range res.Cookies() {
+		if c.Name == "__Host-overfin-login" && (c.MaxAge <= 0 || c.MaxAge > 12*3600) {
+			t.Errorf("login cookie lasts %ds", c.MaxAge)
+		}
+	}
+	if res, _ := visit(t, b, srv, "/api/v1/me", nil); res.StatusCode != 200 {
+		t.Errorf("me: %d", res.StatusCode)
+	}
+	if idp.refreshes != 0 {
+		t.Errorf("%d refreshes without a refresh token", idp.refreshes)
+	}
+}
