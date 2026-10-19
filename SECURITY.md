@@ -154,9 +154,13 @@ from the internet, and media files can be written by anyone.
 51. A transcode is stopped as soon as its playback stops, its ticket expires
     or its progress reports go silent, so abandoned streams never keep the
     server busy.
+52. Overfin's own administration, when it exists, is served only on a
+    separate listener meant for the operator's private network, never on the
+    public API. Until then, operators manage Overfin through its
+    configuration file.
 
 ### Code supply
-52. No code copied or ported from other projects. Dependencies are few, chosen
+53. No code copied or ported from other projects. Dependencies are few, chosen
     on purpose, and pinned.
 
 ## Deployment

@@ -1249,7 +1249,8 @@ paths:
       summary: Trending, popular and upcoming titles from TMDB
       description: Filter with `availability` to get, for example, "trending
         in our library" (`library`) or "trending titles we don't have"
-        (`missing`). Titles already in the library carry `libraryItemId`.
+        (`missing`). Titles already in the library carry their
+        `libraryItem`, with progress and watched state.
       tags: [catalog]
       parameters:
         - name: list
@@ -1313,6 +1314,73 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /lists:
+    get:
+      operationId: listCatalogLists
+      summary: The curated lists the operator has defined
+      description: Only when the operator enables lists (`lists` in
+        `Info.features`). Lists are defined in Overfin's configuration;
+        clients only ever choose a list by its ID, never send TMDB queries.
+      tags: [catalog]
+      responses:
+        "200":
+          description: The lists, in the operator's order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CatalogList"
+
+  /lists/{listId}:
+    parameters:
+      - name: listId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 64
+          pattern: "^[a-z0-9-]+$"
+    get:
+      operationId: getCatalogList
+      summary: The titles in one curated list
+      description: Same shape and `availability` filter as `/discover`, so
+        "Christmas movies we have" and "Christmas movies we don't have" come
+        from the same list.
+      tags: [catalog]
+      parameters:
+        - name: availability
+          in: query
+          schema:
+            type: string
+            enum: [all, library, missing]
+            default: all
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of titles.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageInfo"
+                  - type: object
+                    required: [items]
+                    properties:
+                      list:
+                        $ref: "#/components/schemas/CatalogList"
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/CatalogTitle"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -1635,7 +1703,7 @@ components:
             values.
           items:
             type: string
-          examples: [[profiles, catalog, requests, music]]
+          examples: [[profiles, catalog, lists, requests, music]]
         attributions:
           type: array
           description: Data sources whose terms require the site to credit
@@ -2216,8 +2284,9 @@ components:
 
     CatalogTitle:
       description: A title known from TMDB, in the library or not. If it is
-        in the library, `libraryItemId` points to it, so a site can show Play
-        instead of Request.
+        in the library, `libraryItem` carries the library item itself
+        (images, progress, watched state), so a site can show it like any
+        other library item and offer Play instead of Request.
       type: object
       required: [tmdbId, mediaKind, name, availability]
       properties:
@@ -2244,8 +2313,28 @@ components:
           type: string
           description: Present only when requests are enabled. Open set.
           examples: [requested, processing, declined]
-        libraryItemId:
+        libraryItem:
+          $ref: "#/components/schemas/ItemSummary"
+
+    CatalogList:
+      description: A list defined by the operator, such as "Christmas
+        movies", built from TMDB keywords, collections, filters or public
+        lists.
+      type: object
+      required: [id, name]
+      properties:
+        id:
           type: string
+          description: Set by the operator; stable.
+          examples: [christmas]
+        name:
+          type: string
+        description:
+          type: string
+        mediaKind:
+          type: string
+          description: Open set. Absent when the list mixes kinds.
+          examples: [movie, series]
 
     # ---- Catalog and requests -----------------------------------------------
 
