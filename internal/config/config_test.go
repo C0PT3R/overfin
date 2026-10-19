@@ -74,6 +74,11 @@ func TestLoadRejects(t *testing.T) {
 			wantErr: "unknown keys: limits.max_stream_per_account",
 		},
 		{
+			name:    "unknown privacy field",
+			file:    goodFile + "\n[privacy]\nexpose = [\"user.passwords\"]\n",
+			wantErr: "privacy.expose: unknown field",
+		},
+		{
 			name:    "URL with credentials",
 			file:    strings.Replace(goodFile, "http://192.0.2.10", "http://user:pass@192.0.2.10", 1),
 			wantErr: "must not contain credentials",

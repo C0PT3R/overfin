@@ -96,6 +96,8 @@ type MediaStream struct {
 	IsForced             bool
 	IsHearingImpaired    bool
 	IsTextSubtitleStream bool
+	Height               int
+	VideoRange           string
 }
 
 // PlaybackInfo is Jellyfin's answer: the versions it can serve to this

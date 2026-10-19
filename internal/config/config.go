@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -26,6 +27,7 @@ type Config struct {
 	Storage  Storage  `toml:"storage"`
 	Limits   Limits   `toml:"limits"`
 	Adoption Adoption `toml:"adoption"`
+	Privacy  Privacy  `toml:"privacy"`
 
 	// Secrets, loaded from the environment, never from the file.
 	Secrets Secrets `toml:"-"`
@@ -59,6 +61,20 @@ type Adoption struct {
 	// Claim lets a user adopt an existing Jellyfin account by entering its
 	// password once. Off by default.
 	Claim bool `toml:"claim"`
+}
+
+// Privacy lists the privacy-sensitive fields the operator chooses to
+// expose (SECURITY.md rule 55). Everything not listed stays hidden.
+type Privacy struct {
+	Expose []string `toml:"expose"`
+}
+
+// ExposableFields are the privacy-sensitive fields an operator may turn on.
+var ExposableFields = []string{"version.names", "photo.takenAt", "photo.location", "photo.camera", "item.tags"}
+
+// Exposes reports whether the operator turned on a privacy-sensitive field.
+func (p Privacy) Exposes(field string) bool {
+	return slices.Contains(p.Expose, field)
 }
 
 type Storage struct {
@@ -205,6 +221,12 @@ func (c *Config) validate() error {
 			continue
 		}
 		c.Identity.Proxies = append(c.Identity.Proxies, prefix)
+	}
+
+	for _, f := range c.Privacy.Expose {
+		if !slices.Contains(ExposableFields, f) {
+			add("privacy.expose: unknown field %q (known: %s)", f, strings.Join(ExposableFields, ", "))
+		}
 	}
 
 	if c.Storage.Path == "" {

@@ -55,7 +55,8 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	f.lastQury = q
-	if q.Get("userId") != userJF && !strings.HasPrefix(r.URL.Path, "/MediaSegments/") {
+	if q.Get("userId") != userJF && !strings.HasPrefix(r.URL.Path, "/MediaSegments/") &&
+		!strings.HasPrefix(strings.ToLower(r.URL.Path), "/videos/") {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -98,6 +99,15 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				},
 			}},
 		})
+	case r.URL.Path == "/videos/"+fmt.Sprintf("%032x", 1)+"/master.m3u8":
+		fmt.Fprint(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nmain.m3u8?ApiKey="+token+"&x=1\n")
+	case r.URL.Path == "/videos/"+fmt.Sprintf("%032x", 1)+"/main.m3u8":
+		fmt.Fprint(w, "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6.0,\nhls1/main/0.mp4?ApiKey="+token+"&runtimeTicks=0\n#EXT-X-ENDLIST\n")
+	case r.URL.Path == "/videos/"+fmt.Sprintf("%032x", 1)+"/hls1/main/0.mp4":
+		w.Header().Set("Content-Type", "video/mp4")
+		fmt.Fprint(w, "SEGMENT-ZERO")
+	case r.URL.Path == "/Videos/"+fmt.Sprintf("%032x", 1)+"/"+fmt.Sprintf("%032x", 1)+"/Subtitles/3/Stream.vtt":
+		fmt.Fprint(w, "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<b>Hi</b>\n")
 	case r.URL.Path == "/MediaSegments/"+fmt.Sprintf("%032x", 1):
 		json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{
 			{"Type": "Intro", "StartTicks": 50000000, "EndTicks": 900000000},
@@ -127,13 +137,20 @@ func newServer(t *testing.T) (*httptest.Server, *fakeJellyfin) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// A second account, to check tickets don't work across accounts. Its
+	// Jellyfin token differs, so the fake refuses its Jellyfin calls.
+	if _, _, err := st.CreateAccount(context.Background(), "other-subject", store.NewOwner{
+		Name: "Main", JellyfinUserID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", JellyfinUsername: "of-other", JellyfinToken: "other-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	prov := &provision.Provisioner{Store: st, Jellyfin: jf, LogKey: []byte("k"), Logger: logger}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "")
 	lib := api.Library{Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
-	h, err := server.New(logger, ids, lib,
-		api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger})
+	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger}
+	h, err := server.New(logger, ids, lib, pb, api.Stream{Playback: pb})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,5 +394,69 @@ func TestStartPlaybackRefuses(t *testing.T) {
 	// An item the profile may not see.
 	if code, _ := post(t, srv, "/api/v1/playback", `{"itemId":"item_`+fmt.Sprintf("%032x", 99)+`","capabilities":{}}`); code != http.StatusNotFound {
 		t.Errorf("hidden item: status %d", code)
+	}
+}
+
+func getAs(t *testing.T, srv *httptest.Server, who, path string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", srv.URL+path, nil)
+	req.Header.Set("Remote-User", who)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(b)
+}
+
+func TestStreamingThroughRewrittenPlaylists(t *testing.T) {
+	srv, _ := newServer(t)
+	_, body := post(t, srv, "/api/v1/playback", `{"itemId":"item_`+fmt.Sprintf("%032x", 1)+`","capabilities":{}}`)
+	var s struct {
+		Stream         struct{ URL string }
+		SubtitleTracks []struct{ ID, URL string }
+	}
+	json.Unmarshal([]byte(body), &s)
+	base := strings.TrimSuffix(s.Stream.URL, "master.m3u8")
+
+	code, master := getAs(t, srv, subject, s.Stream.URL)
+	if code != 200 || !strings.Contains(master, "\nv0.m3u8\n") {
+		t.Fatalf("master: %d\n%s", code, master)
+	}
+	code, variant := getAs(t, srv, subject, base+"v0.m3u8")
+	if code != 200 || !strings.Contains(variant, "\nseg0.mp4\n") {
+		t.Fatalf("variant: %d\n%s", code, variant)
+	}
+	code, seg := getAs(t, srv, subject, base+"seg0.mp4")
+	if code != 200 || seg != "SEGMENT-ZERO" {
+		t.Errorf("segment: %d %q", code, seg)
+	}
+	for _, text := range []string{master, variant} {
+		for _, leak := range []string{token, "ApiKey", "hls1", "runtimeTicks", "/videos/"} {
+			if strings.Contains(text, leak) {
+				t.Errorf("playlist contains %q:\n%s", leak, text)
+			}
+		}
+	}
+
+	// Subtitles: text track 3, rebuilt as plain WebVTT.
+	code, vtt := getAs(t, srv, subject, s.SubtitleTracks[0].URL)
+	if code != 200 || vtt != "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n" {
+		t.Errorf("subtitles: %d %q", code, vtt)
+	}
+	// Track 4 is image-based (burned in), so it has no WebVTT.
+	if code, _ := getAs(t, srv, subject, base+"subtitles/s4"); code != http.StatusNotFound {
+		t.Errorf("image subtitles: status %d", code)
+	}
+
+	// Names that were never in a playlist, and other accounts, get nothing.
+	for _, p := range []string{base + "seg1.mp4", base + "file", base + "v9.m3u8"} {
+		if code, _ := getAs(t, srv, subject, p); code != http.StatusNotFound {
+			t.Errorf("%s: status %d, want 404", p, code)
+		}
+	}
+	if code, _ := getAs(t, srv, "other-subject", base+"seg0.mp4"); code != http.StatusNotFound {
+		t.Errorf("another account used the ticket: status %d", code)
 	}
 }

@@ -22,7 +22,10 @@ type Playback struct {
 	Library        Library // for the active profile and Jellyfin access
 	Tickets        *playback.Tickets
 	MaxBitrateKbps int // the operator's cap; 0 means none
-	Logger         *slog.Logger
+	// VersionNames shows Jellyfin's version names, derived from file names,
+	// instead of neutral descriptions (privacy.expose "version.names").
+	VersionNames bool
+	Logger       *slog.Logger
 }
 
 func (Playback) Name() string { return "playback" }
@@ -212,7 +215,11 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, src := range info.MediaSources {
 		if id, err := jellyfin.NormalizeID(src.Id); err == nil {
-			out.Versions = append(out.Versions, versionJSON{ID: "ver_" + id, Name: textclean.Plain(src.Name, 200)})
+			name := playback.Describe(src)
+			if pb.VersionNames {
+				name = textclean.Plain(src.Name, 200)
+			}
+			out.Versions = append(out.Versions, versionJSON{ID: "ver_" + id, Name: name})
 		}
 	}
 	for _, ms := range dec.Source.MediaStreams {

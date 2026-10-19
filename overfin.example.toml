@@ -45,3 +45,10 @@ max_bitrate_kbps = 0
 # entering its username and password once. Administrator accounts can never
 # be brought over. Off by default.
 claim = false
+
+[privacy]
+# Privacy-sensitive fields stay hidden unless listed here:
+#   version.names   names of media versions, derived from file names (otherwise
+#                   a neutral description such as "2160p HDR · HEVC" is shown)
+#   photo.takenAt, photo.location, photo.camera, item.tags
+expose = []

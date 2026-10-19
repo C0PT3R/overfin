@@ -237,6 +237,42 @@ type Stream struct {
 	PlaySessionID string
 	Decision      Decision
 	Expires       time.Time
+
+	mu sync.Mutex
+	// files maps the neutral names in rewritten playlists to the real
+	// upstream URLs. It grows as playlists are fetched.
+	files map[string]Upstream
+}
+
+// AddFiles records the real URLs behind a rewritten playlist's names.
+func (s *Stream) AddFiles(files map[string]Upstream) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.files == nil {
+		s.files = map[string]Upstream{}
+	}
+	for k, v := range files {
+		s.files[k] = v
+	}
+}
+
+// File returns the real URL behind a neutral name.
+func (s *Stream) File(name string) (Upstream, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.files[name]
+	return u, ok
+}
+
+// TextSubtitle reports whether index is a text subtitle track of the
+// stream's version, the only kind served as WebVTT.
+func (s *Stream) TextSubtitle(index int) bool {
+	for _, ms := range s.Decision.Source.MediaStreams {
+		if ms.Type == "Subtitle" && ms.Index == index && ms.IsTextSubtitleStream {
+			return true
+		}
+	}
+	return false
 }
 
 // Tickets holds active streams in memory. Playback state is short-lived and
@@ -306,4 +342,58 @@ func random(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// Describe gives a version a neutral name from its streams, such as
+// "2160p HDR · HEVC". Jellyfin's own version names come from file names,
+// which may reveal how files were named; those are shown only when the
+// operator exposes them (rule 55).
+func Describe(src jellyfin.MediaSource) string {
+	var parts []string
+	for _, ms := range src.MediaStreams {
+		if ms.Type != "Video" {
+			continue
+		}
+		res := ""
+		switch h := ms.Height; {
+		case h >= 2000:
+			res = "2160p"
+		case h >= 1000:
+			res = "1080p"
+		case h >= 700:
+			res = "720p"
+		case h > 0:
+			res = "SD"
+		}
+		if strings.EqualFold(ms.VideoRange, "HDR") {
+			res = strings.TrimSpace(res + " HDR")
+		}
+		if res != "" {
+			parts = append(parts, res)
+		}
+		if c := codecName(ms.Codec); c != "" {
+			parts = append(parts, c)
+		}
+		break
+	}
+	if len(parts) == 0 {
+		return "Version"
+	}
+	return strings.Join(parts, " · ")
+}
+
+func codecName(c string) string {
+	switch strings.ToLower(c) {
+	case "hevc", "h265":
+		return "HEVC"
+	case "h264", "avc":
+		return "H.264"
+	case "av1":
+		return "AV1"
+	case "vp9":
+		return "VP9"
+	case "mpeg2video":
+		return "MPEG-2"
+	}
+	return ""
 }

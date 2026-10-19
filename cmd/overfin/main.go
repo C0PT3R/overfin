@@ -94,11 +94,11 @@ func run(logger *slog.Logger) error {
 	}
 
 	lib := api.Library{Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger}
+	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(6 * time.Hour),
+		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"), Logger: logger}
 	handler, err := server.New(logger, ids,
 		api.Account{Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
-		lib,
-		api.Playback{Library: lib, Tickets: playback.NewTickets(6 * time.Hour),
-			MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, Logger: logger},
+		lib, pb, api.Stream{Playback: pb},
 	)
 	if err != nil {
 		return err

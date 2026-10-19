@@ -43,6 +43,12 @@ once they are implemented and tested.
   Jellyfin device profile, the direct/remux/transcode decision, stream
   tickets, tracks, versions and skip markers; remote sources and unexpected
   upstream URLs refused.
+- Streaming: direct play with seeking (Range), HLS playlists parsed and
+  rewritten so no Jellyfin URL or token reaches the client, segments
+  mapped back server-side, subtitles rebuilt as plain WebVTT; tickets work
+  only for the profile that started the playback.
+- Version names replaced by neutral descriptions unless the operator
+  exposes them (`[privacy] expose`).
 
 ## Milestone 1: a real site, end to end
 

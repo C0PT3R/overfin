@@ -130,3 +130,16 @@ func TestTickets(t *testing.T) {
 		t.Error("expired ticket still works")
 	}
 }
+
+func TestDescribe(t *testing.T) {
+	src := jellyfin.MediaSource{Name: "Film.2160p.x265-GROUP", MediaStreams: []jellyfin.MediaStream{
+		{Type: "Video", Height: 2160, VideoRange: "HDR", Codec: "hevc"},
+		{Type: "Audio", Codec: "aac"},
+	}}
+	if got := Describe(src); got != "2160p HDR · HEVC" {
+		t.Errorf("Describe = %q", got)
+	}
+	if got := Describe(jellyfin.MediaSource{}); got != "Version" {
+		t.Errorf("no streams: %q", got)
+	}
+}
