@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/C0PT3R/overfin/internal/cursor"
-	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/library"
@@ -32,6 +31,7 @@ import (
 // rows. Every call runs with the active profile's own Jellyfin token, so
 // Jellyfin itself enforces library access and parental limits.
 type Library struct {
+	Sessions    *Sessions
 	Provisioner *provision.Provisioner
 	Jellyfin    *jellyfin.Client
 	Images      *images.Pipeline
@@ -59,28 +59,16 @@ func (l Library) Register(r *plugin.Registrar) error {
 }
 
 // active returns the caller's active profile, or writes the problem and
-// returns nil. Until profiles can be switched, it is the owner profile.
+// returns nil.
 func (l Library) active(w http.ResponseWriter, r *http.Request) *store.Profile {
-	id, _ := identity.FromContext(r.Context())
-	_, prof, err := l.Provisioner.Find(r.Context(), id)
-	switch {
-	case err == nil:
-		return prof
-	case errors.Is(err, provision.ErrNoAccount):
-		problem.Send(w, problem.AccountSetupRequired, "")
-	case errors.Is(err, provision.ErrNotAllowed):
-		problem.Send(w, problem.AccountNotAllowed, "")
-	case errors.Is(err, provision.ErrAnonymous):
-		problem.Send(w, problem.NotFound, "")
-	default:
-		l.Logger.Error("profile lookup failed", "err", err)
-		problem.Send(w, problem.Internal, "")
+	if c := l.Sessions.Current(w, r); c != nil {
+		return c.Profile
 	}
 	return nil
 }
 
 func auth(p *store.Profile) jellyfin.Auth {
-	return jellyfin.Auth{Token: p.JellyfinToken, DeviceID: "overfin-" + p.JellyfinUserID}
+	return jellyfin.Auth{Token: p.JellyfinToken, DeviceID: provision.DeviceID(p.JellyfinUserID)}
 }
 
 // upstreamError answers for a failed Jellyfin call: "not found" when Jellyfin

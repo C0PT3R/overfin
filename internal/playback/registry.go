@@ -18,6 +18,7 @@ type Stream struct {
 	Ticket        string // secret, in stream URLs only
 	AccountID     string
 	ProfileID     string
+	SessionID     string // the browser session that started it (rule 30)
 	Device        string // a readable name, shown when another device takes over
 	ItemID        string // Jellyfin IDs
 	SourceID      string
@@ -96,9 +97,6 @@ type Snapshot struct {
 }
 
 // Tickets is the registry of playbacks.
-//
-// TODO: bind tickets to the browser session as well (rule 30) once sessions
-// exist; for now they are bound to the profile.
 type Tickets struct {
 	mu       sync.Mutex
 	byTicket map[string]*Stream
@@ -218,13 +216,13 @@ func (t *Tickets) Transcodes() int {
 	return n
 }
 
-// Latest returns a profile's most recently started playback.
-func (t *Tickets) Latest(profileID string, now time.Time) (*Stream, bool) {
+// Latest returns the most recently started playback of a session.
+func (t *Tickets) Latest(sessionID string, now time.Time) (*Stream, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var best *Stream
 	for _, s := range t.byID {
-		if s.ProfileID == profileID && t.live(s, now) && (best == nil || s.started.After(best.started)) {
+		if s.SessionID == sessionID && t.live(s, now) && (best == nil || s.started.After(best.started)) {
 			best = s
 		}
 	}

@@ -315,31 +315,16 @@ func (s *Store) CreateSession(ctx context.Context, accountID, profileID, device 
 // SessionByToken finds a live session by its cookie value. Expired sessions
 // are not found.
 func (s *Store) SessionByToken(ctx context.Context, token string) (*Session, error) {
-	var sess Session
-	var profile, device sql.NullString
-	var created, active, expires int64
-	var fresh sql.NullInt64
-	err := s.db.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(ctx, `
 		SELECT id, account_id, active_profile_id, device, created_at, last_active_at,
 			fresh_login_at, expires_at
 		FROM sessions WHERE token_hash = ? AND expires_at > ?`,
-		hashToken(token), s.now().Unix(),
-	).Scan(&sess.ID, &sess.AccountID, &profile, &device, &created, &active, &fresh, &expires)
+		hashToken(token), s.now().Unix())
+	sess, err := scanSession(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	sess.ActiveProfileID = profile.String
-	sess.Device = device.String
-	sess.Created = time.Unix(created, 0).UTC()
-	sess.LastActive = time.Unix(active, 0).UTC()
-	sess.Expires = time.Unix(expires, 0).UTC()
-	if fresh.Valid {
-		sess.FreshLogin = time.Unix(fresh.Int64, 0).UTC()
-	}
-	return &sess, nil
+	return sess, err
 }
 
 // DeleteSession ends a session, only if it belongs to accountID.
@@ -384,4 +369,165 @@ func nullable(s string) any {
 		return nil
 	}
 	return s
+}
+
+// ---- More profiles ------------------------------------------------------------
+
+// ErrNameTaken is returned when an account already has a profile with that
+// name (names are unique per account, a namespace of its own).
+var ErrNameTaken = errors.New("store: profile name already used in this account")
+
+// ErrProfileLimit is returned when an account has as many profiles as allowed.
+var ErrProfileLimit = errors.New("store: profile limit reached")
+
+// NewProfile describes an additional profile and its Jellyfin user.
+type NewProfile struct {
+	Name             string
+	Kind             string // "standard" or "kids"
+	Language         string
+	RatingCeiling    string
+	JellyfinUserID   string
+	JellyfinUsername string
+	JellyfinToken    string
+}
+
+// AddProfile creates a profile in an account, refusing a name already used
+// there or more than maxProfiles profiles in all (0 means no limit).
+func (s *Store) AddProfile(ctx context.Context, accountID string, np NewProfile, maxProfiles int) (*Profile, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var count, sameName int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(name = ?), 0) FROM profiles WHERE account_id = ?`,
+		np.Name, accountID).Scan(&count, &sameName); err != nil {
+		return nil, err
+	}
+	if sameName > 0 {
+		return nil, ErrNameTaken
+	}
+	if maxProfiles > 0 && count >= maxProfiles {
+		return nil, ErrProfileLimit
+	}
+	p := &Profile{
+		ID: ids.New(ids.Profile), AccountID: accountID, Name: np.Name, Kind: np.Kind,
+		JellyfinUserID: np.JellyfinUserID, JellyfinUsername: np.JellyfinUsername, JellyfinToken: np.JellyfinToken,
+		Language: np.Language, RatingCeiling: np.RatingCeiling,
+	}
+	if err := insertProfile(ctx, tx, s.box, p, s.now().UTC()); err != nil {
+		return nil, err
+	}
+	return p, tx.Commit()
+}
+
+// RenameProfile changes a profile's name, within its account.
+func (s *Store) RenameProfile(ctx context.Context, accountID, profileID, name string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var taken int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM profiles WHERE account_id = ? AND name = ? AND id != ?`,
+		accountID, name, profileID).Scan(&taken); err != nil {
+		return err
+	}
+	if taken > 0 {
+		return ErrNameTaken
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE profiles SET name = ? WHERE id = ? AND account_id = ?`, name, profileID, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit()
+}
+
+// SetProfileLanguage changes a profile's preferred metadata language.
+func (s *Store) SetProfileLanguage(ctx context.Context, accountID, profileID, language string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET language = ? WHERE id = ? AND account_id = ?`,
+		nullable(language), profileID, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ---- More sessions --------------------------------------------------------------
+
+// Sessions lists an account's live sessions, most recently active first.
+func (s *Store) Sessions(ctx context.Context, accountID string) ([]*Session, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, account_id, active_profile_id, device, created_at, last_active_at, fresh_login_at, expires_at
+		FROM sessions WHERE account_id = ? AND expires_at > ? ORDER BY last_active_at DESC`,
+		accountID, s.now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Session
+	for rows.Next() {
+		sess, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sess)
+	}
+	return out, rows.Err()
+}
+
+// SetActiveProfile switches a session to a profile of the same account.
+func (s *Store) SetActiveProfile(ctx context.Context, sessionID, accountID, profileID string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE sessions SET active_profile_id = ?
+		WHERE id = ? AND account_id = ?
+		  AND EXISTS (SELECT 1 FROM profiles WHERE id = ? AND account_id = ?)`,
+		profileID, sessionID, accountID, profileID, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// TouchSession records activity and slides the expiry forward.
+func (s *Store) TouchSession(ctx context.Context, sessionID string, lifetime time.Duration) error {
+	now := s.now().UTC()
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET last_active_at = ?, expires_at = ? WHERE id = ?`,
+		now.Unix(), now.Add(lifetime).Unix(), sessionID)
+	return err
+}
+
+// DeleteOtherSessions ends all of an account's sessions except one.
+func (s *Store) DeleteOtherSessions(ctx context.Context, accountID, keepID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE account_id = ? AND id != ?`, accountID, keepID)
+	return err
+}
+
+func scanSession(sc scanner) (*Session, error) {
+	var sess Session
+	var profile, device sql.NullString
+	var created, active, expires int64
+	var fresh sql.NullInt64
+	if err := sc.Scan(&sess.ID, &sess.AccountID, &profile, &device, &created, &active, &fresh, &expires); err != nil {
+		return nil, err
+	}
+	sess.ActiveProfileID = profile.String
+	sess.Device = device.String
+	sess.Created = time.Unix(created, 0).UTC()
+	sess.LastActive = time.Unix(active, 0).UTC()
+	sess.Expires = time.Unix(expires, 0).UTC()
+	if fresh.Valid {
+		sess.FreshLogin = time.Unix(fresh.Int64, 0).UTC()
+	}
+	return &sess, nil
 }

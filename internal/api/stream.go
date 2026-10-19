@@ -42,8 +42,7 @@ var (
 	rangeRe    = regexp.MustCompile(`^bytes=\d{0,15}-\d{0,15}$`)
 )
 
-// stream finds the playback behind a ticket, for the active profile only:
-// a ticket used by another profile is simply not found.
+// stream finds the playback behind a ticket, for its own session only.
 func (s Stream) stream(w http.ResponseWriter, r *http.Request) (*playback.Stream, *jellyfin.Auth) {
 	ticket := r.PathValue("ticket")
 	if !ticketRe.MatchString(ticket) {
@@ -51,12 +50,15 @@ func (s Stream) stream(w http.ResponseWriter, r *http.Request) (*playback.Stream
 		return nil, nil
 	}
 	l := s.Playback.Library
-	p := l.active(w, r)
-	if p == nil {
+	c := l.Sessions.Current(w, r)
+	if c == nil {
 		return nil, nil
 	}
+	p := c.Profile
+	// The ticket works only in the session that started the playback
+	// (rule 30): a copied stream URL is useless anywhere else.
 	st, ok := s.Playback.Tickets.ByTicket(ticket, time.Now())
-	if !ok || st.ProfileID != p.ID {
+	if !ok || st.SessionID != c.Session.ID || st.ProfileID != p.ID {
 		problem.Send(w, problem.NotFound, "")
 		return nil, nil
 	}

@@ -93,13 +93,16 @@ func run(logger *slog.Logger) error {
 		Logger:        logger,
 	}
 
-	lib := api.Library{Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger}
+	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
+	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(24 * time.Hour),
 		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
 		MaxStreams: cfg.Limits.MaxStreamsPerAccount, MaxTranscodes: cfg.Limits.MaxTranscodesTotal,
 		RefuseOverLimit: cfg.Limits.OnLimit == "refuse", Logger: logger}
 	handler, err := server.New(logger, ids,
-		api.Account{Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
+		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
+			LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 		lib, pb, api.Stream{Playback: pb},
 	)
 	if err != nil {

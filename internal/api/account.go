@@ -16,6 +16,7 @@ import (
 
 // Account serves the current account.
 type Account struct {
+	Sessions    *Sessions
 	Provisioner *provision.Provisioner
 	Logger      *slog.Logger
 	// Claim enables adopting an existing Jellyfin account. When it's on, a
@@ -54,15 +55,18 @@ type meJSON struct {
 
 func (a Account) me(w http.ResponseWriter, r *http.Request) {
 	id, _ := identity.FromContext(r.Context()) // the registrar guarantees one
-	var acct *store.Account
-	var prof *store.Profile
-	var err error
-	if a.Claim {
-		acct, prof, err = a.Provisioner.Find(r.Context(), id)
-	} else {
-		acct, prof, err = a.Provisioner.Ensure(r.Context(), id)
+	if !a.Claim {
+		// Without claiming, the first visit creates the account.
+		if _, _, err := a.Provisioner.Ensure(r.Context(), id); err != nil {
+			a.respond(w, nil, nil, err, http.StatusOK)
+			return
+		}
 	}
-	a.respond(w, acct, prof, err, http.StatusOK)
+	c := a.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	a.respond(w, c.Account, c.Profile, nil, http.StatusOK)
 }
 
 func (a Account) create(w http.ResponseWriter, r *http.Request) {

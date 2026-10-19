@@ -192,14 +192,14 @@ func (pb Playback) get(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// current restores the profile's latest playback, at its last reported
+// current restores this session's latest playback, at its last reported
 // position, after a reload.
 func (pb Playback) current(w http.ResponseWriter, r *http.Request) {
-	p := pb.Library.active(w, r)
-	if p == nil {
+	c := pb.Library.Sessions.Current(w, r)
+	if c == nil {
 		return
 	}
-	s, ok := pb.Tickets.Latest(p.ID, time.Now())
+	s, ok := pb.Tickets.Latest(c.Session.ID, time.Now())
 	if !ok {
 		problem.Send(w, problem.NotFound, "")
 		return
@@ -342,10 +342,11 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	pr.DeviceProfile = playback.DeviceProfile(req.Capabilities, pr.MaxStreamingBitrate)
 
 	l := pb.Library
-	p := l.active(w, r)
-	if p == nil {
+	caller := l.Sessions.Current(w, r)
+	if caller == nil {
 		return
 	}
+	p := caller.Profile
 	ctx := r.Context()
 
 	raw, err := l.Jellyfin.Item(ctx, auth(p), p.JellyfinUserID, jfItem)
@@ -404,7 +405,7 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 
 	sourceID, _ := jellyfin.NormalizeID(dec.Source.Id)
 	s := &playback.Stream{
-		AccountID: p.AccountID, ProfileID: p.ID, Device: device,
+		AccountID: p.AccountID, ProfileID: p.ID, SessionID: caller.Session.ID, Device: device,
 		ItemID: jfItem, SourceID: sourceID, PlaySessionID: info.PlaySessionId, Decision: *dec,
 		Auth: auth(p), AudioIndex: pr.AudioStreamIndex, SubtitleIndex: pr.SubtitleStreamIndex,
 	}

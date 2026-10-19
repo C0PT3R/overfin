@@ -53,6 +53,10 @@ once they are implemented and tested.
   transcode, idle playbacks ended after two minutes by a janitor, stream
   limits that replace the account's oldest playback (or refuse), a total
   transcode limit, and restoring the current playback after a reload.
+- Sessions and profiles: an Overfin session cookie per device, honored only
+  for the account it was created for; additional (standard) profiles with
+  their own Jellyfin users; "Who's watching?" switching; session listing,
+  ending and logout; stream tickets bound to their session.
 
 ## Milestone 1: a real site, end to end
 
@@ -62,8 +66,9 @@ Jellyfin server, using only the public API.
 1. Configuration reload without restart.
 2. Adoption extras: optional matching by name or email (operator opt-in),
    and pseudonymizing adopted accounts once the old access path is retired.
-3. Profiles, PINs and step-up.
-4. A minimal demo site in plain HTML and JavaScript.
+3. Kids profiles (rating ceilings enforced by Jellyfin) and PINs.
+4. Step-up for destructive actions (needs a way to detect a fresh login).
+5. A minimal demo site in plain HTML and JavaScript.
 
 ## Designed, to implement after milestone 1
 

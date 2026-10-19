@@ -178,3 +178,69 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 		s.Close()
 	}
 }
+
+func newProfile(name, n string) NewProfile {
+	return NewProfile{Name: name, Kind: "standard", JellyfinUserID: "jf-" + n, JellyfinUsername: "of-" + n, JellyfinToken: "t-" + n}
+}
+
+func TestProfilesInAnAccount(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	a, _, _ := s.CreateAccount(ctx, "subject-a", owner("a"))
+
+	kid, err := s.AddProfile(ctx, a.ID, newProfile("Kids", "k"), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kid.Owner {
+		t.Error("an added profile is an owner")
+	}
+	if _, err := s.AddProfile(ctx, a.ID, newProfile("Kids", "k2"), 3); !errors.Is(err, ErrNameTaken) {
+		t.Errorf("same name: %v", err)
+	}
+	if _, err := s.AddProfile(ctx, a.ID, newProfile("Third", "k3"), 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddProfile(ctx, a.ID, newProfile("Fourth", "k4"), 3); !errors.Is(err, ErrProfileLimit) {
+		t.Errorf("over the limit: %v", err)
+	}
+
+	// Names are a namespace per account: another account can have "Kids".
+	b, _, _ := s.CreateAccount(ctx, "subject-b", owner("b"))
+	if _, err := s.AddProfile(ctx, b.ID, newProfile("Kids", "b-k"), 3); err != nil {
+		t.Errorf("another account's Kids: %v", err)
+	}
+
+	if err := s.RenameProfile(ctx, a.ID, kid.ID, "Me"); !errors.Is(err, ErrNameTaken) {
+		t.Errorf("rename to an existing name: %v", err)
+	}
+	if err := s.RenameProfile(ctx, a.ID, kid.ID, "Little ones"); err != nil {
+		t.Error(err)
+	}
+	if err := s.RenameProfile(ctx, b.ID, kid.ID, "Stolen"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("another account renamed the profile: %v", err)
+	}
+}
+
+func TestActiveProfileStaysInTheAccount(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	a, aOwner, _ := s.CreateAccount(ctx, "subject-a", owner("a"))
+	b, bOwner, _ := s.CreateAccount(ctx, "subject-b", owner("b"))
+	sess, _, _ := s.CreateSession(ctx, a.ID, aOwner.ID, "laptop", time.Hour)
+
+	if err := s.SetActiveProfile(ctx, sess.ID, a.ID, bOwner.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("switched to another account's profile: %v", err)
+	}
+	kid, _ := s.AddProfile(ctx, a.ID, newProfile("Kids", "k"), 0)
+	if err := s.SetActiveProfile(ctx, sess.ID, a.ID, kid.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := s.Sessions(ctx, a.ID)
+	if len(list) != 1 || list[0].ActiveProfileID != kid.ID {
+		t.Errorf("sessions: %+v", list)
+	}
+	if list, _ := s.Sessions(ctx, b.ID); len(list) != 0 {
+		t.Error("another account sees the session")
+	}
+}

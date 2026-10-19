@@ -53,6 +53,9 @@ type Identity struct {
 	// RequiredGroup, when set, is the group a user must be in to be
 	// provisioned.
 	RequiredGroup string `toml:"required_group"`
+	// LogoutURL is where users go to also leave the identity provider,
+	// for example "/outpost.goauthentik.io/sign_out" with Authentik.
+	LogoutURL string `toml:"logout_url"`
 
 	// Parsed form of TrustedProxies, filled in by Load.
 	Proxies []netip.Prefix `toml:"-"`
@@ -86,8 +89,9 @@ type Storage struct {
 }
 
 type Limits struct {
-	MaxStreamsPerAccount int `toml:"max_streams_per_account"`
-	MaxTranscodesTotal   int `toml:"max_transcodes_total"`
+	MaxProfilesPerAccount int `toml:"max_profiles_per_account"`
+	MaxStreamsPerAccount  int `toml:"max_streams_per_account"`
+	MaxTranscodesTotal    int `toml:"max_transcodes_total"`
 	// MaxBitrateKbps caps every stream; 0 means no cap.
 	MaxBitrateKbps int `toml:"max_bitrate_kbps"`
 	// OnLimit is what happens when an account starts one stream too many:
@@ -114,9 +118,10 @@ func defaults() Config {
 		// them explicitly avoids trusting the wrong one by accident.
 		Identity: Identity{Mode: "forwardauth", GroupsSeparator: "|"},
 		Limits: Limits{
-			MaxStreamsPerAccount: 2,
-			MaxTranscodesTotal:   4,
-			OnLimit:              "replace-oldest",
+			MaxProfilesPerAccount: 5,
+			MaxStreamsPerAccount:  2,
+			MaxTranscodesTotal:    4,
+			OnLimit:               "replace-oldest",
 		},
 	}
 }
@@ -243,6 +248,12 @@ func (c *Config) validate() error {
 		add("storage.path must not be empty")
 	}
 
+	if c.Limits.MaxProfilesPerAccount < 1 {
+		add("limits.max_profiles_per_account must be at least 1")
+	}
+	if u := c.Identity.LogoutURL; u != "" && !strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "https://") {
+		add("identity.logout_url must be a path or an https:// URL")
+	}
 	if c.Limits.MaxStreamsPerAccount < 1 {
 		add("limits.max_streams_per_account must be at least 1")
 	}

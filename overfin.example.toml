@@ -32,11 +32,15 @@ groups_separator = ","
 # Only members of this group get an account. Leave empty to allow everyone
 # the proxy lets through.
 required_group = "media-users"
+# Where users go to also leave the identity provider when they log out of
+# the site. With Authentik: "/outpost.goauthentik.io/sign_out".
+logout_url = ""
 
 [storage]
 path = "/data/overfin.db"
 
 [limits]
+max_profiles_per_account = 5
 max_streams_per_account = 2
 max_transcodes_total = 4
 # 0 means no cap.

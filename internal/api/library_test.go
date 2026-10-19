@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
@@ -29,17 +30,20 @@ import (
 )
 
 const (
-	userJF  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	token   = "profile-token"
-	subject = "test-subject"
+	userJF       = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	token        = "profile-token"
+	subject      = "test-subject"
+	partnerJF    = "cccccccccccccccccccccccccccccccc"
+	partnerToken = "partner-token"
 )
 
 // fakeJellyfin serves 7 movies and checks every call uses the profile's token.
 type fakeJellyfin struct {
-	mu       sync.Mutex
-	badAuth  int
-	lastQury url.Values
-	calls    []string // playstate and encoding calls, in order
+	mu        sync.Mutex
+	badAuth   int
+	lastQury  url.Values
+	calls     []string // playstate and encoding calls, in order
+	lastToken string   // the token of the last library call
 }
 
 func (f *fakeJellyfin) called(prefix string) int {
@@ -61,11 +65,35 @@ func movie(i int) map[string]any {
 func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !strings.Contains(r.Header.Get("Authorization"), `Token="`+token+`"`) {
+	authz := r.Header.Get("Authorization")
+	switch {
+	case r.URL.Path == "/Users/AuthenticateByName":
+		json.NewEncoder(w).Encode(map[string]any{"AccessToken": partnerToken, "User": map[string]string{"Id": partnerJF}})
+		return
+	case strings.Contains(authz, `Token="admin"`):
+		switch r.Method + " " + r.URL.Path {
+		case "POST /Users/New":
+			json.NewEncoder(w).Encode(map[string]string{"Id": partnerJF})
+		case "GET /Users/" + partnerJF:
+			json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": false}})
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	case strings.Contains(authz, `Token="`+partnerToken+`"`):
+		f.lastToken = partnerToken
+		if r.URL.Query().Get("userId") != partnerJF && r.URL.Path != "/UserViews" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Items": []any{}, "TotalRecordCount": 0})
+		return
+	case !strings.Contains(authz, `Token="`+token+`"`):
 		f.badAuth++
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	f.lastToken = token
 	q := r.URL.Query()
 	f.lastQury = q
 	if strings.HasPrefix(r.URL.Path, "/Sessions/Playing") || r.URL.Path == "/Videos/ActiveEncodings" {
@@ -170,24 +198,48 @@ func newServerLimited(t *testing.T, maxStreams int) (*httptest.Server, *fakeJell
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	prov := &provision.Provisioner{Store: st, Jellyfin: jf, LogKey: []byte("k"), Logger: logger}
+	prov := &provision.Provisioner{Store: st, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"), Logger: logger}
+	sessions := &api.Sessions{Provisioner: prov, Store: st, Logger: logger, Lifetime: time.Hour}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "", "|")
-	lib := api.Library{Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
+	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
-	h, err := server.New(logger, ids, lib, pb, api.Stream{Playback: pb})
+	h, err := server.New(logger, ids, lib, pb, api.Stream{Playback: pb},
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true},
+		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(h)
+	// HTTPS, so the Secure session cookie behaves as in a browser.
+	srv := httptest.NewTLSServer(h)
 	t.Cleanup(srv.Close)
 	return srv, fake
+}
+
+var (
+	clientsMu sync.Mutex
+	clients   = map[string]*http.Client{}
+)
+
+// client returns one browser-like client per user and server: it trusts the
+// test server's certificate and keeps cookies, like a browser would.
+func client(srv *httptest.Server, who string) *http.Client {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	key := srv.URL + "|" + who
+	if c, ok := clients[key]; ok {
+		return c
+	}
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Transport: srv.Client().Transport, Jar: jar}
+	clients[key] = c
+	return c
 }
 
 func get(t *testing.T, srv *httptest.Server, path string, out any) int {
 	t.Helper()
 	req, _ := http.NewRequest("GET", srv.URL+path, nil)
 	req.Header.Set("Remote-User", subject)
-	res, err := http.DefaultClient.Do(req)
+	res, err := client(srv, subject).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +329,7 @@ func TestNoAccountMeansSetupRequired(t *testing.T) {
 	srv, _ := newServer(t)
 	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/libraries", nil)
 	req.Header.Set("Remote-User", "someone-new")
-	res, err := http.DefaultClient.Do(req)
+	res, err := client(srv, "someone-new").Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +409,7 @@ func post(t *testing.T, srv *httptest.Server, path, body string) (int, string) {
 	req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
 	req.Header.Set("Remote-User", subject)
 	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
+	res, err := client(srv, subject).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +477,7 @@ func getAs(t *testing.T, srv *httptest.Server, who, path string) (int, string) {
 	t.Helper()
 	req, _ := http.NewRequest("GET", srv.URL+path, nil)
 	req.Header.Set("Remote-User", who)
-	res, err := http.DefaultClient.Do(req)
+	res, err := client(srv, who).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

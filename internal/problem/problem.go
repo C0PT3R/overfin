@@ -27,12 +27,14 @@ const (
 	// ClaimFailed: wrong username or password, deliberately not saying
 	// which. ClaimNotAllowed: the credentials were right, but that account
 	// can't be adopted (an administrator, or already adopted).
-	ClaimFailed        Type = "claim-failed"
-	ClaimNotAllowed    Type = "claim-not-allowed"
-	CrossSiteRequest   Type = "cross-site-request"
-	NotPlayable        Type = "not-playable"
-	StreamLimitReached Type = "stream-limit-reached"
-	ServerBusy         Type = "server-busy"
+	ClaimFailed         Type = "claim-failed"
+	ClaimNotAllowed     Type = "claim-not-allowed"
+	CrossSiteRequest    Type = "cross-site-request"
+	NotPlayable         Type = "not-playable"
+	StreamLimitReached  Type = "stream-limit-reached"
+	NameTaken           Type = "name-taken"
+	ProfileLimitReached Type = "profile-limit-reached"
+	ServerBusy          Type = "server-busy"
 	// A playback that no longer exists, and why.
 	PlaybackTakenOver    Type = "playback-taken-over"
 	PlaybackExpired      Type = "playback-expired"
@@ -63,6 +65,8 @@ var registry = map[Type]info{
 	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},
 	NotPlayable:          {http.StatusConflict, "This item can't be played"},
 	StreamLimitReached:   {http.StatusConflict, "Too many streams on this account"},
+	NameTaken:            {http.StatusConflict, "This name is already used in this account"},
+	ProfileLimitReached:  {http.StatusConflict, "This account has as many profiles as allowed"},
 	ServerBusy:           {http.StatusServiceUnavailable, "The server is busy; try again shortly"},
 	PlaybackTakenOver:    {http.StatusGone, "Playback continued on another device"},
 	PlaybackExpired:      {http.StatusGone, "Playback ended after a period of inactivity"},
