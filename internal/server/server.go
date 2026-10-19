@@ -69,7 +69,9 @@ func recoverPanics(logger *slog.Logger, next http.Handler) http.Handler {
 				if v == http.ErrAbortHandler {
 					panic(v) // the client went away; let net/http handle it
 				}
-				logger.Error("panic", "value", v, "method", r.Method, "path", r.URL.Path)
+				// Log the route pattern, not the path: paths can carry
+				// stream tickets, which must never reach the logs.
+				logger.Error("panic", "value", v, "route", r.Pattern)
 				writeError(w, http.StatusInternalServerError, "internal error")
 			}
 		}()

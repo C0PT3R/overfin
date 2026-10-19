@@ -1,15 +1,14 @@
 # Overfin
 
-Go gateway between Jellyfin (required) and Seerr (optional plugin) and a
+Go gateway between Jellyfin (required), optional TMDB and Seerr plugins, and a
 website someone else builds. MIT, public.
 
 ## Non-negotiable
 - Follow every rule in SECURITY.md. Never add a passthrough or catch-all route;
   routes go through `plugin.Registrar`, which enforces this.
 - Never copy or port code from other projects (Streamyfin, jellyfin-web, etc.).
-  Build from the Jellyfin and Seerr OpenAPI specs and official docs.
+  Build from the Jellyfin, Seerr and TMDB API specs and official docs.
 - Standard library first. Any new dependency needs a stated reason.
-
 - This repo is public. Never commit details of the maintainer's own setup:
   domains, IPs, hostnames, usernames, emails, network layout or secrets. Use
   `example.org` and documentation IPs (192.0.2.0/24, 198.51.100.0/24) in
