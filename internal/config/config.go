@@ -31,6 +31,7 @@ type Config struct {
 	Adoption Adoption `toml:"adoption"`
 	Privacy  Privacy  `toml:"privacy"`
 	Plugins  Plugins  `toml:"plugins"`
+	Accounts Accounts `toml:"accounts"`
 	OIDC     OIDC     `toml:"oidc"`
 
 	// Secrets, loaded from the environment, never from the file.
@@ -124,6 +125,13 @@ type OIDC struct {
 // Enabled reports whether an OpenID Connect provider is configured.
 func (o OIDC) Enabled() bool { return o.Issuer != "" }
 
+type Accounts struct {
+	// OnDelete is what happens to the Jellyfin users of a deleted account:
+	// "delete" (the default: with their watch history) or "disable" (kept,
+	// with their history, but unusable).
+	OnDelete string `toml:"on_delete"`
+}
+
 type Plugins struct {
 	// Enable lists the plugins this instance offers. None are on by
 	// default: without any, Overfin only manages accounts and profiles.
@@ -153,6 +161,8 @@ type Limits struct {
 	MaxTranscodesTotal    int `toml:"max_transcodes_total"`
 	// MaxBitrateKbps caps every stream; 0 means no cap.
 	MaxBitrateKbps int `toml:"max_bitrate_kbps"`
+	// PINAttempts is how many wrong PINs in a row lock a profile.
+	PINAttempts int `toml:"pin_attempts"`
 	// OnLimit is what happens when an account starts one stream too many:
 	// "replace-oldest" (the default) or "refuse".
 	OnLimit string `toml:"on_limit"`
@@ -183,10 +193,12 @@ func defaults() Config {
 			MaxProfilesPerAccount: 5,
 			MaxStreamsPerAccount:  2,
 			MaxTranscodesTotal:    4,
+			PINAttempts:           5,
 			OnLimit:               "replace-oldest",
 		},
 		OIDC:     OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
 		Adoption: Adoption{Mode: "move"},
+		Accounts: Accounts{OnDelete: "delete"},
 	}
 }
 
@@ -365,6 +377,9 @@ func (c *Config) validate() error {
 		}
 	}
 
+	if c.Accounts.OnDelete != "delete" && c.Accounts.OnDelete != "disable" {
+		add("accounts.on_delete must be \"delete\" or \"disable\", got %q", c.Accounts.OnDelete)
+	}
 	if c.Adoption.Mode != "move" && c.Adoption.Mode != "link" {
 		add("adoption.mode must be \"move\" or \"link\", got %q", c.Adoption.Mode)
 	}
@@ -378,6 +393,9 @@ func (c *Config) validate() error {
 	}
 	if u := c.Identity.LogoutURL; u != "" && !strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "https://") {
 		add("identity.logout_url must be a path or an https:// URL")
+	}
+	if c.Limits.PINAttempts < 3 || c.Limits.PINAttempts > 10 {
+		add("limits.pin_attempts must be between 3 and 10")
 	}
 	if c.Limits.MaxStreamsPerAccount < 1 {
 		add("limits.max_streams_per_account must be at least 1")

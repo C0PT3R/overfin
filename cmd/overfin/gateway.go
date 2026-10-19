@@ -69,7 +69,7 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 	if cfg.Adoption.Claim {
 		sessions.ClaimMode = cfg.Adoption.Mode
 	}
-	checker := &pin.Checker{Key: k.PIN, Store: db}
+	checker := &pin.Checker{Key: k.PIN, Store: db, MaxFailures: cfg.Limits.PINAttempts}
 	identityMiddleware := ids.Middleware
 	if o := cfg.OIDC; o.Enabled() {
 		needGroups := cfg.Identity.Mode == "oidc" && cfg.Identity.RequiredGroup != ""
@@ -104,7 +104,8 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 	// Accounts and profiles are always on; everything else is a plugin the
 	// operator enables.
 	plugins := []plugin.Plugin{
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim,
+			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 	}

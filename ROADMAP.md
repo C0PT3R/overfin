@@ -60,7 +60,7 @@ once they are implemented and tested.
   their own Jellyfin users; "Who's watching?" switching; session listing,
   ending and logout; stream tickets bound to their session.
 
-## Milestone 1: a real site, end to end
+## Milestone 1: a real site, end to end (done)
 
 The first goal is one complete website running on Overfin against a real
 Jellyfin server, using only the public API.
@@ -72,9 +72,8 @@ Jellyfin server, using only the public API.
    username and password prove an account.
 3. ~~Kids profiles (rating ceilings enforced by Jellyfin) and PINs.~~ Done.
 4. ~~Step-up for destructive actions.~~ Done, over OpenID Connect: changing
-   and removing PINs, deleting profiles, and lifting PIN locks. Left: account
-   deletion and data export, and making the PIN lock threshold an operator
-   setting.
+   and removing PINs, deleting profiles and accounts, downloading your data,
+   and lifting PIN locks; the PIN lock threshold is a setting.
 5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done:
    [examples/demo-site](examples/demo-site).
 

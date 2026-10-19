@@ -457,6 +457,9 @@ func cleanList(in []string) []string {
 // limited to plain identifier characters.
 var externalValue = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 
+// ExternalIDs is externalIDs for other packages.
+func ExternalIDs(in map[string]string) map[string]string { return externalIDs(in) }
+
 func externalIDs(in map[string]string) map[string]string {
 	keys := map[string]string{
 		"Tmdb": "tmdb", "Imdb": "imdb", "Tvdb": "tvdb",

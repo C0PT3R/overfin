@@ -83,6 +83,13 @@ export class Overfin {
   createAccount() { return this.request('POST', '/me', {}); }
   /** Brings an existing media server account, with its history. The password is used once. */
   claimAccount(username, password) { return this.request('POST', '/me/claim', { username, password }); }
+  /**
+   * Deletes the account and everything Overfin holds about it. Owner only;
+   * needs a fresh login (step-up). Resolves with { history: 'deleted' | 'kept' }.
+   */
+  deleteAccount() { return this.request('DELETE', '/me'); }
+  /** What Overfin holds about the account (owner) or this profile, with the watch history. Needs a fresh login. */
+  exportData() { return this.request('POST', '/me/export', {}); }
   /** Ends this session (and the login). Resolves with { logoutUrl? }. */
   logout() { return this.request('POST', '/logout', {}); }
 

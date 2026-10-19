@@ -100,7 +100,7 @@ func TestLockUntilOwnerLogsIn(t *testing.T) {
 	c, now, acct, prof := setup(t)
 	c.UnlockAfter = 0
 	ctx := context.Background()
-	for i := 0; i < MaxFailures; i++ {
+	for i := 0; i < DefaultMaxFailures; i++ {
 		c.Check(ctx, acct, prof, "0000")
 		*now = now.Add(time.Minute)
 	}
@@ -114,5 +114,21 @@ func TestLockUntilOwnerLogsIn(t *testing.T) {
 	}
 	if err := c.Check(ctx, acct, prof, "1234"); err != nil {
 		t.Errorf("after the owner's login: %v", err)
+	}
+}
+
+func TestOperatorThreshold(t *testing.T) {
+	c, now, acct, prof := setup(t)
+	c.MaxFailures = 3
+	ctx := context.Background()
+	var we *WaitError
+	for i := 0; i < 2; i++ {
+		if err := c.Check(ctx, acct, prof, "0000"); !errors.Is(err, ErrIncorrect) {
+			t.Fatalf("attempt %d: %v", i+1, err)
+		}
+		*now = now.Add(time.Minute)
+	}
+	if err := c.Check(ctx, acct, prof, "0000"); !errors.As(err, &we) || !we.Locked {
+		t.Fatalf("third wrong PIN: %v", err)
 	}
 }

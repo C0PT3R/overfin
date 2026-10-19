@@ -134,6 +134,7 @@ type Profile struct {
 	Language         string
 	RatingCeiling    string
 	HasPIN           bool
+	Created          time.Time
 }
 
 // NewOwner describes the owner profile created with an account.
@@ -243,7 +244,7 @@ func (s *Store) Profiles(ctx context.Context, accountID string) ([]*Profile, err
 
 const profileSelect = `
 	SELECT id, account_id, name, kind, owner, jellyfin_user_id, jellyfin_username,
-		jellyfin_token, language, rating_ceiling, pin_hash IS NOT NULL
+		jellyfin_token, language, rating_ceiling, pin_hash IS NOT NULL, created_at
 	FROM profiles`
 
 // scanner is what *sql.Row and *sql.Rows have in common.
@@ -254,8 +255,9 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	var owner int
 	var sealed []byte
 	var language, ceiling sql.NullString
+	var created int64
 	err := sc.Scan(&p.ID, &p.AccountID, &p.Name, &p.Kind, &owner, &p.JellyfinUserID,
-		&p.JellyfinUsername, &sealed, &language, &ceiling, &p.HasPIN)
+		&p.JellyfinUsername, &sealed, &language, &ceiling, &p.HasPIN, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -271,6 +273,7 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	p.JellyfinToken = string(token)
 	p.Language = language.String
 	p.RatingCeiling = ceiling.String
+	p.Created = time.Unix(created, 0).UTC()
 	return &p, nil
 }
 
@@ -880,4 +883,30 @@ func (s *Store) SetJellyfinUser(ctx context.Context, profileID, username, token 
 	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET jellyfin_username = ?, jellyfin_token = ? WHERE id = ?`,
 		username, s.box.Seal([]byte(token), profileID), profileID)
 	return oneRow(res, err)
+}
+
+// ---- Account deletion -----------------------------------------------------------------
+
+// DeleteAccount deletes an account and everything the database holds about
+// it: profiles, sessions, PINs (by cascade), and the logins of its identity.
+func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var subject string
+	if err := tx.QueryRowContext(ctx, `SELECT subject FROM accounts WHERE id = ?`, accountID).Scan(&subject); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM logins WHERE subject = ?`, subject); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, accountID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

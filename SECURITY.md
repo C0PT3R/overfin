@@ -94,8 +94,10 @@ comes from the internet, and media files can be written by anyone.
 22. Each wrong PIN adds a growing delay. After a set number of wrong PINs
     (operator setting, default 5), PIN entry on that profile is blocked until
     the account owner logs in again through the identity provider.
-    *The threshold is fixed at 5 for now. On an instance without step-up,
-    where the owner can't confirm a login, the block lasts 15 minutes.*
+    The threshold is `limits.pin_attempts` (3 to 10, default 5), and the
+    wait between attempts never exceeds a minute. On an instance without
+    step-up, where the owner can't confirm a login, the block lasts 15
+    minutes.
 
 ### Authorization
 23. Every Overfin resource ID (profiles, playback sessions, stream tickets,
@@ -166,8 +168,8 @@ comes from the internet, and media files can be written by anyone.
 44. A public API response never reveals other users' data or activity. Only
     the admin API (rule 58) shows users, to the operator's admins.
 45. Deleting an account deletes everything Overfin holds about it. Its Jellyfin
-    and Seerr users are deleted or disabled, as the operator configures, and
-    the site tells the user which.
+    and Seerr users are deleted or disabled, as the operator configures
+    (`accounts.on_delete`), and the site tells the user which.
 46. Overfin offers no hooks for extra data collection. Operators who want more
     collect it with their own tools. Social features are out of Overfin's
     scope: it stores no relations between users, comments, likes, messages

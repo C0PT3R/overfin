@@ -1,0 +1,80 @@
+package api_test
+
+import (
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestExportMyData(t *testing.T) {
+	idp := newFakeIdP(t)
+	srv, _ := newServerWith(t, options{provider: idp.provider()})
+
+	if code, body := post(t, srv, "/api/v1/me/export", `{}`); code != 403 || !strings.Contains(body, "step-up-required") {
+		t.Fatalf("export without a fresh login: %d %s", code, body)
+	}
+	stepUp(t, srv, idp, subject, time.Now())
+
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/me/export", strings.NewReader("{}"))
+	req.Header.Set("Remote-User", subject)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := client(srv, subject).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	body := string(b)
+	if res.StatusCode != 200 || !strings.Contains(res.Header.Get("Content-Disposition"), "attachment") {
+		t.Fatalf("export: %d %s", res.StatusCode, res.Header.Get("Content-Disposition"))
+	}
+	for _, want := range []string{`"account":{"id":"acct_`, `"owner":true`, `"watchHistory":[{`, `"name":"Movie 0"`, `"sessions":[{`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("export lacks %s: %s", want, body)
+		}
+	}
+	// Never secrets (rule 52).
+	for _, secret := range []string{token, "pin_hash", "jellyfinToken", "of-test"} {
+		if strings.Contains(body, secret) {
+			t.Errorf("export contains %q", secret)
+		}
+	}
+}
+
+func TestDeleteAccount(t *testing.T) {
+	idp := newFakeIdP(t)
+	srv, _ := newServerWith(t, options{provider: idp.provider()})
+
+	// Another profile can't delete the account.
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Partner"}`)
+	partner := between(body, `"id":"`, `"`)
+	post(t, srv, "/api/v1/profiles/"+partner+"/activate", `{}`)
+	if code, _ := put(t, srv, "DELETE", "/api/v1/me", ""); code != 403 {
+		t.Errorf("non-owner deleted the account: %d", code)
+	}
+	post(t, srv, "/api/v1/profiles/"+ownerID(t, srv)+"/activate", `{}`)
+
+	if code, body := put(t, srv, "DELETE", "/api/v1/me", ""); code != 403 || !strings.Contains(body, "step-up-required") {
+		t.Fatalf("delete without a fresh login: %d %s", code, body)
+	}
+	stepUp(t, srv, idp, subject, time.Now())
+	code, body := put(t, srv, "DELETE", "/api/v1/me", "")
+	if code != 200 || !strings.Contains(body, `"history":"deleted"`) {
+		t.Fatalf("delete: %d %s", code, body)
+	}
+	// Gone: the next visit finds no account.
+	if code, body := getAs(t, srv, subject, "/api/v1/me"); code != 404 || !strings.Contains(body, "account-setup-required") {
+		t.Errorf("after deletion: %d %s", code, body)
+	}
+}
+
+func between(s, start, end string) string {
+	_, after, ok := strings.Cut(s, start)
+	if !ok {
+		return ""
+	}
+	v, _, _ := strings.Cut(after, end)
+	return v
+}

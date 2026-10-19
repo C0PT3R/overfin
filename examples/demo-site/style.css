@@ -15,7 +15,8 @@ button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; background: var(--panel); border: 1px solid #2c3039; border-radius: 6px; padding: .45em .9em; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #0b1020; font-weight: 600; }
 button.link { background: none; border: none; color: var(--muted); padding: .3em .5em; }
-button.link:hover, nav a:hover { color: var(--text); }
+a.link { color: var(--muted); padding: .3em .5em; }
+button.link:hover, a.link:hover, nav a:hover { color: var(--text); }
 input, select { background: var(--panel); border: 1px solid #2c3039; border-radius: 6px; padding: .45em .6em; }
 .muted { color: var(--muted); }
 .error { color: var(--danger); }

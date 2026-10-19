@@ -76,6 +76,9 @@ It's both a starting point and a reference for using the API.
   itself enforces: titles above it, and unrated ones, are hidden everywhere,
   even from direct links. Optional PINs, with growing delays and a lock after
   repeated wrong guesses.
+- **Your data, your call.** People can download everything held about them,
+  with their watch history, and delete their account; the operator chooses
+  whether the history goes too.
 - **Bring existing users.** Optionally, people can bring their existing
   Jellyfin account and watch history by entering its username and password
   once (administrator accounts never). See

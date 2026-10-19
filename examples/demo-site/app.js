@@ -255,6 +255,44 @@ async function personPage(id) {
     work.items.length ? h('div', { class: 'grid' }, work.items.map((i) => card(i))) : h('p', { class: 'muted' }, 'Nothing here.'));
 }
 
+// The account screen: download your data, delete your account. Both need a
+// fresh login; the SDK sends the browser through it and back here.
+function accountPage() {
+  const msg = h('p', { class: 'error' });
+  const owner = state.me.activeProfile.owner;
+  async function withFreshLogin(action) {
+    msg.textContent = '';
+    try {
+      await action();
+    } catch (err) {
+      if (err.type === 'step-up-required' && err.problem.stepUpUrl) return overfin.stepUp(err);
+      msg.textContent = explain(err);
+    }
+  }
+  const download = h('button', { onclick: () => withFreshLogin(async () => {
+    const data = await overfin.exportData();
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    h('a', { href: url, download: 'my-data.json' }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }) }, 'Download my data');
+  const remove = owner && h('button', { onclick: () => withFreshLogin(async () => {
+    if (!confirm('Delete your account, all its profiles and their watch history? This cannot be undone.')) return;
+    await closePlayer();
+    const out = await overfin.deleteAccount();
+    sessionStorage.clear();
+    alert(out.history === 'kept'
+      ? 'Your account is deleted. Your watch history stays on the server, unusable.'
+      : 'Your account and your watch history are deleted.');
+    location.href = '/';
+  }) }, 'Delete my account');
+  render(h('div', { class: 'center' }, h('h1', {}, 'Account'),
+    h('div', { class: 'panel' },
+      h('p', {}, owner ? 'Everything this service holds about your account, with your watch history.'
+        : 'Everything this service holds about this profile, with its watch history.'), download),
+    remove && h('div', { class: 'panel' }, h('p', {}, 'Delete your account, its profiles and their history.'), remove),
+    msg));
+}
+
 function notFound() {
   render(h('div', { class: 'center' }, h('h1', {}, 'Not found'), h('a', { href: '#/' }, 'Back home')));
 }
@@ -449,6 +487,7 @@ async function route() {
       case 'library': return await libraryPage(parts[1], params);
       case 'item': return await itemPage(parts[1]);
       case 'person': return await personPage(parts[1]);
+      case 'account': return accountPage();
       case 'play': return await playerPage(parts[1]);
       default: return notFound();
     }

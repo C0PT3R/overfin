@@ -450,6 +450,22 @@ func (p *Provisioner) Relogin(ctx context.Context, jellyfinUserID, username stri
 	return token, err
 }
 
+// DisableJellyfinUser disables a profile's Jellyfin user, keeping its
+// history on the server: for operators who keep it when an account is
+// deleted.
+func (p *Provisioner) DisableJellyfinUser(ctx context.Context, jellyfinUserID string) error {
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	policy, err := p.Jellyfin.UserPolicy(ctx, admin, jellyfinUserID)
+	if jellyfin.IsStatus(err, http.StatusNotFound) {
+		return nil // already gone
+	}
+	if err != nil {
+		return err
+	}
+	policy["IsDisabled"] = true
+	return p.Jellyfin.SetUserPolicy(ctx, admin, jellyfinUserID, policy)
+}
+
 // DeleteJellyfinUser deletes a profile's Jellyfin user, with its watch
 // history. A user already gone counts as deleted.
 func (p *Provisioner) DeleteJellyfinUser(ctx context.Context, jellyfinUserID string) error {

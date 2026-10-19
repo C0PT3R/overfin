@@ -165,13 +165,23 @@ paths:
     delete:
       operationId: deleteAccount
       summary: Delete the account and everything Overfin holds about it
-      description: Owner profile only, and needs a fresh login. What happens
-        to the Jellyfin and Seerr users is the operator's choice, reported in
-        `Info.accountDeletion`.
+      description: Owner profile only, and needs a fresh login. Whether the
+        watch history is deleted too or kept on the server (unusable) is the
+        operator's choice; the answer says which.
       tags: [account]
       responses:
-        "204":
-          description: The account is deleted and the session ended.
+        "200":
+          description: The account is deleted, and the session and login
+            ended.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [history]
+                properties:
+                  history:
+                    type: string
+                    enum: [deleted, kept]
         "403":
           $ref: "#/components/responses/StepUpOrOwnerOnly"
 
@@ -281,7 +291,9 @@ paths:
       description: Needs a fresh login. From the owner profile, it covers the
         whole account; from any other profile, only that profile's own data,
         since profiles are private from each other. Secrets (tokens, PIN
-        hashes, keys) are never included.
+        hashes, keys) are never included. Each profile's watch history
+        (watched, in progress, favorites, with external IDs) is read from the
+        media server for the download; Overfin doesn't keep it.
       tags: [account]
       responses:
         "200":

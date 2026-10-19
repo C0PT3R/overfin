@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/C0PT3R/overfin/internal/identity"
+	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/plugin"
 	"github.com/C0PT3R/overfin/internal/problem"
 	"github.com/C0PT3R/overfin/internal/provision"
@@ -22,6 +23,11 @@ type Account struct {
 	// Claim enables adopting an existing Jellyfin account. When it's on, a
 	// first visit asks the user instead of creating an account silently.
 	Claim bool
+	// KeepOnDelete disables a deleted account's Jellyfin users, keeping
+	// their history, instead of deleting them (accounts.on_delete).
+	KeepOnDelete bool
+	// Images, when set, forgets a deleted account's image access.
+	Images *images.Pipeline
 }
 
 func (Account) Name() string { return "account" }
@@ -31,6 +37,12 @@ func (a Account) Register(r *plugin.Registrar) error {
 		return err
 	}
 	if err := r.HandleFunc("POST /api/v1/me", a.create); err != nil {
+		return err
+	}
+	if err := r.HandleFunc("DELETE /api/v1/me", a.deleteAccount); err != nil {
+		return err
+	}
+	if err := r.HandleFunc("POST /api/v1/me/export", a.export); err != nil {
 		return err
 	}
 	if a.Claim {

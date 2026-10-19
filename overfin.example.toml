@@ -81,6 +81,9 @@ max_streams_per_account = 2
 max_transcodes_total = 4
 # 0 means no cap.
 max_bitrate_kbps = 0
+# Wrong PINs in a row before a profile's PIN locks (3 to 10). The lock lifts
+# when the account owner logs in again (with step-up), or after 15 minutes.
+pin_attempts = 5
 # When an account starts one stream too many: "replace-oldest" stops its
 # oldest stream (that device is told why), "refuse" refuses the new one.
 on_limit = "replace-oldest"
@@ -97,6 +100,12 @@ claim = false
 #   these accounts later with `overfin -move-linked`, once the old way to
 #   Jellyfin is closed.
 mode = "move"
+
+[accounts]
+# When someone deletes their account, its Jellyfin users are "delete"d with
+# their watch history (the default), or "disable"d: kept, with their history,
+# but unusable. The site tells the person which.
+on_delete = "delete"
 
 [plugins]
 # What this instance offers besides accounts and profiles, which are always

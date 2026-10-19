@@ -122,12 +122,18 @@ type ItemQuery struct {
 	Descending bool
 	StartIndex int
 	Limit      int
+	// ExtraFields asks for more fields than listings need, such as
+	// "ProviderIds".
+	ExtraFields string
 }
 
 func (q ItemQuery) values(userID string) url.Values {
 	v := url.Values{}
 	v.Set("userId", userID)
 	v.Set("fields", summaryFields)
+	if q.ExtraFields != "" {
+		v.Set("fields", summaryFields+","+q.ExtraFields)
+	}
 	v.Set("enableImageTypes", "Primary,Backdrop,Logo,Thumb")
 	v.Set("imageTypeLimit", "1")
 	v.Set("enableUserData", "true")

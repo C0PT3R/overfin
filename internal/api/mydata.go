@@ -1,0 +1,214 @@
+package api
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/C0PT3R/overfin/internal/jellyfin"
+	"github.com/C0PT3R/overfin/internal/library"
+	"github.com/C0PT3R/overfin/internal/problem"
+	"github.com/C0PT3R/overfin/internal/store"
+)
+
+// ---- Deleting an account ----------------------------------------------------
+
+// deleteAccount deletes the account and everything Overfin holds about it
+// (rule 45). Its Jellyfin users are deleted with their history, or disabled
+// and kept, as the operator chose; the answer says which. Owner only, after a
+// fresh login.
+func (a Account) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	c := a.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	if !c.IsOwner() {
+		problem.Send(w, problem.OwnerOnly, "")
+		return
+	}
+	if !a.Sessions.RequireFresh(w, c) {
+		return
+	}
+	ctx := r.Context()
+	profiles, err := a.Sessions.Store.Profiles(ctx, c.Account.ID)
+	if err != nil {
+		a.Logger.Error("listing profiles for deletion failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	// Jellyfin first: if that fails, nothing is deleted here, and trying
+	// again picks up where it stopped (users already gone count as done).
+	for _, p := range profiles {
+		if a.KeepOnDelete {
+			err = a.Provisioner.DisableJellyfinUser(ctx, p.JellyfinUserID)
+		} else {
+			err = a.Provisioner.DeleteJellyfinUser(ctx, p.JellyfinUserID)
+		}
+		if err != nil {
+			a.Logger.Error("removing a deleted account's Jellyfin user failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+	}
+	if err := a.Sessions.Store.DeleteAccount(ctx, c.Account.ID); err != nil {
+		a.Logger.Error("deleting an account failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	for _, p := range profiles {
+		if a.Images != nil {
+			a.Images.Forget(p.ID)
+		}
+	}
+	clearCookie(w)
+	out := map[string]string{"history": "deleted"}
+	if a.KeepOnDelete {
+		out["history"] = "kept"
+	}
+	if auth := a.Sessions.Auth; auth != nil && auth.Login {
+		auth.Logout(w, r)
+	}
+	a.Logger.Info("account deleted", "account", c.Account.ID)
+	writeOK(w, out)
+}
+
+// ---- Downloading your data --------------------------------------------------
+
+type exportJSON struct {
+	ExportedAt string              `json:"exportedAt"`
+	Account    *exportAccountJSON  `json:"account,omitempty"`
+	Profiles   []exportProfileJSON `json:"profiles"`
+	Sessions   []exportSessionJSON `json:"sessions"`
+}
+
+type exportAccountJSON struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type exportProfileJSON struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	Owner         bool   `json:"owner"`
+	Language      string `json:"language,omitempty"`
+	RatingCeiling string `json:"ratingCeiling,omitempty"`
+	HasPIN        bool   `json:"hasPin"`
+	CreatedAt     string `json:"createdAt"`
+	// WatchHistory is read from the media server for this download; Overfin
+	// doesn't keep it.
+	WatchHistory []exportItemJSON `json:"watchHistory"`
+}
+
+type exportItemJSON struct {
+	library.ItemSummary
+	ExternalIDs map[string]string `json:"externalIds,omitempty"`
+}
+
+type exportSessionJSON struct {
+	ID           string `json:"id"`
+	Device       string `json:"device,omitempty"`
+	ProfileName  string `json:"profileName,omitempty"`
+	CreatedAt    string `json:"createdAt"`
+	LastActiveAt string `json:"lastActiveAt,omitempty"`
+}
+
+// export answers with what Overfin holds about the account (from the owner
+// profile) or about the active profile only (from any other), plus the watch
+// history read live, never secrets (rule 52). After a fresh login.
+func (a Account) export(w http.ResponseWriter, r *http.Request) {
+	c := a.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	if !a.Sessions.RequireFresh(w, c) {
+		return
+	}
+	ctx := r.Context()
+	profiles := []*store.Profile{c.Profile}
+	out := exportJSON{ExportedAt: time.Now().UTC().Format(time.RFC3339), Profiles: []exportProfileJSON{}, Sessions: []exportSessionJSON{}}
+	if c.IsOwner() {
+		var err error
+		if profiles, err = a.Sessions.Store.Profiles(ctx, c.Account.ID); err != nil {
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+		out.Account = &exportAccountJSON{ID: c.Account.ID, CreatedAt: c.Account.Created.Format(time.RFC3339)}
+	}
+	names := map[string]string{}
+	for _, p := range profiles {
+		names[p.ID] = p.Name
+		history, err := a.history(ctx, p)
+		if err != nil {
+			a.Logger.Error("reading watch history for an export failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+		out.Profiles = append(out.Profiles, exportProfileJSON{
+			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language,
+			RatingCeiling: p.RatingCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
+			WatchHistory: history,
+		})
+	}
+	sessions, err := a.Sessions.Store.Sessions(ctx, c.Account.ID)
+	if err != nil {
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	for _, s := range sessions {
+		active := s.ActiveProfileID
+		if active == "" {
+			active = c.Owner.ID
+		}
+		if _, ours := names[active]; !ours {
+			continue // another profile's session (rule 51)
+		}
+		out.Sessions = append(out.Sessions, exportSessionJSON{
+			ID: s.ID, Device: s.Device, ProfileName: names[active],
+			CreatedAt: s.Created.Format(time.RFC3339), LastActiveAt: s.LastActive.Format(time.RFC3339),
+		})
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="my-data.json"`)
+	writeOK(w, out)
+}
+
+// historyLimit caps what one export reads per list, per profile.
+const historyLimit = 10_000
+
+// history reads a profile's watched, in-progress and favorite items from
+// Jellyfin, with its own token. Jellyfin's filters combine with "and", so
+// it takes one pass each.
+func (a Account) history(ctx context.Context, p *store.Profile) ([]exportItemJSON, error) {
+	jf := a.Provisioner.Jellyfin
+	yes := true
+	passes := []jellyfin.ItemQuery{
+		{IsPlayed: &yes},
+		{Resumable: true},
+		{IsFavorite: &yes},
+	}
+	seen := map[string]bool{}
+	out := []exportItemJSON{}
+	for _, q := range passes {
+		q.Recursive, q.SortBy, q.Descending, q.ExtraFields = true, "DatePlayed", true, "ProviderIds"
+		for start := 0; start < historyLimit; start += 500 {
+			q.StartIndex, q.Limit = start, 500
+			page, err := jf.Items(ctx, auth(p), p.JellyfinUserID, q)
+			if err != nil {
+				return nil, err
+			}
+			for i := range page.Items {
+				raw := &page.Items[i]
+				s, ok := library.Summary(raw)
+				if !ok || seen[s.ID] {
+					continue
+				}
+				seen[s.ID] = true
+				out = append(out, exportItemJSON{ItemSummary: s, ExternalIDs: library.ExternalIDs(raw.ProviderIds)})
+			}
+			if len(page.Items) < 500 {
+				break
+			}
+		}
+	}
+	return out, nil
+}

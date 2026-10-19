@@ -19,8 +19,12 @@ import (
 	"github.com/C0PT3R/overfin/internal/store"
 )
 
-// MaxFailures is how many wrong PINs in a row lock a profile.
-const MaxFailures = 5
+// DefaultMaxFailures is how many wrong PINs in a row lock a profile, unless
+// the operator sets another number.
+const DefaultMaxFailures = 5
+
+// maxWait caps the wait between attempts, for operators who allow many.
+const maxWait = time.Minute
 
 // forever stands for a lock only the owner's fresh login lifts.
 var forever = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -66,6 +70,9 @@ type Checker struct {
 	// instances without step-up, where the owner can't confirm a fresh
 	// login. Zero keeps a lock until the owner does.
 	UnlockAfter time.Duration
+	// MaxFailures is how many wrong PINs in a row lock a profile;
+	// DefaultMaxFailures when zero.
+	MaxFailures int
 
 	// mu makes each check a whole read-decide-write step, so parallel
 	// guesses can't all slip through the same wait.
@@ -108,7 +115,7 @@ func (c *Checker) Check(ctx context.Context, accountID, profileID, pin string) e
 		failures = 0 // a lock that ran out, or old mistakes
 	}
 	if failures > 0 {
-		if next := st.FailedAt.Add(time.Second << (failures - 1)); now.Before(next) {
+		if next := st.FailedAt.Add(min(time.Second<<min(failures-1, 30), maxWait)); now.Before(next) {
 			return &WaitError{Wait: next.Sub(now)}
 		}
 	}
@@ -123,7 +130,7 @@ func (c *Checker) Check(ctx context.Context, accountID, profileID, pin string) e
 	}
 	failures++
 	var lockedUntil time.Time
-	if failures >= MaxFailures {
+	if failures >= c.maxFailures() {
 		lockedUntil = forever
 		if c.UnlockAfter > 0 {
 			lockedUntil = now.Add(c.UnlockAfter)
@@ -142,6 +149,13 @@ func (c *Checker) Check(ctx context.Context, accountID, profileID, pin string) e
 		return c.locked(lockedUntil, now)
 	}
 	return ErrIncorrect
+}
+
+func (c *Checker) maxFailures() int {
+	if c.MaxFailures > 0 {
+		return c.MaxFailures
+	}
+	return DefaultMaxFailures
 }
 
 func (c *Checker) locked(until, now time.Time) error {
