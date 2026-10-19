@@ -21,6 +21,9 @@ once they are implemented and tested.
 - Signed cursors, bound to their query.
 - Identity: forward-auth from trusted proxies only, client IP from the
   proxy's own forwarded header, routes protected by default.
+- Storage (SQLite, pure Go): accounts, profiles and sessions, with upstream
+  tokens sealed (AES-256-GCM, bound to their row) and session tokens stored
+  only as hashes; embedded migrations.
 
 ## Milestone 1: a real site, end to end
 
@@ -28,15 +31,14 @@ The first goal is one complete website running on Overfin against a real
 Jellyfin server, using only the public API.
 
 1. Configuration reload without restart.
-2. Storage: accounts, profiles, sessions and encrypted tokens.
-3. Provisioning: Jellyfin users created on first login, with opaque names.
-4. Jellyfin 12 adapter.
-5. Library endpoints, with the image pipeline (decode, check, re-encode,
+2. Provisioning: Jellyfin users created on first login, with opaque names.
+3. Jellyfin 12 adapter.
+4. Library endpoints, with the image pipeline (decode, check, re-encode,
    cache, access checks).
-6. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
+5. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
    limits, transcode cleanup.
-7. Profiles, PINs and step-up.
-8. A minimal demo site in plain HTML and JavaScript.
+6. Profiles, PINs and step-up.
+7. A minimal demo site in plain HTML and JavaScript.
 
 ## Designed, to implement after milestone 1
 

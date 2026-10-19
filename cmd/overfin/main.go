@@ -15,7 +15,10 @@ import (
 
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/identity"
+	"github.com/C0PT3R/overfin/internal/keys"
+	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
+	"github.com/C0PT3R/overfin/internal/store"
 )
 
 func main() {
@@ -27,6 +30,10 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
+	// Everything Overfin creates (database, cache) is readable by its own
+	// user only.
+	syscall.Umask(0o077)
+
 	defaultPath := os.Getenv("OVERFIN_CONFIG")
 	if defaultPath == "" {
 		defaultPath = "/etc/overfin/overfin.toml"
@@ -39,6 +46,21 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	addr := cfg.Listen
+
+	k, err := keys.Derive(cfg.Secrets.Key)
+	if err != nil {
+		return err
+	}
+	box, err := seal.New(k.TokenEncryption)
+	if err != nil {
+		return err
+	}
+	db, err := store.Open(context.Background(), cfg.Storage.Path, box)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	logger.Info("database ready", "path", cfg.Storage.Path)
 
 	var ids *identity.Resolver
 	switch cfg.Identity.Mode {
