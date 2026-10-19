@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/C0PT3R/overfin/internal/config"
+	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/server"
 )
 
@@ -38,7 +40,17 @@ func run(logger *slog.Logger) error {
 	}
 	addr := cfg.Listen
 
-	handler, err := server.New(logger)
+	var ids *identity.Resolver
+	switch cfg.Identity.Mode {
+	case "forwardauth":
+		ids = identity.NewForwardAuth(cfg.Identity.Proxies, cfg.Identity.UserHeader, cfg.Identity.GroupsHeader)
+	case "anonymous":
+		ids = identity.NewAnonymous(cfg.Identity.Proxies)
+	default:
+		return fmt.Errorf("identity mode %q is not supported", cfg.Identity.Mode)
+	}
+
+	handler, err := server.New(logger, ids)
 	if err != nil {
 		return err
 	}

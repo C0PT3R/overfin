@@ -112,7 +112,10 @@ subtitles and attachments) from anywhere.
 ## Identity edge cases
 
 - **Spoofed identity headers:** accepted only from the proxy, which must strip
-  any the client sent; a protected route with no identity is refused [13].
+  any the client sent. If a client-sent header slips through next to the
+  proxy's, the duplicate makes the identity invalid rather than letting the
+  first one win. A protected route with no identity is refused, and every
+  route is protected unless explicitly public [13].
 - **Open sign-up at the identity provider:** only identities in the configured
   group or claim get Jellyfin users, at a limited rate [15].
 - **Offboarding:** sessions are revalidated, and disabling an identity ends

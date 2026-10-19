@@ -54,8 +54,10 @@ comes from the internet, and media files can be written by anyone.
 13. Identity comes from a configured identity plugin (forward-auth headers from
     a trusted proxy, or OIDC). Forward-auth headers are accepted only from the
     configured proxy address, and the proxy must strip identity headers sent by
-    clients. Outside anonymous mode, a request to any non-public route that
-    carries no identity is refused.
+    clients. An identity header that appears more than once is not believed
+    at all. Outside anonymous mode, a request to any non-public route that
+    carries no identity is refused; routes are protected unless explicitly
+    registered as public.
 14. The client IP is taken only from the trusted proxy (PROXY protocol or a
     forwarded header the proxy sets). Forwarded headers from anyone else are
     ignored.

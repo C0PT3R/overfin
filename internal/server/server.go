@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/plugin"
 	"github.com/C0PT3R/overfin/internal/problem"
 )
@@ -14,19 +15,20 @@ import (
 // maxBodyBytes caps request bodies. The API takes small JSON bodies only.
 const maxBodyBytes = 64 << 10 // 64 KiB
 
-// New returns the gateway handler with the given plugins loaded.
-func New(logger *slog.Logger, plugins ...plugin.Plugin) (http.Handler, error) {
+// New returns the gateway handler with the given plugins loaded. Every route
+// except the public ones requires an identity from ids.
+func New(logger *slog.Logger, ids *identity.Resolver, plugins ...plugin.Plugin) (http.Handler, error) {
 	mux := http.NewServeMux()
-	reg := plugin.NewRegistrar(mux)
+	reg := plugin.NewRegistrar(mux, requireIdentity)
 
-	if err := reg.HandleFunc("GET /api/v1/health", health); err != nil {
+	if err := reg.HandlePublic("GET /api/v1/health", http.HandlerFunc(health)); err != nil {
 		return nil, err
 	}
 	if err := reg.Load(plugins...); err != nil {
 		return nil, err
 	}
 	for pattern, owner := range reg.Routes() {
-		logger.Info("route", "pattern", pattern, "plugin", owner)
+		logger.Info("route", "pattern", pattern, "plugin", owner, "public", reg.IsPublic(pattern))
 	}
 
 	// Anything no route matched gets the same plain 404.
@@ -34,7 +36,19 @@ func New(logger *slog.Logger, plugins ...plugin.Plugin) (http.Handler, error) {
 		problem.Send(w, problem.NotFound, "")
 	})
 
-	return recoverPanics(logger, securityHeaders(limitBody(mux))), nil
+	return recoverPanics(logger, securityHeaders(limitBody(ids.Middleware(mux)))), nil
+}
+
+// requireIdentity refuses requests that carry no identity (SECURITY.md rule
+// 13). The registrar applies it to every route that isn't public.
+func requireIdentity(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := identity.FromContext(r.Context()); !ok {
+			problem.Send(w, problem.NotAuthenticated, "")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func health(w http.ResponseWriter, r *http.Request) {

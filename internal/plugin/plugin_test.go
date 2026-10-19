@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func (f fakePlugin) Register(r *Registrar) error {
 }
 
 func TestLoadRejectsDuplicateRoutes(t *testing.T) {
-	r := NewRegistrar(http.NewServeMux())
+	r := NewRegistrar(http.NewServeMux(), func(h http.Handler) http.Handler { return h })
 	err := r.Load(
 		fakePlugin{"a", "GET /api/v1/things"},
 		fakePlugin{"b", "GET /api/v1/things"},
@@ -52,5 +53,35 @@ func TestLoadRejectsDuplicateRoutes(t *testing.T) {
 	}
 	if got := r.Routes()["GET /api/v1/things"]; got != "a" {
 		t.Errorf("route owner = %q, want %q", got, "a")
+	}
+}
+
+func TestHandleProtectsAndHandlePublicDoesNot(t *testing.T) {
+	protected := map[string]bool{}
+	mux := http.NewServeMux()
+	r := NewRegistrar(mux, func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			protected[req.URL.Path] = true
+			h.ServeHTTP(w, req)
+		})
+	})
+	noop := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	if err := r.Handle("GET /api/v1/private", noop); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.HandlePublic("GET /api/v1/open", noop); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/private", "/api/v1/open"} {
+		mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, nil))
+	}
+	if !protected["/api/v1/private"] {
+		t.Error("Handle did not wrap the route with protection")
+	}
+	if protected["/api/v1/open"] {
+		t.Error("HandlePublic wrapped the route with protection")
+	}
+	if r.IsPublic("GET /api/v1/private") || !r.IsPublic("GET /api/v1/open") {
+		t.Error("IsPublic is wrong")
 	}
 }
