@@ -15,6 +15,7 @@ import (
 
 	"github.com/C0PT3R/overfin/internal/cursor"
 	"github.com/C0PT3R/overfin/internal/identity"
+	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/library"
 	"github.com/C0PT3R/overfin/internal/plugin"
@@ -29,6 +30,7 @@ import (
 type Library struct {
 	Provisioner *provision.Provisioner
 	Jellyfin    *jellyfin.Client
+	Images      *images.Pipeline
 	CursorKey   []byte
 	Logger      *slog.Logger
 }
@@ -43,6 +45,7 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/items/next-up": l.nextUp,
 		"GET /api/v1/items/latest":  l.latest,
 		"GET /api/v1/items/{id}":    l.item,
+		"GET /api/v1/images/{id}":   l.image,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
 			return err
@@ -228,6 +231,50 @@ func (l Library) latest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeOK(w, map[string]any{"items": out})
+}
+
+// image serves one image, access-checked and re-encoded (rules 10 and 27).
+// Anything wrong, including an item the profile may not see, is "not found".
+func (l Library) image(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r, "size") {
+		return
+	}
+	size := r.URL.Query().Get("size")
+	if size == "" {
+		size = "medium"
+	}
+	ref, err := images.Parse(r.PathValue("id"))
+	if err != nil || !slices.Contains(images.Sizes, size) {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	data, contentType, err := l.Images.Image(r.Context(), images.Viewer{
+		ProfileID: p.ID, UserID: p.JellyfinUserID, Auth: auth(p),
+	}, ref, size)
+	switch {
+	case err == nil:
+	case errors.Is(err, images.ErrInvalid), errors.Is(err, images.ErrHidden):
+		problem.Send(w, problem.NotFound, "")
+		return
+	case errors.Is(err, images.ErrUnsafe):
+		l.Logger.Warn("refused an unsafe image from upstream", "image", r.PathValue("id"))
+		problem.Send(w, problem.NotFound, "")
+		return
+	default:
+		l.upstreamError(w, err)
+		return
+	}
+	// The tag in the URL changes whenever the image does, so browsers may
+	// keep it; "private" keeps it out of shared caches, since images are
+	// access-checked per user.
+	w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	_, _ = w.Write(data)
 }
 
 // ---- Paging -----------------------------------------------------------------

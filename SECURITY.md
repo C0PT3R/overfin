@@ -201,6 +201,11 @@ comes from the internet, and media files can be written by anyone.
     Adopted accounts keep their names until the operator pseudonymizes them,
     an exception to rule 47.
 
+### Resource use
+61. Memory-heavy work, such as decoding images, runs with bounded
+    concurrency and bounded caches, so a burst of requests can't exhaust the
+    server's memory.
+
 ## Deployment
 
 Jellyfin must not be reachable from the internet. Ideally its port is reachable

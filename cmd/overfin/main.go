@@ -16,6 +16,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/identity"
+	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
 	"github.com/C0PT3R/overfin/internal/provision"
@@ -93,7 +94,7 @@ func run(logger *slog.Logger) error {
 
 	handler, err := server.New(logger, ids,
 		api.Account{Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
-		api.Library{Provisioner: prov, Jellyfin: jf, CursorKey: k.Cursor, Logger: logger},
+		api.Library{Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger},
 	)
 	if err != nil {
 		return err
