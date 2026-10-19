@@ -71,7 +71,7 @@ var registry = map[Type]info{
 	AccountSetupRequired: {http.StatusNotFound, "No account yet"},
 	AccountExists:        {http.StatusConflict, "This account already exists"},
 	ClaimFailed:          {http.StatusForbidden, "Wrong username or password"},
-	ClaimNotAllowed:      {http.StatusForbidden, "This media server account can't be brought over"},
+	ClaimNotAllowed:      {http.StatusForbidden, "This account can't be brought over"},
 	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},
 	NotPlayable:          {http.StatusConflict, "This item can't be played"},
 	StreamLimitReached:   {http.StatusConflict, "Too many streams on this account"},

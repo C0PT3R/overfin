@@ -262,7 +262,9 @@ function notFound() {
 // ---- Account setup -----------------------------------------------------------
 
 // setupPage offers a fresh account and, when the server allows it (claim is
-// 'move' or 'link'), bringing an existing media server account.
+// 'move' or 'link'), bringing an account from the service this site replaces.
+// Users may never have heard of the software underneath, so the wording is
+// about their previous account; a real site names its old service.
 function setupPage(claim) {
   $('#top').hidden = true;
   const msg = h('p', { class: 'error' });
@@ -278,13 +280,13 @@ function setupPage(claim) {
     } catch (err) {
       msg.textContent = err.status === 404 ? 'Bringing an existing account is not offered here.' : explain(err);
     }
-  } }, h('label', {}, 'Media server username', username), h('label', {}, 'Password', password),
+  } }, h('label', {}, 'Username', username), h('label', {}, 'Password', password),
   h('button', { type: 'submit' }, 'Bring my account'));
 
   const bring = claim && h('div', { class: 'panel' },
-    h('p', {}, 'Or bring your existing media server account, with its watch history. Your password is used once and not kept.'),
+    h('p', {}, 'Already had an account with us before? Bring it, with your watch history. Your password is used once and not kept.'),
     claim === 'move' && h('p', { class: 'muted' },
-      'This is a move: afterwards, your old login and media server apps stop working, and you watch here.'),
+      'This is a move: afterwards, your old login and the apps you used with it stop working, and you watch here.'),
     claimForm);
   render(h('div', { class: 'center' },
     h('h1', {}, 'Welcome'),

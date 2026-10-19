@@ -224,6 +224,10 @@ overfin, you don't fin. For a gentler transition, `mode = "link"` lets moved
 people keep using Jellyfin apps until the date; then run
 `overfin -move-linked` once.
 
+What people see is your site, under your name: they may never have heard of
+Jellyfin, and Overfin never names it to them. Speak of "your previous
+account" or your old service's name in your announcement and on your site.
+
 Nobody loses anything by being late: their Jellyfin account and history
 stay, and they can bring them whenever they get their login. Tell people who
 watch through Jellyfin apps (TVs, phones) that those stop working; the
