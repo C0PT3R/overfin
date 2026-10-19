@@ -1,8 +1,8 @@
-// Package oidc is a minimal OpenID Connect client, used only to confirm a
-// fresh login (step-up). It asks the identity provider for a new login with
-// the authorization code flow and PKCE, and accepts the result only after
-// checking the ID token's signature, issuer, audience, expiry, nonce and
-// login time itself.
+// Package oidc is a minimal OpenID Connect client: logging users in, and
+// confirming a fresh login (step-up). It uses the authorization code flow
+// with PKCE, and accepts a result only after checking the ID token's
+// signature, issuer, audience, expiry, nonce and login time itself. Logins
+// are re-checked with refresh tokens.
 package oidc
 
 import (
@@ -34,6 +34,9 @@ type Provider struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+	// GroupsClaim names the ID token claim listing the user's groups; empty
+	// when groups aren't needed.
+	GroupsClaim string
 	// HTTP makes the calls to the provider. Redirects are never followed.
 	HTTP *http.Client
 
@@ -70,6 +73,7 @@ type metadata struct {
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
 	TokenEndpoint         string `json:"token_endpoint"`
 	JWKSURI               string `json:"jwks_uri"`
+	EndSessionEndpoint    string `json:"end_session_endpoint"`
 }
 
 func (p *Provider) clock() time.Time {
@@ -97,6 +101,15 @@ func (p *Provider) doJSON(req *http.Request, out any) error {
 		return err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusBadRequest || res.StatusCode == http.StatusUnauthorized {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&e)
+		if e.Error == "invalid_grant" {
+			return ErrRevoked
+		}
+	}
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("oidc: %s answered %d", req.URL.Path, res.StatusCode)
 	}
@@ -127,6 +140,19 @@ func (p *Provider) discover(ctx context.Context) (*metadata, error) {
 	return p.meta, nil
 }
 
+// ErrRevoked: the provider refused a code or refresh token outright, for
+// example because the user logged out, was disabled, or the code was used.
+var ErrRevoked = errors.New("oidc: grant refused")
+
+// LogoutURL is the provider's end-of-session address, if it has one.
+func (p *Provider) LogoutURL(ctx context.Context) string {
+	m, err := p.discover(ctx)
+	if err != nil {
+		return ""
+	}
+	return m.EndSessionEndpoint
+}
+
 // Random returns n random bytes, base64url-encoded: states, nonces, PKCE
 // verifiers.
 func Random(n int) string {
@@ -141,8 +167,10 @@ func Challenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// AuthURL is where to send the browser for a fresh login.
-func (p *Provider) AuthURL(ctx context.Context, state, nonce, verifier string) (string, error) {
+// AuthURL is where to send the browser to log in. With fresh, the provider
+// is asked for a new login even if the user has a session there. scope
+// lists the scopes beyond "openid".
+func (p *Provider) AuthURL(ctx context.Context, state, nonce, verifier string, fresh bool, scope ...string) (string, error) {
 	m, err := p.discover(ctx)
 	if err != nil {
 		return "", err
@@ -153,26 +181,32 @@ func (p *Provider) AuthURL(ctx context.Context, state, nonce, verifier string) (
 		"response_type":         "code",
 		"client_id":             p.ClientID,
 		"redirect_uri":          p.RedirectURL,
-		"scope":                 "openid",
+		"scope":                 strings.Join(append([]string{"openid"}, scope...), " "),
 		"state":                 state,
 		"nonce":                 nonce,
 		"code_challenge":        Challenge(verifier),
 		"code_challenge_method": "S256",
-		// Both ask for a new login. Neither is trusted: the login time in
-		// the ID token is checked instead.
-		"prompt":  "login",
-		"max_age": "0",
 	} {
 		q.Set(k, v)
+	}
+	if fresh {
+		// Both ask for a new login. Neither is trusted: the login time in
+		// the ID token is checked instead.
+		q.Set("prompt", "login")
+		q.Set("max_age", "0")
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
 
-// Login is what a verified ID token says.
+// Login is what a verified ID token says, and the refresh token that came
+// with it, if any.
 type Login struct {
 	Subject  string
 	AuthTime time.Time
+	// Groups is nil when the token carries no groups claim.
+	Groups       []string
+	RefreshToken string
 }
 
 // Exchange trades an authorization code for an ID token and verifies it.
@@ -194,17 +228,65 @@ func (p *Provider) Exchange(ctx context.Context, code, verifier, nonce string) (
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(url.QueryEscape(p.ClientID), url.QueryEscape(p.ClientSecret))
 	var tok struct {
-		IDToken string `json:"id_token"`
+		IDToken      string `json:"id_token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 	if err := p.doJSON(req, &tok); err != nil {
 		return nil, err
 	}
-	return p.verify(ctx, m, tok.IDToken, nonce)
+	login, err := p.verify(ctx, m, tok.IDToken, nonce)
+	if err != nil {
+		return nil, err
+	}
+	login.RefreshToken = tok.RefreshToken
+	return login, nil
+}
+
+// Refresh re-checks a login with its refresh token. The provider refuses
+// (ErrRevoked) once the user logged out, was disabled or lost access. The
+// returned login carries the refresh token to use next time, and the
+// current groups when the provider sent a new ID token.
+func (p *Provider) Refresh(ctx context.Context, refreshToken, subject string) (*Login, error) {
+	m, err := p.discover(ctx)
+	if err != nil {
+		return nil, err
+	}
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refreshToken}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.TokenEndpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(url.QueryEscape(p.ClientID), url.QueryEscape(p.ClientSecret))
+	var tok struct {
+		IDToken      string `json:"id_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := p.doJSON(req, &tok); err != nil {
+		return nil, err
+	}
+	login := &Login{Subject: subject, RefreshToken: tok.RefreshToken}
+	if tok.RefreshToken == "" {
+		login.RefreshToken = refreshToken // not rotated
+	}
+	if tok.IDToken != "" {
+		got, err := p.verify(ctx, m, tok.IDToken, "")
+		if err != nil {
+			return nil, err
+		}
+		if got.Subject != subject {
+			return nil, errors.New("oidc: refreshed token is for another user")
+		}
+		login.Groups, login.AuthTime = got.Groups, got.AuthTime
+	}
+	return login, nil
 }
 
 // skew is the clock difference tolerated between Overfin and the provider.
 const skew = time.Minute
 
+// verify checks an ID token. An empty nonce means a refreshed token, which
+// carries neither nonce nor, necessarily, a login time.
 func (p *Provider) verify(ctx context.Context, m *metadata, token, nonce string) (*Login, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -242,6 +324,10 @@ func (p *Provider) verify(ctx context.Context, m *metadata, token, nonce string)
 	if err := decodePart(parts[1], &c); err != nil {
 		return nil, err
 	}
+	var all map[string]json.RawMessage
+	if err := decodePart(parts[1], &all); err != nil {
+		return nil, err
+	}
 	var aud []string
 	if err := json.Unmarshal(c.Aud, &aud); err != nil {
 		var one string
@@ -260,14 +346,24 @@ func (p *Provider) verify(ctx context.Context, m *metadata, token, nonce string)
 		return nil, errors.New("oidc: token expired")
 	case c.Iat == nil || time.Unix(*c.Iat, 0).After(now.Add(skew)):
 		return nil, errors.New("oidc: token issued in the future")
-	case c.Nonce == "" || c.Nonce != nonce:
+	case nonce != "" && c.Nonce != nonce:
 		return nil, errors.New("oidc: wrong nonce")
-	case c.AuthTime == nil:
+	case nonce != "" && c.AuthTime == nil:
 		return nil, errors.New("oidc: no login time in token")
 	case c.Sub == "":
 		return nil, errors.New("oidc: no subject")
 	}
-	return &Login{Subject: c.Sub, AuthTime: time.Unix(*c.AuthTime, 0)}, nil
+	login := &Login{Subject: c.Sub}
+	if c.AuthTime != nil {
+		login.AuthTime = time.Unix(*c.AuthTime, 0)
+	}
+	if raw, ok := all[p.GroupsClaim]; ok && p.GroupsClaim != "" {
+		login.Groups = []string{}
+		if json.Unmarshal(raw, &login.Groups) != nil {
+			return nil, errors.New("oidc: groups claim is not a list of names")
+		}
+	}
+	return login, nil
 }
 
 func decodePart(s string, v any) error {

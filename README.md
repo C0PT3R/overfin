@@ -84,6 +84,37 @@ enable = ["library", "playback"]
 Unknown names, planned plugins and missing dependencies stop Overfin at
 startup rather than being ignored.
 
+## Login
+
+Overfin logs users in itself, with any OpenID Connect provider (Authentik,
+Authelia, Keycloak, Pocket ID…): one client registration covers logging in
+and confirming a fresh login before destructive actions. Logins are
+re-checked with the provider every few minutes, so a user disabled there is
+out shortly after. No identity headers are involved, so there are none to
+spoof.
+
+To keep the site's own pages private too, let the reverse proxy ask Overfin
+before serving them. With Caddy:
+
+```caddyfile
+example.org {
+	handle /api/* {
+		reverse_proxy overfin:8080
+	}
+	handle {
+		forward_auth overfin:8080 {
+			uri /api/v1/gate
+		}
+		root * /srv/site
+		file_server
+	}
+}
+```
+
+Visitors who aren't logged in are sent to the login and brought back to the
+page they asked for. Setups already built on a proxy's forward auth can keep
+it (`identity.mode = "forwardauth"`).
+
 ## Security and privacy
 
 Overfin treats Jellyfin, Seerr and TMDB as trusted services serving
@@ -151,7 +182,7 @@ Secrets never go in the file. Set them as environment variables, or as
 | --- | --- |
 | `OVERFIN_JELLYFIN_ADMIN_KEY` | Jellyfin API key, used only to create users |
 | `OVERFIN_SECRET_KEY` | Base64, at least 32 random bytes; encrypts tokens and signs cursors |
-| `OVERFIN_STEP_UP_CLIENT_SECRET` | Only with `[step_up]`: Overfin's client secret at the identity provider |
+| `OVERFIN_OIDC_CLIENT_SECRET` | Only with `[oidc]`: Overfin's client secret at the identity provider |
 
 ## AI-assisted development
 

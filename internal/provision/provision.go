@@ -121,6 +121,10 @@ func (p *Provisioner) Create(ctx context.Context, id identity.Identity) (*store.
 }
 
 // allowed checks the parts of rule 15 that don't need the database.
+// Allowed reports whether id may use this instance at all: not anonymous,
+// and in the required group if there is one.
+func (p *Provisioner) Allowed(id identity.Identity) error { return p.allowed(id) }
+
 func (p *Provisioner) allowed(id identity.Identity) error {
 	if id.Anonymous {
 		return ErrAnonymous

@@ -79,6 +79,8 @@ func run(logger *slog.Logger) error {
 		ids = identity.NewForwardAuth(cfg.Identity.Proxies, cfg.Identity.UserHeader, cfg.Identity.GroupsHeader, cfg.Identity.GroupsSeparator)
 	case "anonymous":
 		ids = identity.NewAnonymous(cfg.Identity.Proxies)
+	case "oidc":
+		ids = identity.NewHeaderless(cfg.Identity.Proxies)
 	default:
 		return fmt.Errorf("identity mode %q is not supported", cfg.Identity.Mode)
 	}
@@ -98,11 +100,27 @@ func run(logger *slog.Logger) error {
 
 	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
 	checker := &pin.Checker{Key: k.PIN, Store: db}
-	if su := cfg.StepUp; su.Enabled() {
-		sessions.StepUp = &api.StepUp{Sessions: sessions, Store: db, Logger: logger,
-			FreshFor: time.Duration(su.FreshForMinutes) * time.Minute,
-			Provider: &oidc.Provider{Issuer: su.Issuer, ClientID: su.ClientID,
-				ClientSecret: cfg.Secrets.StepUpClientSecret, RedirectURL: su.RedirectURL, HTTP: oidc.NewClient(su.Dial)}}
+	identityMiddleware := ids.Middleware
+	if o := cfg.OIDC; o.Enabled() {
+		needGroups := cfg.Identity.Mode == "oidc" && cfg.Identity.RequiredGroup != ""
+		groupsClaim := ""
+		if needGroups {
+			groupsClaim = o.GroupsClaim
+		}
+		auth := &api.Auth{Sessions: sessions, Store: db, Provisioner: prov, Logger: logger,
+			FreshFor:      time.Duration(o.FreshForMinutes) * time.Minute,
+			Login:         cfg.Identity.Mode == "oidc",
+			LoginLifetime: 30 * 24 * time.Hour,
+			Recheck:       time.Duration(o.RecheckMinutes) * time.Minute,
+			NeedGroups:    needGroups,
+			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
+				RedirectURL: o.RedirectURL, GroupsClaim: groupsClaim, HTTP: oidc.NewClient(o.Dial)}}
+		sessions.Auth = auth
+		if auth.Login {
+			// The login cookie sets the identity; the headerless resolver
+			// only finds the client address.
+			identityMiddleware = func(h http.Handler) http.Handler { return ids.Middleware(auth.Middleware(h)) }
+		}
 	} else {
 		// Without step-up the owner can't confirm a login, so PIN locks
 		// end by themselves.
@@ -122,8 +140,8 @@ func run(logger *slog.Logger) error {
 			PINs: checker, Images: imgs,
 			LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 	}
-	if sessions.StepUp != nil {
-		plugins = append(plugins, sessions.StepUp)
+	if sessions.Auth != nil {
+		plugins = append(plugins, sessions.Auth)
 	}
 	if cfg.Plugins.Enabled("library") {
 		plugins = append(plugins, lib)
@@ -132,7 +150,7 @@ func run(logger *slog.Logger) error {
 		plugins = append(plugins, pb, api.Stream{Playback: pb})
 	}
 	logger.Info("plugins", "enabled", cfg.Plugins.Enable)
-	handler, err := server.New(logger, ids, plugins...)
+	handler, err := server.New(logger, identityMiddleware, plugins...)
 	if err != nil {
 		return err
 	}
@@ -151,6 +169,7 @@ func run(logger *slog.Logger) error {
 	if cfg.Plugins.Enabled("playback") {
 		go pb.RunJanitor(ctx)
 	}
+	go purgeExpired(ctx, db, logger)
 
 	errc := make(chan error, 1)
 	go func() {
@@ -171,4 +190,24 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+// purgeExpired deletes expired sessions and logins every hour. They are
+// already refused when expired; this only keeps the database small.
+func purgeExpired(ctx context.Context, db *store.Store, logger *slog.Logger) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		if _, err := db.DeleteExpiredSessions(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("purging expired sessions failed", "err", err)
+		}
+		if _, err := db.DeleteExpiredLogins(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("purging expired logins failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

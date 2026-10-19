@@ -182,34 +182,45 @@ func TestPlugins(t *testing.T) {
 	}
 }
 
-func TestStepUp(t *testing.T) {
-	ok := `
-[step_up]
+func TestOIDC(t *testing.T) {
+	section := `
+[oidc]
 issuer = "https://auth.example.org/application/o/site/"
 client_id = "overfin"
-redirect_url = "https://example.org/api/v1/step-up/callback"
+redirect_url = "https://example.org/api/v1/auth/callback"
 dial = "198.51.100.7:443"
 `
+	oidcMode := strings.Replace(goodFile, `user_header = "Remote-User"`, "", 1)
+	oidcMode = strings.Replace(oidcMode, `mode = "forwardauth"`, `mode = "oidc"`, 1)
+
 	vars := goodEnv()
-	if _, err := Load(writeFile(t, goodFile+ok), env(vars)); err == nil {
-		t.Error("step-up without its client secret was accepted")
+	if _, err := Load(writeFile(t, goodFile+section), env(vars)); err == nil {
+		t.Error("[oidc] without its client secret was accepted")
 	}
-	vars["OVERFIN_STEP_UP_CLIENT_SECRET"] = "secret"
-	cfg, err := Load(writeFile(t, goodFile+ok), env(vars))
+	vars["OVERFIN_OIDC_CLIENT_SECRET"] = "secret"
+	cfg, err := Load(writeFile(t, goodFile+section), env(vars))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.StepUp.Enabled() || cfg.Secrets.StepUpClientSecret != "secret" || cfg.StepUp.FreshForMinutes != 5 {
-		t.Errorf("step-up = %+v", cfg.StepUp)
+	if !cfg.OIDC.Enabled() || cfg.Secrets.OIDCClientSecret != "secret" || cfg.OIDC.FreshForMinutes != 5 || cfg.OIDC.RecheckMinutes != 10 {
+		t.Errorf("oidc = %+v", cfg.OIDC)
+	}
+	if _, err := Load(writeFile(t, oidcMode+section), env(vars)); err != nil {
+		t.Errorf("oidc mode: %v", err)
 	}
 	for _, bad := range []string{
-		strings.Replace(ok, "https://auth", "http://auth", 1),
-		strings.Replace(ok, "/api/v1/step-up/callback", "/elsewhere", 1),
-		strings.Replace(ok, `client_id = "overfin"`, `client_id = ""`, 1),
-		strings.Replace(ok, `dial = "198.51.100.7:443"`, `dial = "nowhere"`, 1),
+		goodFile + strings.Replace(section, "https://auth", "http://auth", 1),
+		goodFile + strings.Replace(section, "/api/v1/auth/callback", "/elsewhere", 1),
+		goodFile + strings.Replace(section, `client_id = "overfin"`, `client_id = ""`, 1),
+		goodFile + strings.Replace(section, `dial = "198.51.100.7:443"`, `dial = "nowhere"`, 1),
+		oidcMode, // oidc mode without [oidc]
 	} {
-		if _, err := Load(writeFile(t, goodFile+bad), env(vars)); err == nil {
+		if _, err := Load(writeFile(t, bad), env(vars)); err == nil {
 			t.Errorf("accepted:%s", bad)
 		}
+	}
+	withHeader := strings.Replace(goodFile, `mode = "forwardauth"`, `mode = "oidc"`, 1) + section
+	if _, err := Load(writeFile(t, withHeader), env(vars)); err == nil {
+		t.Error("oidc mode accepted an identity header")
 	}
 }

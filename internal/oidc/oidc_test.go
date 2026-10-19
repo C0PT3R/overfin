@@ -8,6 +8,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -52,6 +54,21 @@ func (f *fakeIdP) serve(w http.ResponseWriter, r *http.Request) {
 			"n": base64.RawURLEncoding.EncodeToString(f.key.N.Bytes()),
 			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(f.key.E)).Bytes()),
 		}}})
+	case r.URL.Path == "/token" && r.FormValue("grant_type") == "refresh_token":
+		switch r.FormValue("refresh_token") {
+		case "good":
+			c := f.claims(time.Now())
+			delete(c, "nonce")
+			c["groups"] = []string{"media", "family"}
+			json.NewEncoder(w).Encode(map[string]string{"id_token": f.sign(c), "refresh_token": "next"})
+		case "other-user":
+			c := f.claims(time.Now())
+			c["sub"] = "user-2"
+			json.NewEncoder(w).Encode(map[string]string{"id_token": f.sign(c)})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":"invalid_grant"}`)
+		}
 	case r.URL.Path == "/token":
 		user, pass, _ := r.BasicAuth()
 		claims, ok := f.codes[r.FormValue("code")]
@@ -59,7 +76,7 @@ func (f *fakeIdP) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"id_token": f.sign(claims)})
+		json.NewEncoder(w).Encode(map[string]string{"id_token": f.sign(claims), "refresh_token": "first"})
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -90,12 +107,12 @@ func (f *fakeIdP) provider() *Provider {
 	c := f.srv.Client()
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Provider{Issuer: f.issuer(), ClientID: "overfin", ClientSecret: "secret",
-		RedirectURL: "https://example.org/api/v1/step-up/callback", HTTP: c}
+		RedirectURL: "https://example.org/api/v1/auth/callback", HTTP: c}
 }
 
 func TestAuthURL(t *testing.T) {
 	f := newFakeIdP(t)
-	u, err := f.provider().AuthURL(context.Background(), "state", "nonce", "verifier")
+	u, err := f.provider().AuthURL(context.Background(), "state", "nonce", "verifier", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +186,31 @@ func TestDiscoveryIssuerMismatch(t *testing.T) {
 	f := newFakeIdP(t)
 	p := f.provider()
 	p.Issuer = f.srv.URL + "/o/other/"
-	if _, err := p.AuthURL(context.Background(), "s", "n", "v"); err == nil {
+	if _, err := p.AuthURL(context.Background(), "s", "n", "v", false); err == nil {
 		t.Error("accepted metadata for another issuer")
+	}
+}
+
+func TestRefresh(t *testing.T) {
+	f := newFakeIdP(t)
+	p := f.provider()
+	p.GroupsClaim = "groups"
+	ctx := context.Background()
+
+	f.codes["c"] = f.claims(time.Now())
+	login, err := p.Exchange(ctx, "c", "verifier", "nonce")
+	if err != nil || login.RefreshToken != "first" || login.Groups != nil {
+		t.Fatalf("exchange: %+v %v", login, err)
+	}
+
+	got, err := p.Refresh(ctx, "good", "user-1")
+	if err != nil || got.RefreshToken != "next" || len(got.Groups) != 2 {
+		t.Fatalf("refresh: %+v %v", got, err)
+	}
+	if _, err := p.Refresh(ctx, "revoked", "user-1"); !errors.Is(err, ErrRevoked) {
+		t.Errorf("revoked: %v", err)
+	}
+	if _, err := p.Refresh(ctx, "other-user", "user-1"); err == nil || errors.Is(err, ErrRevoked) {
+		t.Errorf("another user's token: %v", err)
 	}
 }

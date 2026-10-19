@@ -663,3 +663,104 @@ func oneRow(res sql.Result, err error) error {
 	}
 	return nil
 }
+
+// ---- Logins (identity mode "oidc") --------------------------------------------------
+
+// Login is a visitor logged in through Overfin's own OpenID Connect login.
+type Login struct {
+	ID           string
+	Subject      string
+	Groups       []string
+	RefreshToken string
+	Checked      time.Time
+	LastActive   time.Time
+	Expires      time.Time
+}
+
+// groupSep separates stored group names; it can't appear in one.
+const groupSep = "\n"
+
+// CreateLogin records a login and returns its secret token, the cookie value.
+func (s *Store) CreateLogin(ctx context.Context, subject string, groups []string, refreshToken string, lifetime time.Duration) (*Login, string, error) {
+	raw := make([]byte, 32)
+	rand.Read(raw)
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	now := s.now().UTC()
+	l := &Login{ID: ids.New(ids.Login), Subject: subject, Groups: groups, RefreshToken: refreshToken,
+		Checked: now, LastActive: now, Expires: now.Add(lifetime)}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO logins (id, token_hash, subject, groups, refresh_token, checked_at, created_at, last_active_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		l.ID, hashToken(token), subject, strings.Join(groups, groupSep),
+		s.box.Seal([]byte(refreshToken), "login refresh token "+l.ID), now.Unix(), now.Unix(), now.Unix(), l.Expires.Unix())
+	if err != nil {
+		return nil, "", fmt.Errorf("store: creating login: %w", err)
+	}
+	return l, token, nil
+}
+
+// LoginByToken finds a live login by its cookie value.
+func (s *Store) LoginByToken(ctx context.Context, token string) (*Login, error) {
+	return s.scanLogin(s.db.QueryRowContext(ctx, `
+		SELECT id, subject, groups, refresh_token, checked_at, last_active_at, expires_at
+		FROM logins WHERE token_hash = ? AND expires_at > ?`, hashToken(token), s.now().Unix()))
+}
+
+// LoginByID finds a live login by its ID.
+func (s *Store) LoginByID(ctx context.Context, id string) (*Login, error) {
+	return s.scanLogin(s.db.QueryRowContext(ctx, `
+		SELECT id, subject, groups, refresh_token, checked_at, last_active_at, expires_at
+		FROM logins WHERE id = ? AND expires_at > ?`, id, s.now().Unix()))
+}
+
+func (s *Store) scanLogin(row *sql.Row) (*Login, error) {
+	var l Login
+	var groups string
+	var sealed []byte
+	var checked, active, expires int64
+	err := row.Scan(&l.ID, &l.Subject, &groups, &sealed, &checked, &active, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	refresh, err := s.box.Open(sealed, "login refresh token "+l.ID)
+	if err != nil {
+		return nil, fmt.Errorf("store: login %s: %w", l.ID, err)
+	}
+	l.RefreshToken = string(refresh)
+	if groups != "" {
+		l.Groups = strings.Split(groups, groupSep)
+	}
+	l.Checked = time.Unix(checked, 0).UTC()
+	l.LastActive = time.Unix(active, 0).UTC()
+	l.Expires = time.Unix(expires, 0).UTC()
+	return &l, nil
+}
+
+// LoginChecked records a successful re-check: new groups and refresh token,
+// and the login's lifetime slides.
+func (s *Store) LoginChecked(ctx context.Context, id string, groups []string, refreshToken string, lifetime time.Duration) error {
+	now := s.now()
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE logins SET groups = ?, refresh_token = ?, checked_at = ?, last_active_at = ?, expires_at = ?
+		WHERE id = ?`, strings.Join(groups, groupSep), s.box.Seal([]byte(refreshToken), "login refresh token "+id),
+		now.Unix(), now.Unix(), now.Add(lifetime).Unix(), id)
+	return oneRow(res, err)
+}
+
+// DeleteLogin ends a login.
+func (s *Store) DeleteLogin(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM logins WHERE id = ?`, id)
+	return err
+}
+
+// DeleteExpiredLogins removes logins past their expiry.
+func (s *Store) DeleteExpiredLogins(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM logins WHERE expires_at <= ?`, s.now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

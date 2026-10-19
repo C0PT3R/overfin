@@ -37,7 +37,7 @@ const (
 
 // Resolver turns a request into an identity and a client IP.
 type Resolver struct {
-	mode         string // "forwardauth" or "anonymous"
+	mode         string // "forwardauth", "anonymous" or "none"
 	proxies      []netip.Prefix
 	userHeader   string
 	groupsHeader string
@@ -57,6 +57,14 @@ func NewForwardAuth(proxies []netip.Prefix, userHeader, groupsHeader, sep string
 // NewAnonymous gives every visitor the anonymous identity. Identity headers
 // are ignored, but X-Forwarded-For from trusted proxies is still used for the
 // client IP.
+// NewHeaderless returns a Resolver that takes no identity from the request
+// at all: with Overfin's own login, identity comes from the login cookie,
+// and identity headers are ignored whoever sends them. The proxies are
+// still trusted for the client address.
+func NewHeaderless(proxies []netip.Prefix) *Resolver {
+	return &Resolver{mode: "none", proxies: proxies}
+}
+
 func NewAnonymous(proxies []netip.Prefix) *Resolver {
 	return &Resolver{mode: "anonymous", proxies: proxies}
 }
@@ -77,7 +85,7 @@ func (r *Resolver) Resolve(req *http.Request) (id Identity, ok bool, client neti
 	if r.mode == "anonymous" {
 		return Identity{Anonymous: true}, true, client
 	}
-	if !trusted {
+	if !trusted || r.mode == "none" {
 		return Identity{}, false, client
 	}
 
@@ -217,6 +225,25 @@ const (
 )
 
 // FromContext returns the identity attached by Middleware.
+// With returns ctx carrying id, for identity sources other than headers.
+func With(ctx context.Context, id Identity) context.Context {
+	return context.WithValue(ctx, identityKey, id)
+}
+
+// CleanGroups keeps the valid group names among names, at most maxGroups.
+func CleanGroups(names []string) []string {
+	out := []string{}
+	for _, g := range names {
+		if g = strings.TrimSpace(g); validGroup(g) && len(out) < maxGroups {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// ValidSubject reports whether s can be a user ID.
+func ValidSubject(s string) bool { return validValue(s, maxSubjectLen) }
+
 func FromContext(ctx context.Context) (Identity, bool) {
 	id, ok := ctx.Value(identityKey).(Identity)
 	return id, ok

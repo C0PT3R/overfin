@@ -6,6 +6,8 @@
 #   OVERFIN_JELLYFIN_ADMIN_KEY   Jellyfin API key, used only to create users
 #   OVERFIN_SECRET_KEY           base64, at least 32 random bytes:
 #                                  openssl rand -base64 32
+#   OVERFIN_OIDC_CLIENT_SECRET   with [oidc]: the client secret at the
+#                                identity provider
 
 # Address Overfin listens on.
 listen = ":8080"
@@ -16,25 +18,56 @@ listen = ":8080"
 url = "http://192.0.2.10:8096"
 
 [identity]
-# "forwardauth": a reverse proxy authenticates users and passes identity
-# headers. "anonymous": no login at all.
-mode = "forwardauth"
-# Only these addresses may send identity headers.
+# How users log in:
+#   "oidc"         Overfin logs them in with the identity provider in [oidc]
+#                  (recommended: one client registration for login and
+#                  step-up, no identity headers to trust).
+#   "forwardauth"  a reverse proxy authenticates users and passes identity
+#                  headers (user_header, groups_header below).
+#   "anonymous"    no login at all.
+mode = "oidc"
+# The reverse proxies in front of Overfin: the client address is taken from
+# them, and in forwardauth mode the identity headers too.
 trusted_proxies = ["198.51.100.7"]
-# Headers the proxy sets with the user's stable ID and groups. They depend on
-# the proxy, for example:
+# Only members of this group get an account. Leave empty to allow everyone
+# who can log in.
+required_group = "media-users"
+# Where users go to also leave the identity provider when they log out. In
+# oidc mode, leave empty to use the provider's own end-session address.
+logout_url = ""
+
+# forwardauth mode only: headers the proxy sets with the user's stable ID and
+# groups. They depend on the proxy, for example:
 #   Authentik:  X-Authentik-Uid   and  X-Authentik-Groups
 #   Authelia:   Remote-User       and  Remote-Groups
-user_header = "Remote-User"
-groups_header = "Remote-Groups"
+# user_header = "Remote-User"
+# groups_header = "Remote-Groups"
 # What separates groups in that header: "|" for Authentik, "," for Authelia.
-groups_separator = ","
-# Only members of this group get an account. Leave empty to allow everyone
-# the proxy lets through.
-required_group = "media-users"
-# Where users go to also leave the identity provider when they log out of
-# the site. With Authentik: "/outpost.goauthentik.io/sign_out".
-logout_url = ""
+# groups_separator = ","
+
+[oidc]
+# Overfin's registration at the identity provider: a confidential
+# OAuth2/OpenID client with the redirect URL below, the offline_access scope
+# (logins are re-checked with refresh tokens), and in forwardauth mode a
+# subject equal to the user ID the proxy sends. Set
+# OVERFIN_OIDC_CLIENT_SECRET. In forwardauth mode this section is optional
+# and only enables step-up: without it, destructive actions (deleting a
+# profile, changing or removing a PIN) are refused, and a locked PIN unlocks
+# by itself after 15 minutes.
+issuer = "https://auth.example.org/application/o/site/"
+client_id = "overfin"
+redirect_url = "https://example.org/api/v1/auth/callback"
+# Optional "host:port" to reach the provider at, such as the reverse proxy
+# both sit behind; TLS is still checked against the issuer's name.
+dial = ""
+# How long a confirmed login counts as fresh for destructive actions.
+fresh_for_minutes = 5
+# How often a login is confirmed again with the provider: a user disabled
+# there is out within this time.
+recheck_minutes = 10
+# The ID token claim listing the user's groups (oidc mode, with
+# required_group).
+groups_claim = "groups"
 
 [storage]
 path = "/data/overfin.db"
@@ -54,21 +87,6 @@ on_limit = "replace-oldest"
 # entering its username and password once. Administrator accounts can never
 # be brought over. Off by default.
 claim = false
-
-[step_up]
-# Destructive actions (deleting a profile, changing or removing a PIN) need a
-# fresh login. Overfin asks the identity provider for one over OpenID
-# Connect: register Overfin there as a confidential OAuth2/OpenID client
-# whose subject is the same user ID the proxy sends in user_header, and set
-# OVERFIN_STEP_UP_CLIENT_SECRET. Without step-up those actions are refused,
-# and a locked PIN unlocks by itself after 15 minutes.
-issuer = ""                     # e.g. "https://auth.example.org/application/o/site/"
-client_id = ""
-redirect_url = ""               # "https://example.org/api/v1/step-up/callback"
-# Optional "host:port" to reach the provider at, such as the reverse proxy
-# both sit behind; TLS is still checked against the issuer's name.
-dial = ""
-fresh_for_minutes = 5
 
 [plugins]
 # What this instance offers besides accounts and profiles, which are always

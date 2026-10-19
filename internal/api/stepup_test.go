@@ -23,16 +23,19 @@ import (
 // fakeIdP plays the identity provider: each code it hands out maps to the
 // claims of the ID token it will return for it.
 type fakeIdP struct {
-	srv   *httptest.Server
-	key   *rsa.PrivateKey
-	mu    sync.Mutex
-	codes map[string]map[string]any
+	srv       *httptest.Server
+	key       *rsa.PrivateKey
+	mu        sync.Mutex
+	codes     map[string]map[string]any
+	refresh   map[string]string // refresh token -> subject
+	revoked   map[string]bool   // subjects logged out at the provider
+	refreshes int
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
 	t.Helper()
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	f := &fakeIdP{key: key, codes: map[string]map[string]any{}}
+	f := &fakeIdP{key: key, codes: map[string]map[string]any{}, refresh: map[string]string{}, revoked: map[string]bool{}}
 	f.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
@@ -44,14 +47,30 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 				"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
 		case "/token":
 			f.mu.Lock()
+			defer f.mu.Unlock()
+			if r.FormValue("grant_type") == "refresh_token" {
+				sub, ok := f.refresh[r.FormValue("refresh_token")]
+				delete(f.refresh, r.FormValue("refresh_token")) // rotated: single use
+				if !ok || f.revoked[sub] {
+					w.WriteHeader(http.StatusBadRequest)
+					io.WriteString(w, `{"error":"invalid_grant"}`)
+					return
+				}
+				f.refreshes++
+				next := oidc.Random(16)
+				f.refresh[next] = sub
+				json.NewEncoder(w).Encode(map[string]string{"refresh_token": next})
+				return
+			}
 			claims, ok := f.codes[r.FormValue("code")]
 			delete(f.codes, r.FormValue("code"))
-			f.mu.Unlock()
 			if !ok {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]string{"id_token": f.sign(claims)})
+			rt := oidc.Random(16)
+			f.refresh[rt] = claims["sub"].(string)
+			json.NewEncoder(w).Encode(map[string]string{"id_token": f.sign(claims), "refresh_token": rt})
 		}
 	}))
 	t.Cleanup(f.srv.Close)
@@ -70,7 +89,7 @@ func (f *fakeIdP) provider() *oidc.Provider {
 	c := f.srv.Client()
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &oidc.Provider{Issuer: f.srv.URL, ClientID: "overfin", ClientSecret: "s",
-		RedirectURL: "https://example.org/api/v1/step-up/callback", HTTP: c}
+		RedirectURL: "https://example.org/api/v1/auth/callback", HTTP: c}
 }
 
 // login answers an authorization request the way the provider would after
@@ -117,20 +136,20 @@ func stepUp(t *testing.T, srv *httptest.Server, idp *fakeIdP, sub string, authTi
 	code, state := idp.login(res.Header.Get("Location"), sub, authTime)
 
 	// The provider sends the browser back, cross-site.
-	res = browse(t, srv, "/api/v1/step-up/callback?"+url.Values{"code": {code}, "state": {state}}.Encode(),
+	res = browse(t, srv, "/api/v1/auth/callback?"+url.Values{"code": {code}, "state": {state}}.Encode(),
 		map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"})
 	page, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	if res.StatusCode != 200 || !strings.Contains(string(page), `content="0;url=/api/v1/step-up/finish?`) {
+	if res.StatusCode != 200 || !strings.Contains(string(page), `content="0;url=/api/v1/auth/finish?`) {
 		t.Fatalf("callback: %d %s", res.StatusCode, page)
 	}
-	return browse(t, srv, "/api/v1/step-up/finish?"+url.Values{"code": {code}, "state": {state}}.Encode(),
+	return browse(t, srv, "/api/v1/auth/finish?"+url.Values{"code": {code}, "state": {state}}.Encode(),
 		map[string]string{"Sec-Fetch-Site": "same-origin"})
 }
 
 func TestStepUp(t *testing.T) {
 	idp := newFakeIdP(t)
-	srv, _ := newServerWith(t, 0, idp.provider())
+	srv, _ := newServerWith(t, options{provider: idp.provider()})
 	owner := ownerID(t, srv)
 	if code, body := put(t, srv, "PUT", "/api/v1/profiles/"+owner+"/pin", `{"pin":"1234"}`); code != 204 {
 		t.Fatalf("set PIN: %d %s", code, body)
@@ -179,7 +198,7 @@ func TestStepUp(t *testing.T) {
 
 func TestStepUpStateIsBoundToTheSession(t *testing.T) {
 	idp := newFakeIdP(t)
-	srv, _ := newServerWith(t, 0, idp.provider())
+	srv, _ := newServerWith(t, options{provider: idp.provider()})
 	res := browse(t, srv, "/api/v1/step-up?return=https://evil.example/", nil)
 	res.Body.Close()
 	code, state := idp.login(res.Header.Get("Location"), subject, time.Now())
@@ -187,7 +206,7 @@ func TestStepUpStateIsBoundToTheSession(t *testing.T) {
 	// The same person in another browser can't finish it.
 	other := &http.Client{Transport: srv.Client().Transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/step-up/finish?code="+code+"&state="+state, nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/auth/finish?code="+code+"&state="+state, nil)
 	req.Header.Set("Remote-User", subject)
 	res, _ = other.Do(req)
 	res.Body.Close()
@@ -195,7 +214,7 @@ func TestStepUpStateIsBoundToTheSession(t *testing.T) {
 		t.Errorf("finished from another session: %d", res.StatusCode)
 	}
 	// And the state was used up by that attempt.
-	res = browse(t, srv, "/api/v1/step-up/finish?code="+code+"&state="+state, nil)
+	res = browse(t, srv, "/api/v1/auth/finish?code="+code+"&state="+state, nil)
 	res.Body.Close()
 	if res.StatusCode != 404 {
 		t.Errorf("state reused: %d", res.StatusCode)
@@ -209,7 +228,7 @@ func TestStepUpStateIsBoundToTheSession(t *testing.T) {
 	res = browse(t, srv, "/api/v1/step-up?return=//evil.example/x", nil)
 	res.Body.Close()
 	code, state = idp.login(res.Header.Get("Location"), subject, time.Now())
-	res = browse(t, srv, "/api/v1/step-up/finish?code="+code+"&state="+state, nil)
+	res = browse(t, srv, "/api/v1/auth/finish?code="+code+"&state="+state, nil)
 	if loc := res.Header.Get("Location"); loc != "/" {
 		t.Errorf("unsafe return led to %q", loc)
 	}
@@ -218,13 +237,13 @@ func TestStepUpStateIsBoundToTheSession(t *testing.T) {
 // Only the callback accepts cross-site navigations.
 func TestCrossSiteOnlyForTheCallback(t *testing.T) {
 	idp := newFakeIdP(t)
-	srv, _ := newServerWith(t, 0, idp.provider())
+	srv, _ := newServerWith(t, options{provider: idp.provider()})
 	nav := map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
 	for path, want := range map[string]int{
-		"/api/v1/step-up/callback?state=x": 200,
-		"/api/v1/step-up/finish?state=x":   403,
-		"/api/v1/step-up":                  403,
-		"/api/v1/me":                       403,
+		"/api/v1/auth/callback?state=x": 200,
+		"/api/v1/auth/finish?state=x":   403,
+		"/api/v1/step-up":               403,
+		"/api/v1/me":                    403,
 	} {
 		res := browse(t, srv, path, nav)
 		res.Body.Close()
@@ -233,7 +252,7 @@ func TestCrossSiteOnlyForTheCallback(t *testing.T) {
 		}
 	}
 	// A fetch, not a navigation, is refused even for the callback.
-	res := browse(t, srv, "/api/v1/step-up/callback?state=x", map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"})
+	res := browse(t, srv, "/api/v1/auth/callback?state=x", map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"})
 	res.Body.Close()
 	if res.StatusCode != 403 {
 		t.Errorf("cross-site fetch of the callback: %d", res.StatusCode)

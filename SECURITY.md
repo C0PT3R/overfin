@@ -51,9 +51,11 @@ comes from the internet, and media files can be written by anyone.
     `Accept-Ranges`. Never `Set-Cookie` or `Location`.
 
 ### Identity and sessions
-13. Identity comes from a configured identity plugin (forward-auth headers from
-    a trusted proxy, or OIDC). Forward-auth headers are accepted only from the
-    configured proxy address, and the proxy must strip identity headers sent by
+13. Identity comes from Overfin's own OpenID Connect login (recommended), or
+    from forward-auth headers set by a trusted proxy. With Overfin's login,
+    identity headers are ignored entirely, whoever sends them; a login
+    answer only completes in the browser that started it. Forward-auth
+    headers are accepted only from the configured proxy address, and the proxy must strip identity headers sent by
     clients. An identity header that appears more than once is not believed
     at all. Outside anonymous mode, a request to any non-public route that
     carries no identity is refused; routes are protected unless explicitly
@@ -64,7 +66,9 @@ comes from the internet, and media files can be written by anyone.
 15. Only identities matching the configured group or claim are provisioned, and
     provisioning is rate-limited.
 16. Sessions are revalidated with the identity provider at a configured
-    interval. Disabling an identity ends its sessions and revokes its Jellyfin
+    interval (with Overfin's login, by refresh token every 10 minutes by
+    default; if the provider stays unreachable for an hour, logins fail
+    closed). Disabling an identity ends its sessions and revokes its Jellyfin
     tokens.
 17. Session cookies use the `__Host-` prefix and are `HttpOnly`, `Secure` and
     `SameSite=Strict`.
@@ -216,10 +220,13 @@ only from Overfin's host and the operator's admin network. Overfin never offers
 a route to Jellyfin's dashboard; operators reach it privately (LAN, VPN, SSH
 tunnel).
 
-Every route to Overfin except the public ones (`/api/v1/health`,
-`/api/v1/info`) must pass through the proxy's authentication. On every route,
-public or not, the proxy must strip client-sent identity and forwarded headers
-before adding its own (rules 13 and 14).
+With Overfin's own login, the proxy only forwards `/api/*` to Overfin and
+can protect the site's pages by asking `/api/v1/gate` first (forward auth to
+Overfin). With forward-auth from another provider instead, every route to
+Overfin except the public ones (`/api/v1/health`, `/api/v1/info`) must pass
+through the proxy's authentication. In both cases, on every route, the proxy
+must strip client-sent forwarded headers, and with forward-auth also
+identity headers, before adding its own (rules 13 and 14).
 
 ## Reporting a vulnerability
 

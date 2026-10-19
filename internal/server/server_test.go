@@ -35,7 +35,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 func newServerWith(t *testing.T, ids *identity.Resolver) *httptest.Server {
 	t.Helper()
-	h, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), ids, whoami{})
+	h, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), ids.Middleware, whoami{})
 	if err != nil {
 		t.Fatal(err)
 	}

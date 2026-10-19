@@ -19,8 +19,10 @@ once they are implemented and tested.
   types.
 - Key derivation (HKDF): one working key per purpose from the secret key.
 - Signed cursors, bound to their query.
-- Identity: forward-auth from trusted proxies only, client IP from the
-  proxy's own forwarded header, routes protected by default.
+- Identity: Overfin's own OpenID Connect login (one provider for login and
+  step-up, logins re-checked by refresh token, a gate for the reverse proxy
+  to hide the site's pages), or forward-auth from trusted proxies; client IP
+  from the proxy's own forwarded header; routes protected by default.
 - Storage (SQLite, pure Go): accounts, profiles and sessions, with upstream
   tokens sealed (AES-256-GCM, bound to their row) and session tokens stored
   only as hashes; embedded migrations.
@@ -77,7 +79,6 @@ Jellyfin server, using only the public API.
 
 - TMDB catalog plugin: discover, catalog titles, curated lists.
 - Seerr requests plugin: requests, quotas, problem reports.
-- OIDC identity plugin, for setups without forward-auth.
 - Profile avatars, profile transfers, data export.
 - Trickplay, lyrics, skip markers, bitrate test.
 

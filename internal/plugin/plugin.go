@@ -31,13 +31,14 @@ type Registrar struct {
 	routes  map[string]string // pattern -> plugin that registered it
 	public  map[string]bool   // patterns registered with HandlePublic
 	nav     map[string]bool   // paths registered with HandleNavigation
+	cross   map[string]bool   // paths registered with HandleCrossSite
 }
 
 // NewRegistrar returns a Registrar that adds routes to mux, wrapping every
 // non-public route with protect.
 func NewRegistrar(mux *http.ServeMux, protect func(http.Handler) http.Handler) *Registrar {
 	return &Registrar{mux: mux, protect: protect, routes: make(map[string]string),
-		public: make(map[string]bool), nav: make(map[string]bool)}
+		public: make(map[string]bool), nav: make(map[string]bool), cross: make(map[string]bool)}
 }
 
 // Load registers each plugin's routes, stopping at the first error.
@@ -79,6 +80,26 @@ func (r *Registrar) HandleNavigation(pattern string, h http.Handler) error {
 	}
 	r.nav[path] = true
 	return nil
+}
+
+// HandleCrossSite adds a public GET route that accepts any request, from
+// any site: the gate a reverse proxy consults before serving the site's
+// pages. It must answer only whether the visitor is logged in.
+func (r *Registrar) HandleCrossSite(pattern string, h http.Handler) error {
+	method, path, _ := strings.Cut(pattern, " ")
+	if method != http.MethodGet || strings.Contains(path, "{") {
+		return fmt.Errorf("route %q: cross-site routes must be GET with a fixed path", pattern)
+	}
+	if err := r.add(pattern, h, true); err != nil {
+		return err
+	}
+	r.cross[path] = true
+	return nil
+}
+
+// IsCrossSite reports whether a request path belongs to a cross-site route.
+func (r *Registrar) IsCrossSite(path string) bool {
+	return r.cross[path]
 }
 
 // IsNavigation reports whether a request path belongs to a navigation route.

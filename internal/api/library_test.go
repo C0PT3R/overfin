@@ -182,11 +182,20 @@ func newServer(t *testing.T) (*httptest.Server, *fakeJellyfin) {
 
 func newServerLimited(t *testing.T, maxStreams int) (*httptest.Server, *fakeJellyfin) {
 	t.Helper()
-	return newServerWith(t, maxStreams, nil)
+	return newServerWith(t, options{maxStreams: maxStreams})
 }
 
-// newServerWith starts a test server; provider, when set, enables step-up.
-func newServerWith(t *testing.T, maxStreams int, provider *oidc.Provider) (*httptest.Server, *fakeJellyfin) {
+// options changes how the test server is set up.
+type options struct {
+	maxStreams int
+	// provider, when set, enables step-up; with login, also Overfin's own
+	// login (identity mode "oidc"), re-checked on every request.
+	provider *oidc.Provider
+	login    bool
+}
+
+func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
+	maxStreams := o.maxStreams
 	t.Helper()
 	fake := &fakeJellyfin{}
 	jfSrv := httptest.NewServer(fake)
@@ -216,11 +225,18 @@ func newServerWith(t *testing.T, maxStreams int, provider *oidc.Provider) (*http
 	prov := &provision.Provisioner{Store: st, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"), Logger: logger}
 	sessions := &api.Sessions{Provisioner: prov, Store: st, Logger: logger, Lifetime: time.Hour}
 	extra := []plugin.Plugin{}
-	if provider != nil {
-		sessions.StepUp = &api.StepUp{Sessions: sessions, Store: st, Provider: provider, FreshFor: 5 * time.Minute, Logger: logger}
-		extra = append(extra, sessions.StepUp)
-	}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "", "|")
+	identify := ids.Middleware
+	if o.provider != nil {
+		auth := &api.Auth{Sessions: sessions, Store: st, Provisioner: prov, Provider: o.provider,
+			FreshFor: 5 * time.Minute, Login: o.login, LoginLifetime: time.Hour, Logger: logger}
+		sessions.Auth = auth
+		extra = append(extra, auth)
+		if o.login {
+			ids = identity.NewHeaderless([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")})
+			identify = func(h http.Handler) http.Handler { return ids.Middleware(auth.Middleware(h)) }
+		}
+	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
 	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb},
@@ -228,7 +244,7 @@ func newServerWith(t *testing.T, maxStreams int, provider *oidc.Provider) (*http
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,
 			PINs: &pin.Checker{Key: []byte("pin-key"), Store: st}},
 	}, extra...)
-	h, err := server.New(logger, ids, plugins...)
+	h, err := server.New(logger, identify, plugins...)
 	if err != nil {
 		t.Fatal(err)
 	}

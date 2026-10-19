@@ -624,16 +624,26 @@ func (p Profiles) endOtherSessions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// logout ends this browser's session and, with Overfin's own login, the
+// login too. It works even before an account exists.
 func (p Profiles) logout(w http.ResponseWriter, r *http.Request) {
-	c := p.Sessions.Current(w, r)
-	if c == nil {
-		return
+	ctx := r.Context()
+	if c, err := r.Cookie(CookieName); err == nil && len(c.Value) <= 64 {
+		if s, err := p.Store.SessionByToken(ctx, c.Value); err == nil {
+			_ = p.Store.DeleteSession(ctx, s.AccountID, s.ID)
+		}
 	}
-	_ = p.Store.DeleteSession(r.Context(), c.Account.ID, c.Session.ID)
 	clearCookie(w)
+	logoutURL := p.LogoutURL
+	if a := p.Sessions.Auth; a != nil && a.Login {
+		a.Logout(w, r)
+		if logoutURL == "" {
+			logoutURL = a.Provider.LogoutURL(ctx)
+		}
+	}
 	out := map[string]string{}
-	if p.LogoutURL != "" {
-		out["logoutUrl"] = p.LogoutURL
+	if logoutURL != "" {
+		out["logoutUrl"] = logoutURL
 	}
 	writeOK(w, out)
 }

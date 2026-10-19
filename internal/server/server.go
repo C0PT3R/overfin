@@ -16,9 +16,10 @@ import (
 // maxBodyBytes caps request bodies. The API takes small JSON bodies only.
 const maxBodyBytes = 64 << 10 // 64 KiB
 
-// New returns the gateway handler with the given plugins loaded. Every route
-// except the public ones requires an identity from ids.
-func New(logger *slog.Logger, ids *identity.Resolver, plugins ...plugin.Plugin) (http.Handler, error) {
+// New returns the gateway handler with the given plugins loaded. identify
+// puts the caller's identity in the request context; every route except the
+// public ones requires one.
+func New(logger *slog.Logger, identify func(http.Handler) http.Handler, plugins ...plugin.Plugin) (http.Handler, error) {
 	mux := http.NewServeMux()
 	reg := plugin.NewRegistrar(mux, requireIdentity)
 
@@ -37,7 +38,7 @@ func New(logger *slog.Logger, ids *identity.Resolver, plugins ...plugin.Plugin) 
 		problem.Send(w, problem.NotFound, "")
 	})
 
-	return recoverPanics(logger, securityHeaders(sameOrigin(reg, limitBody(ids.Middleware(mux))))), nil
+	return recoverPanics(logger, securityHeaders(sameOrigin(reg, limitBody(identify(mux))))), nil
 }
 
 // requireIdentity refuses requests that carry no identity (SECURITY.md rule
@@ -74,7 +75,8 @@ func securityHeaders(next http.Handler) http.Handler {
 // directly) are accepted, which also shuts out sibling subdomains. Requests
 // that change something must be JSON, which plain HTML forms can't send: that
 // covers old browsers without Sec-Fetch-Site. The only exception is a
-// top-level GET navigation to a navigation route.
+// top-level GET navigation to a navigation route, and a GET to a
+// cross-site route (the gate).
 func sameOrigin(reg *plugin.Registrar, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Header.Get("Sec-Fetch-Site") {
@@ -82,6 +84,9 @@ func sameOrigin(reg *plugin.Registrar, next http.Handler) http.Handler {
 		default:
 			if r.Method == http.MethodGet && r.Header.Get("Sec-Fetch-Mode") == "navigate" &&
 				r.Header.Get("Sec-Fetch-Dest") == "document" && reg.IsNavigation(r.URL.Path) {
+				break
+			}
+			if r.Method == http.MethodGet && reg.IsCrossSite(r.URL.Path) {
 				break
 			}
 			problem.Send(w, problem.CrossSiteRequest, "")

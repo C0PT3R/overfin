@@ -27,21 +27,21 @@ type Sessions struct {
 	Logger      *slog.Logger
 	// Lifetime of a session without activity; it slides with use.
 	Lifetime time.Duration
-	// StepUp is the instance's step-up, nil when it has none: actions that
-	// need a fresh login are then refused.
-	StepUp *StepUp
+	// Auth is the instance's OpenID Connect side, nil when it has none:
+	// actions that need a fresh login are then refused.
+	Auth *Auth
 }
 
 // RequireFresh lets an action through only if the session confirmed a login
 // recently (rule 21). Otherwise it writes step-up-required, with where to
 // confirm one, and returns false.
 func (s *Sessions) RequireFresh(w http.ResponseWriter, c *Caller) bool {
-	if s.StepUp != nil && !c.Session.FreshLogin.IsZero() && time.Since(c.Session.FreshLogin) < s.StepUp.FreshFor {
+	if s.Auth != nil && !c.Session.FreshLogin.IsZero() && time.Since(c.Session.FreshLogin) < s.Auth.FreshFor {
 		return true
 	}
 	p := problem.New(problem.StepUpRequired, "")
 	p.StepUp = "login"
-	if s.StepUp != nil {
+	if s.Auth != nil {
 		p.StepUpURL = stepUpPath
 	} else {
 		p.Detail = "this server offers no way to confirm a login, so this can't be done here"

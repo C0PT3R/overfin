@@ -288,6 +288,51 @@ paths:
         "403":
           $ref: "#/components/responses/StepUpRequired"
 
+  /login:
+    get:
+      operationId: login
+      summary: Log in (navigate here, don't fetch)
+      description: With Overfin's own login only. Sends the browser to the
+        identity provider, then back to `return`. Requests needing a login
+        answer `not-authenticated` until then.
+      tags: [account]
+      security: []
+      parameters:
+        - name: return
+          in: query
+          description: Path on this site to come back to. Anything that isn't
+            a plain path is replaced by `/`.
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Off to the identity provider, or straight to `return`
+            when already logged in.
+
+  /gate:
+    get:
+      operationId: gate
+      summary: Tell a reverse proxy whether to serve a page
+      description: |
+        With Overfin's own login only. For the reverse proxy's forward auth
+        in front of the site's pages, not for clients. Answers 204 for a
+        logged-in, allowed visitor; for a visitor's page request
+        (`Sec-Fetch-Dest` of `document`), a redirect to `/login` coming back
+        to `X-Forwarded-Uri`; `not-authenticated` for anything else.
+      tags: [account]
+      security: []
+      responses:
+        "204":
+          description: Serve the page.
+        "302":
+          description: Log in first.
+        "401":
+          description: Not logged in, and not a page request
+            (`not-authenticated`).
+        "403":
+          description: Logged in, but not allowed on this instance
+            (`account-not-allowed`).
+
   /logout:
     post:
       operationId: logout
@@ -295,8 +340,9 @@ paths:
       tags: [account]
       responses:
         "200":
-          description: The session is ended. To also leave the identity
-            provider, send the user to `logoutUrl`.
+          description: The session is ended, and with Overfin's own login
+            the login too. To also leave the identity provider, send the user
+            to `logoutUrl`.
           content:
             application/json:
               schema:
@@ -354,7 +400,7 @@ paths:
       description: Sends the browser to the identity provider for a new
         login, then back to `return`. Only offered when the instance has
         step-up configured. The provider returns to
-        `/step-up/callback`, which forwards to `/step-up/finish`; neither is
+        `/auth/callback`, which forwards to `/auth/finish`; neither is
         for clients to call.
       tags: [account]
       parameters:
@@ -1829,8 +1875,9 @@ components:
       type: apiKey
       in: cookie
       name: __Host-overfin
-      description: Session cookie set by Overfin. With forward-auth, the
-        reverse proxy authenticates every request before it reaches Overfin.
+      description: Session cookie set by Overfin. With Overfin's own login,
+        a second cookie (`__Host-overfin-login`) holds the login; with
+        forward-auth, the reverse proxy authenticates every request instead.
 
   parameters:
     Limit:

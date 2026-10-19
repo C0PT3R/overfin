@@ -13,6 +13,7 @@ const (
 	Account = "acct"
 	Profile = "prof"
 	Session = "sess"
+	Login   = "login"
 )
 
 // Lowercase base32 without padding: URL-safe and easy to read aloud.

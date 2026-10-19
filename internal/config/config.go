@@ -31,7 +31,7 @@ type Config struct {
 	Adoption Adoption `toml:"adoption"`
 	Privacy  Privacy  `toml:"privacy"`
 	Plugins  Plugins  `toml:"plugins"`
-	StepUp   StepUp   `toml:"step_up"`
+	OIDC     OIDC     `toml:"oidc"`
 
 	// Secrets, loaded from the environment, never from the file.
 	Secrets Secrets `toml:"-"`
@@ -43,9 +43,13 @@ type Jellyfin struct {
 }
 
 type Identity struct {
-	// Mode is "forwardauth" or "anonymous".
+	// Mode is "oidc" (Overfin logs users in with the [oidc] provider),
+	// "forwardauth" (a reverse proxy does, and sends identity headers) or
+	// "anonymous".
 	Mode string `toml:"mode"`
-	// TrustedProxies are the addresses allowed to send identity headers.
+	// TrustedProxies are the reverse proxies in front of Overfin: they may
+	// send identity headers in forwardauth mode, and the client address in
+	// every mode.
 	TrustedProxies []string `toml:"trusted_proxies"`
 	// UserHeader carries the stable user ID set by the proxy.
 	UserHeader string `toml:"user_header"`
@@ -87,25 +91,33 @@ func (p Privacy) Exposes(field string) bool {
 	return slices.Contains(p.Expose, field)
 }
 
-// StepUp confirms a fresh login with the identity provider, over OpenID
-// Connect, before destructive actions. Off unless Issuer is set.
-type StepUp struct {
+// OIDC is Overfin's client registration at the identity provider. It logs
+// users in (identity mode "oidc") and confirms fresh logins before
+// destructive actions (step-up, in any mode). Off unless Issuer is set.
+type OIDC struct {
 	// Issuer is the provider's issuer URL, exactly as it states it.
 	Issuer   string `toml:"issuer"`
 	ClientID string `toml:"client_id"`
 	// RedirectURL is this site's callback, registered at the provider:
-	// "https://<site>/api/v1/step-up/callback".
+	// "https://<site>/api/v1/auth/callback".
 	RedirectURL string `toml:"redirect_url"`
 	// Dial, when set, is the "host:port" Overfin connects to for the
 	// provider, instead of what DNS says (TLS is still checked against the
 	// issuer's name).
 	Dial string `toml:"dial"`
-	// FreshForMinutes is how long a confirmed login stays fresh.
+	// FreshForMinutes is how long a confirmed login stays fresh for
+	// step-up.
 	FreshForMinutes int `toml:"fresh_for_minutes"`
+	// RecheckMinutes is how often a login is confirmed again with the
+	// provider: a user disabled there is out within that time.
+	RecheckMinutes int `toml:"recheck_minutes"`
+	// GroupsClaim is the ID token claim listing groups, used with
+	// identity.required_group.
+	GroupsClaim string `toml:"groups_claim"`
 }
 
-// Enabled reports whether step-up is configured.
-func (s StepUp) Enabled() bool { return s.Issuer != "" }
+// Enabled reports whether an OpenID Connect provider is configured.
+func (o OIDC) Enabled() bool { return o.Issuer != "" }
 
 type Plugins struct {
 	// Enable lists the plugins this instance offers. None are on by
@@ -146,9 +158,9 @@ type Secrets struct {
 	JellyfinAdminKey string
 	// Key encrypts tokens and keys PIN hashes, cursors and log IDs.
 	Key []byte
-	// StepUpClientSecret is the client secret at the identity provider,
-	// required only with step-up.
-	StepUpClientSecret string
+	// OIDCClientSecret is the client secret at the identity provider,
+	// required only with [oidc].
+	OIDCClientSecret string
 }
 
 // MinKeyBytes is the minimum length of the secret key.
@@ -168,7 +180,7 @@ func defaults() Config {
 			MaxTranscodesTotal:    4,
 			OnLimit:               "replace-oldest",
 		},
-		StepUp: StepUp{FreshForMinutes: 5},
+		OIDC: OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
 	}
 }
 
@@ -194,12 +206,12 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 	if err := loadSecrets(&cfg.Secrets, getenv); err != nil {
 		return nil, err
 	}
-	if cfg.StepUp.Enabled() {
-		s, err := secret("OVERFIN_STEP_UP_CLIENT_SECRET", getenv)
+	if cfg.OIDC.Enabled() {
+		s, err := secret("OVERFIN_OIDC_CLIENT_SECRET", getenv)
 		if err != nil {
 			return nil, err
 		}
-		cfg.Secrets.StepUpClientSecret = s
+		cfg.Secrets.OIDCClientSecret = s
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -265,6 +277,13 @@ func (c *Config) validate() error {
 	}
 
 	switch c.Identity.Mode {
+	case "oidc":
+		if !c.OIDC.Enabled() {
+			add("identity.mode = \"oidc\" needs the [oidc] section")
+		}
+		if c.Identity.UserHeader != "" || c.Identity.GroupsHeader != "" {
+			add("identity.user_header and groups_header are for forwardauth; oidc mode reads no identity headers")
+		}
 	case "forwardauth":
 		if len(c.Identity.TrustedProxies) == 0 {
 			add("identity.trusted_proxies is required in forwardauth mode")
@@ -277,7 +296,7 @@ func (c *Config) validate() error {
 		}
 	case "anonymous":
 	default:
-		add("identity.mode must be \"forwardauth\" or \"anonymous\", got %q", c.Identity.Mode)
+		add("identity.mode must be \"oidc\", \"forwardauth\" or \"anonymous\", got %q", c.Identity.Mode)
 	}
 	if c.Identity.GroupsSeparator != "|" && c.Identity.GroupsSeparator != "," {
 		add("identity.groups_separator must be \"|\" or \",\"")
@@ -310,27 +329,33 @@ func (c *Config) validate() error {
 		}
 	}
 
-	if su := c.StepUp; su.Enabled() {
-		if u, err := url.Parse(su.Issuer); err != nil || u.Scheme != "https" || u.Host == "" {
-			add("step_up.issuer must be an https URL")
+	if o := c.OIDC; o.Enabled() {
+		if u, err := url.Parse(o.Issuer); err != nil || u.Scheme != "https" || u.Host == "" {
+			add("oidc.issuer must be an https URL")
 		}
-		if su.ClientID == "" {
-			add("step_up.client_id is required with step-up")
+		if o.ClientID == "" {
+			add("oidc.client_id is required")
 		}
-		if u, err := url.Parse(su.RedirectURL); err != nil || u.Scheme != "https" || u.Host == "" ||
-			u.Path != "/api/v1/step-up/callback" || u.RawQuery != "" {
-			add("step_up.redirect_url must be https://<your site>/api/v1/step-up/callback")
+		if u, err := url.Parse(o.RedirectURL); err != nil || u.Scheme != "https" || u.Host == "" ||
+			u.Path != "/api/v1/auth/callback" || u.RawQuery != "" {
+			add("oidc.redirect_url must be https://<your site>/api/v1/auth/callback")
 		}
-		if su.Dial != "" {
-			if _, _, err := net.SplitHostPort(su.Dial); err != nil {
-				add("step_up.dial must be host:port")
+		if o.Dial != "" {
+			if _, _, err := net.SplitHostPort(o.Dial); err != nil {
+				add("oidc.dial must be host:port")
 			}
 		}
-		if su.FreshForMinutes < 1 || su.FreshForMinutes > 60 {
-			add("step_up.fresh_for_minutes must be between 1 and 60")
+		if o.FreshForMinutes < 1 || o.FreshForMinutes > 60 {
+			add("oidc.fresh_for_minutes must be between 1 and 60")
 		}
-		if c.Identity.Mode != "forwardauth" {
-			add("step-up needs identity.mode = \"forwardauth\"")
+		if o.RecheckMinutes < 1 || o.RecheckMinutes > 60 {
+			add("oidc.recheck_minutes must be between 1 and 60")
+		}
+		if c.Identity.RequiredGroup != "" && o.GroupsClaim == "" && c.Identity.Mode == "oidc" {
+			add("oidc.groups_claim is required when identity.required_group is set")
+		}
+		if c.Identity.Mode == "anonymous" {
+			add("[oidc] can't be used with identity.mode = \"anonymous\"")
 		}
 	}
 
