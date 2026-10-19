@@ -112,9 +112,9 @@ from the internet, and media files can be written by anyone.
 
 ### Privacy
 33. Overfin stores only what it needs to run: the account-to-Jellyfin mapping,
-    encrypted tokens, sessions, profiles (with their uploaded avatars) and
-    short-lived playback state. Watch history stays in Jellyfin, which
-    already keeps it.
+    encrypted tokens, sessions, profiles (with their uploaded avatars),
+    which profile made each request, and short-lived playback state. Watch
+    history stays in Jellyfin, which already keeps it.
 34. No analytics, no telemetry, no calls home. Metrics are aggregate counts
     with no user labels.
 35. Client IPs are used in memory (rate limiting) and never stored by Overfin.

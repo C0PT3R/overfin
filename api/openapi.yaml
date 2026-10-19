@@ -1235,6 +1235,277 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # ---- Requests (Seerr plugin) -----------------------------------------------
+  #
+  # These exist only when the operator enables requests (`requests` in
+  # `Info.features`). Kids profiles only ever see and request titles within
+  # their rating ceiling. Approvals happen in Seerr itself, never here.
+
+  /discover:
+    get:
+      operationId: discover
+      summary: Trending, popular and upcoming titles, from TMDB through Seerr
+      description: Filter with `availability` to get, for example, "trending
+        in our library" (`library`) or "trending titles you could request"
+        (`requestable`). Titles already in the library carry
+        `libraryItemId`.
+      tags: [requests]
+      parameters:
+        - name: list
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Open set; more lists may be added.
+            enum: [trending, popular, upcoming]
+        - name: mediaKind
+          in: query
+          schema:
+            type: string
+            enum: [movie, series]
+        - name: availability
+          in: query
+          schema:
+            type: string
+            enum: [all, library, requestable]
+            default: all
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of titles.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageInfo"
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/RequestableTitle"
+
+  /requestable/{mediaKind}/{tmdbId}:
+    parameters:
+      - name: mediaKind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [movie, series]
+      - name: tmdbId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[0-9]{1,12}$"
+    get:
+      operationId: getRequestable
+      summary: A title's details, with per-season status for series
+      tags: [requests]
+      responses:
+        "200":
+          description: The title.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestableDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /requests:
+    get:
+      operationId: listMyRequests
+      summary: The active profile's requests and their status
+      description: The owner profile also sees the requests of the account's
+        kids profiles.
+      tags: [requests]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageInfo"
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MediaRequest"
+    post:
+      operationId: createRequest
+      summary: Request a movie, or seasons of a series
+      description: Counts against the account's quota. Kids profiles can only
+        request titles within their rating ceiling; an unknown rating is
+        refused.
+      tags: [requests]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mediaKind, tmdbId]
+              properties:
+                mediaKind:
+                  type: string
+                  enum: [movie, series]
+                tmdbId:
+                  type: string
+                  pattern: "^[0-9]{1,12}$"
+                seasons:
+                  type: array
+                  description: For series, which seasons. Absent means all.
+                  maxItems: 100
+                  items:
+                    type: integer
+                    minimum: 0
+      responses:
+        "201":
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Already requested or available (`already-requested`),
+            quota used up (`quota-exceeded`), or not allowed for this profile
+            (`rating-not-allowed`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /requests/quota:
+    get:
+      operationId: getQuota
+      summary: How many requests the account has left
+      tags: [requests]
+      responses:
+        "200":
+          description: The quota.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quota"
+
+  /requests/{requestId}:
+    parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 64
+    delete:
+      operationId: cancelRequest
+      summary: Cancel one of my requests while it is still pending
+      tags: [requests]
+      responses:
+        "204":
+          description: Cancelled.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: No longer pending (`not-pending`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /issues:
+    get:
+      operationId: listMyIssues
+      summary: The active profile's problem reports, with replies
+      description: Only when the operator enables conversations
+        (`issueConversations` in `Info.features`).
+      tags: [requests]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageInfo"
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Issue"
+    post:
+      operationId: reportIssue
+      summary: Report a problem with an item
+      description: |
+        Sites can offer quick choices with `kind` and `reason`; `message` is
+        optional. Without conversations enabled, a report is fire-and-forget.
+      tags: [requests]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueReport"
+      responses:
+        "201":
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /issues/{issueId}/comments:
+    parameters:
+      - name: issueId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 64
+    post:
+      operationId: commentOnIssue
+      summary: Reply in one of my problem reports
+      description: Only when the operator enables conversations.
+      tags: [requests]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "201":
+          description: The report with the new comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     session:
@@ -1955,6 +2226,161 @@ components:
           examples: [available, partiallyAvailable, requested, notRequested]
         libraryItemId:
           type: string
+
+    # ---- Requests -----------------------------------------------------------
+
+    RequestableDetail:
+      allOf:
+        - $ref: "#/components/schemas/RequestableTitle"
+        - type: object
+          properties:
+            officialRating:
+              type: string
+              description: Age rating in the instance's ratings country.
+            genres:
+              type: array
+              items:
+                type: string
+            backdrop:
+              $ref: "#/components/schemas/ImageRef"
+            cast:
+              type: array
+              items:
+                type: object
+                required: [name]
+                properties:
+                  name:
+                    type: string
+                  character:
+                    type: string
+                  image:
+                    $ref: "#/components/schemas/ImageRef"
+            seasons:
+              type: array
+              description: For series, each season's status.
+              items:
+                type: object
+                required: [number, status]
+                properties:
+                  number:
+                    type: integer
+                    minimum: 0
+                  name:
+                    type: string
+                  episodeCount:
+                    type: integer
+                    minimum: 0
+                  status:
+                    type: string
+                    description: Same open set as `RequestableTitle.status`.
+
+    MediaRequest:
+      type: object
+      required: [id, title, status, requestedAt]
+      properties:
+        id:
+          type: string
+          examples: [req_4n7x2k9m5q1w]
+        title:
+          $ref: "#/components/schemas/RequestableTitle"
+        seasons:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+        status:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [pending, approved, declined, processing, available, failed]
+        requestedAt:
+          $ref: "#/components/schemas/Timestamp"
+        profileName:
+          type: string
+          description: Which of the account's own profiles made it; shown to
+            the owner for kids profiles.
+
+    Quota:
+      type: object
+      properties:
+        movie:
+          $ref: "#/components/schemas/QuotaPart"
+        series:
+          $ref: "#/components/schemas/QuotaPart"
+
+    QuotaPart:
+      description: Absent `limit` means unlimited.
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 0
+        used:
+          type: integer
+          minimum: 0
+        periodDays:
+          type: integer
+          minimum: 1
+
+    IssueReport:
+      type: object
+      required: [kind]
+      properties:
+        itemId:
+          type: string
+          description: The library item. Use this or `tmdbId`.
+          maxLength: 64
+        tmdbId:
+          type: string
+          pattern: "^[0-9]{1,12}$"
+        kind:
+          type: string
+          enum: [video, audio, subtitles, other]
+        reason:
+          type: string
+          description: A preset reason sites can offer as quick choices. Open
+            set; more may be added.
+          enum: [wontPlay, badQuality, outOfSync, wrongLanguage, missing, other]
+        message:
+          type: string
+          maxLength: 2000
+        positionMs:
+          $ref: "#/components/schemas/Milliseconds"
+
+    Issue:
+      type: object
+      required: [id, kind, status, createdAt]
+      properties:
+        id:
+          type: string
+          examples: [iss_8c3m6t1k9w2p]
+        item:
+          $ref: "#/components/schemas/ItemSummary"
+        kind:
+          type: string
+        reason:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+          description: Open set.
+          examples: [open, resolved]
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        comments:
+          type: array
+          description: Only with conversations enabled. Replies from the
+            operator are labeled as such; other users never appear.
+          items:
+            type: object
+            required: [message, fromOperator, createdAt]
+            properties:
+              message:
+                type: string
+              fromOperator:
+                type: boolean
+              createdAt:
+                $ref: "#/components/schemas/Timestamp"
 
     # ---- Playback -----------------------------------------------------------
 
