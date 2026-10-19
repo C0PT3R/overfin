@@ -34,7 +34,8 @@ Discord bot, a wall display. They're not plugins squeezed into someone else's
 UI.
 
 > **Status: early development.** The API is specified, the gateway is a
-> skeleton. Nothing here is ready to run in production yet.
+> skeleton. Nothing here is ready to run in production yet. See
+> [ROADMAP.md](ROADMAP.md) for what's done and what comes next.
 
 ## What it offers
 
