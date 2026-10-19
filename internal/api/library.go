@@ -1,7 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -156,10 +160,112 @@ func (l Library) items(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
+	if jq.SortBy == "random" {
+		l.randomPage(w, r, p, jq)
+		return
+	}
 	l.page(w, r, p, func(ctx context.Context, start, limit int) (*jellyfin.ItemPage, error) {
 		jq.StartIndex, jq.Limit = start, limit
 		return l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jq)
 	})
+}
+
+// randomPage serves sort=random in a repeatable way. Jellyfin's own random
+// order changes on every call, so pages would overlap and a reload would
+// lose the shuffle. Instead, Overfin orders the matching IDs by
+// HMAC(seed, id): the same seed always gives the same order. The seed comes
+// from the URL, or is picked here and returned, so the site can put it in
+// the URL and a reload shows the same shuffle.
+func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Profile, jq jellyfin.ItemQuery) {
+	q := r.URL.Query()
+	limit, ok := parseLimit(q.Get("limit"))
+	if !ok {
+		problem.Send(w, problem.InvalidRequest, "")
+		return
+	}
+	seed := q.Get("seed")
+	binding := cursorBinding(r, p.ID)
+	start := 0
+	if c := q.Get("cursor"); c != "" {
+		payload, err := cursor.Decode(l.CursorKey, binding, c)
+		if err != nil {
+			problem.Send(w, problem.InvalidCursor, "")
+			return
+		}
+		// The payload is "start:seed"; the seed matters when it was picked
+		// by the server rather than given in the URL.
+		s, cseed, found := strings.Cut(string(payload), ":")
+		n, err := strconv.Atoi(s)
+		if !found || err != nil || n < 0 || !seedValue.MatchString(cseed) || (seed != "" && seed != cseed) {
+			problem.Send(w, problem.InvalidCursor, "")
+			return
+		}
+		start, seed = n, cseed
+	}
+	if seed == "" {
+		seed = newSeed()
+	}
+
+	ids, err := l.Jellyfin.ItemIDs(r.Context(), auth(p), p.JellyfinUserID, jq)
+	if err != nil {
+		l.upstreamError(w, err)
+		return
+	}
+	shuffle(ids, seed)
+
+	out := itemPage{Items: []library.ItemSummary{}, Seed: seed}
+	total := len(ids)
+	out.TotalCount = &total
+	if start < total {
+		pageIDs := ids[start:min(start+limit, total)]
+		raw, err := l.Jellyfin.ItemsByID(r.Context(), auth(p), p.JellyfinUserID, pageIDs)
+		if err != nil {
+			l.upstreamError(w, err)
+			return
+		}
+		byID := make(map[string]*jellyfin.RawItem, len(raw))
+		for i := range raw {
+			if id, err := jellyfin.NormalizeID(raw[i].Id); err == nil {
+				byID[id] = &raw[i]
+			}
+		}
+		for _, id := range pageIDs {
+			if it, ok := byID[id]; ok {
+				if s, ok := library.Summary(it); ok {
+					out.Items = append(out.Items, s)
+				}
+			}
+		}
+		if next := start + len(pageIDs); next < total {
+			if c, err := cursor.Encode(l.CursorKey, binding, []byte(strconv.Itoa(next)+":"+seed)); err == nil {
+				out.NextCursor = c
+			}
+		}
+	}
+	writeOK(w, out)
+}
+
+// shuffle orders ids by HMAC-SHA256(seed, id). Unlike a seeded random
+// generator, this never changes between Go versions, and each item's place
+// depends only on the seed and its own ID.
+func shuffle(ids []string, seed string) {
+	score := make(map[string][]byte, len(ids))
+	for _, id := range ids {
+		h := hmac.New(sha256.New, []byte(seed))
+		h.Write([]byte(id))
+		score[id] = h.Sum(nil)
+	}
+	sort.Slice(ids, func(i, j int) bool { return bytes.Compare(score[ids[i]], score[ids[j]]) < 0 })
+}
+
+func newSeed() string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 12)
+	rand.Read(b)
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(b)
 }
 
 func (l Library) resume(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +389,7 @@ type itemPage struct {
 	Items      []library.ItemSummary `json:"items"`
 	NextCursor string                `json:"nextCursor,omitempty"`
 	TotalCount *int                  `json:"totalCount,omitempty"`
+	Seed       string                `json:"seed,omitempty"`
 }
 
 // page runs a paged Jellyfin query. The cursor carries the next start index
@@ -392,6 +499,8 @@ func parseKinds(kinds []string) ([]string, bool) {
 	return types, true
 }
 
+var seedValue = regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`)
+
 var sorts = map[string]string{
 	"name":            "SortName",
 	"premiereDate":    "PremiereDate",
@@ -479,7 +588,7 @@ func parseItemQuery(q url.Values) (jellyfin.ItemQuery, bool) {
 	case "":
 		jq.SortBy = "SortName"
 	case "random":
-		return jq, false // repeatable random order isn't supported yet
+		jq.SortBy = "random" // shuffled by Overfin, see randomPage
 	default:
 		if jq.SortBy, ok = sorts[s]; !ok {
 			return jq, false
@@ -492,7 +601,7 @@ func parseItemQuery(q url.Values) (jellyfin.ItemQuery, bool) {
 	default:
 		return jq, false
 	}
-	if q.Get("seed") != "" {
+	if s := q.Get("seed"); s != "" && (jq.SortBy != "random" || !seedValue.MatchString(s)) {
 		return jq, false
 	}
 	return jq, true

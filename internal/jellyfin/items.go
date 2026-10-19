@@ -269,3 +269,40 @@ func (c *Client) Libraries(ctx context.Context, a Auth, userID string) ([]RawIte
 	}
 	return out.Items, nil
 }
+
+// MaxShuffle bounds how many items a random order shuffles.
+const MaxShuffle = 50_000
+
+// ItemIDs lists only the IDs matching a query, for shuffling. It asks for no
+// fields, images or user data, so even large libraries stay light.
+func (c *Client) ItemIDs(ctx context.Context, a Auth, userID string, q ItemQuery) ([]string, error) {
+	q.StartIndex, q.Limit, q.SortBy = 0, MaxShuffle, "SortName"
+	v := q.values(userID)
+	v.Set("fields", "")
+	v.Set("enableImages", "false")
+	v.Set("enableUserData", "false")
+	v.Set("enableTotalRecordCount", "false")
+	var out struct{ Items []struct{ Id string } }
+	if err := c.get(ctx, "item ids", "/Items", a, v, &out); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(out.Items))
+	for _, it := range out.Items {
+		if id, err := NormalizeID(it.Id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// ItemsByID returns the given items, in no particular order.
+func (c *Client) ItemsByID(ctx context.Context, a Auth, userID string, ids []string) ([]RawItem, error) {
+	v := pageValues(userID, 0, len(ids))
+	v.Del("startIndex")
+	v.Set("ids", strings.Join(ids, ","))
+	var out ItemPage
+	if err := c.get(ctx, "items by id", "/Items", a, v, &out); err != nil {
+		return nil, err
+	}
+	return out.Items, nil
+}

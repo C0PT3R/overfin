@@ -37,6 +37,8 @@ once they are implemented and tested.
 - Image pipeline: per-profile access checks (also for cached images),
   header-checked dimensions, decoding limited to JPEG and PNG, re-encoding
   that strips all metadata, bounded memory cache and concurrency.
+- Repeatable random order: `sort=random` with a seed, shuffled by Overfin so
+  pages never overlap and a reload shows the same order.
 
 ## Milestone 1: a real site, end to end
 
@@ -46,11 +48,10 @@ Jellyfin server, using only the public API.
 1. Configuration reload without restart.
 2. Adoption extras: optional matching by name or email (operator opt-in),
    and pseudonymizing adopted accounts once the old access path is retired.
-3. Repeatable random order (`sort=random` with a seed).
-4. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
+3. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
    limits, transcode cleanup.
-5. Profiles, PINs and step-up.
-6. A minimal demo site in plain HTML and JavaScript.
+4. Profiles, PINs and step-up.
+5. A minimal demo site in plain HTML and JavaScript.
 
 ## Designed, to implement after milestone 1
 

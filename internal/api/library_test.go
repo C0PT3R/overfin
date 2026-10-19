@@ -58,6 +58,19 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case r.URL.Path == "/Items" && q.Has("ids"):
+		var items []map[string]any
+		for _, id := range strings.Split(q.Get("ids"), ",") {
+			n, _ := strconv.ParseInt(id, 16, 64)
+			items = append(items, movie(int(n)-1))
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Items": items})
+	case r.URL.Path == "/Items" && q.Get("enableImages") == "false":
+		var items []map[string]any
+		for i := 0; i < 7; i++ {
+			items = append(items, map[string]any{"Id": fmt.Sprintf("%032x", i+1)})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Items": items})
 	case r.URL.Path == "/Items":
 		start, _ := strconv.Atoi(q.Get("startIndex"))
 		limit, _ := strconv.Atoi(q.Get("limit"))
@@ -125,6 +138,7 @@ type page struct {
 	Items      []struct{ ID, Kind, Name string }
 	NextCursor string
 	TotalCount int
+	Seed       string
 	Type       string // set on errors
 }
 
@@ -163,7 +177,8 @@ func TestInvalidQueries(t *testing.T) {
 	srv, _ := newServer(t)
 	for _, q := range []string{
 		"?kind=folder",
-		"?sort=random",
+		"?sort=name&seed=abc",   // a seed without random order
+		"?sort=random&seed=a-b", // seeds are letters and digits
 		"?limit=0",
 		"?limit=500",
 		"?library=../../x",
@@ -207,5 +222,68 @@ func TestNoAccountMeansSetupRequired(t *testing.T) {
 	res.Body.Close()
 	if p.Type != "account-setup-required" {
 		t.Errorf("type = %q", p.Type)
+	}
+}
+
+func names(p page) []string {
+	var out []string
+	for _, it := range p.Items {
+		out = append(out, it.Name)
+	}
+	return out
+}
+
+func TestRandomOrderIsRepeatable(t *testing.T) {
+	srv, _ := newServer(t)
+
+	var a, b, other page
+	get(t, srv, "/api/v1/items?sort=random&seed=abc&limit=7", &a)
+	get(t, srv, "/api/v1/items?sort=random&seed=abc&limit=7", &b)
+	get(t, srv, "/api/v1/items?sort=random&seed=xyz&limit=7", &other)
+	if strings.Join(names(a), ",") != strings.Join(names(b), ",") {
+		t.Errorf("same seed, different order: %v vs %v", names(a), names(b))
+	}
+	if strings.Join(names(a), ",") == strings.Join(names(other), ",") {
+		t.Errorf("different seeds, same order: %v", names(a))
+	}
+	if len(a.Items) != 7 || a.Seed != "abc" {
+		t.Errorf("page: %d items, seed %q", len(a.Items), a.Seed)
+	}
+}
+
+func TestRandomPagesCoverEverythingOnce(t *testing.T) {
+	srv, _ := newServer(t)
+
+	// No seed given: the server picks one, returns it, and the cursor keeps
+	// using it on later pages.
+	var p page
+	get(t, srv, "/api/v1/items?sort=random&limit=3", &p)
+	if p.Seed == "" {
+		t.Fatal("no seed returned")
+	}
+	firstSeed := p.Seed
+	seen := map[string]bool{}
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatal("too many pages")
+		}
+		for _, n := range names(p) {
+			if seen[n] {
+				t.Fatalf("%s appeared twice", n)
+			}
+			seen[n] = true
+		}
+		if p.NextCursor == "" {
+			break
+		}
+		next := p.NextCursor
+		p = page{}
+		get(t, srv, "/api/v1/items?sort=random&limit=3&cursor="+url.QueryEscape(next), &p)
+		if p.Seed != firstSeed {
+			t.Fatalf("seed changed between pages: %q then %q", firstSeed, p.Seed)
+		}
+	}
+	if len(seen) != 7 {
+		t.Errorf("pages covered %d of 7 items", len(seen))
 	}
 }
