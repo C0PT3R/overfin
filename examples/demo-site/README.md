@@ -9,6 +9,10 @@ of the SDK, kept identical by a test.
 - **Account setup**: start fresh, or bring an existing media server account.
 - **Who's watching?**: profiles, PINs, adding a profile (kids profiles with a
   rating ceiling).
+- **Profiles and devices**: renaming, kids limits, setting, changing and
+  removing PINs, deleting profiles, signed-in devices; the page asks for a
+  PIN or a fresh login when the server wants one.
+- **Account**: downloading your data, deleting your account.
 - **Home**: continue watching, next up, latest per library.
 - **Libraries**: sorting, a repeatable shuffle, infinite scroll with cursors.
 - **Item pages**: series, seasons, episodes, cast.

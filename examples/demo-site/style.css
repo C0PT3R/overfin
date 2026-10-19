@@ -57,6 +57,8 @@ h2 { font-size: 1.1rem; margin: 1.6rem 0 .6rem; }
 .profile:hover .avatar { outline: 3px solid var(--accent); }
 .badge { font-size: .7rem; color: var(--muted); }
 .center { max-width: 26rem; margin: 2.5rem auto; text-align: center; }
+.center.wide { max-width: 44rem; text-align: left; }
+.panel h2 { margin-top: 0; }
 form.stack { display: grid; gap: .6rem; text-align: left; }
 .panel { background: var(--panel); border-radius: 10px; padding: 1.2rem; margin-bottom: 1rem; }
 

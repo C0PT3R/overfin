@@ -295,6 +295,106 @@ function accountPage() {
     msg));
 }
 
+// ---- Managing profiles and devices -----------------------------------------------
+
+// confirmed runs an action that the server may want confirmed: a fresh login
+// (the SDK sends the browser through it and back here; click again after) or
+// a PIN (asked here, then the action runs again with it).
+async function confirmed(action, msg, pinLabel = 'PIN') {
+  msg.textContent = '';
+  try {
+    await action();
+    return true;
+  } catch (err) {
+    if (err.type === 'step-up-required' && err.problem.stepUpUrl) {
+      overfin.stepUp(err);
+      return false;
+    }
+    if (err.type === 'pin-required') {
+      const pin = prompt(pinLabel);
+      if (pin) return confirmed(() => action(pin), msg, pinLabel);
+      return false;
+    }
+    msg.textContent = explain(err);
+    return false;
+  }
+}
+
+async function managePage() {
+  const me = state.me.activeProfile;
+  if (!me) { location.hash = '#/profiles'; return; }
+  const [profiles, ratings, sessions] = await Promise.all([
+    overfin.profiles(),
+    me.owner ? overfin.ratings() : Promise.resolve([]),
+    overfin.sessions(),
+  ]);
+  const shown = me.owner ? profiles : profiles.filter((p) => p.id === me.id);
+  const refresh = () => managePage();
+
+  const panels = shown.map((p) => {
+    const msg = h('p', { class: 'error' });
+    const parts = [h('h2', {}, p.name, p.owner ? ' (owner)' : '', p.kind === 'kids' ? ` · Kids, up to ${p.ratingCeiling}` : '')];
+
+    if (me.owner) {
+      const name = h('input', { value: p.name, maxlength: '32', 'aria-label': 'Name' });
+      parts.push(h('div', { class: 'toolbar' }, name, h('button', { onclick: async () => {
+        if (await confirmed(() => overfin.updateProfile(p.id, { name: name.value }), msg)) refresh();
+      } }, 'Rename')));
+    }
+
+    // Limits: kids or standard, and the rating ceiling. Changing them needs
+    // the owner's PIN, if the owner has one.
+    if (me.owner && !p.owner) {
+      const kids = h('input', { type: 'checkbox', checked: p.kind === 'kids' });
+      const ceiling = h('select', {}, ratings.map((r) => h('option', { value: r, selected: r === p.ratingCeiling }, r)));
+      parts.push(h('div', { class: 'toolbar' }, h('label', {}, kids, ' Kids profile, up to rating '), ceiling,
+        h('button', { onclick: async () => {
+          const change = kids.checked ? { kind: 'kids', ratingCeiling: ceiling.value } : { kind: 'standard' };
+          if (await confirmed((pin) => overfin.updateProfile(p.id, pin ? { ...change, pin } : change), msg, "Owner's PIN")) refresh();
+        } }, 'Save limits')));
+    }
+
+    // PIN: setting one where there's none needs the owner's PIN for someone
+    // else's profile; changing or removing one needs a fresh login.
+    const mayPin = me.owner || (p.id === me.id && p.kind === 'standard');
+    if (mayPin) {
+      const pin = h('input', { inputmode: 'numeric', pattern: '[0-9]{4,8}', maxlength: '8', placeholder: '4 to 8 digits', 'aria-label': 'New PIN' });
+      const save = h('button', { onclick: async () => {
+        if (await confirmed((ownerPin) => overfin.setPin(p.id, pin.value, ownerPin), msg, "Owner's PIN")) refresh();
+      } }, p.hasPin ? 'Change PIN' : 'Set PIN');
+      const remove = p.hasPin && h('button', { onclick: async () => {
+        if (await confirmed(() => overfin.removePin(p.id), msg)) refresh();
+      } }, 'Remove PIN');
+      parts.push(h('div', { class: 'toolbar' }, pin, save, remove));
+    }
+
+    if (me.owner && !p.owner) {
+      parts.push(h('div', { class: 'toolbar' }, h('button', { onclick: async () => {
+        if (!confirm(`Delete the profile "${p.name}" and its watch history?`)) return;
+        if (await confirmed(() => overfin.deleteProfile(p.id), msg)) refresh();
+      } }, 'Delete profile')));
+    }
+    parts.push(msg);
+    return h('div', { class: 'panel' }, ...parts);
+  });
+
+  // Devices signed in: the owner sees all of the account's, others their own.
+  const devMsg = h('p', { class: 'error' });
+  const devices = h('div', { class: 'panel' }, h('h2', {}, 'Signed-in devices'),
+    ...sessions.map((s) => h('div', { class: 'toolbar' },
+      h('span', {}, `${s.device || 'Unknown device'}${s.profileName ? ' · ' + s.profileName : ''}${s.current ? ' (this one)' : ''}`),
+      h('span', { class: 'muted' }, s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : ''),
+      !s.current && h('button', { onclick: async () => {
+        if (await confirmed(() => overfin.endSession(s.id), devMsg)) refresh();
+      } }, 'Sign out'))),
+    me.owner && sessions.length > 1 && h('button', { onclick: async () => {
+      if (await confirmed(() => overfin.endOtherSessions(), devMsg)) refresh();
+    } }, 'Sign out all other devices'),
+    devMsg);
+
+  render(h('div', { class: 'center wide' }, h('h1', {}, me.owner ? 'Profiles' : 'My profile'), ...panels, devices));
+}
+
 function notFound() {
   render(h('div', { class: 'center' }, h('h1', {}, 'Not found'), h('a', { href: '#/' }, 'Back home')));
 }
@@ -371,6 +471,9 @@ async function profilesPage() {
 
   const add = state.me.activeProfile?.owner &&
     h('button', { class: 'profile', onclick: () => newProfile() }, h('div', { class: 'avatar' }, '+'), 'Add profile');
+  // Managing needs a profile: shown once one is active in this session.
+  const manage = state.me.activeProfile &&
+    h('p', { class: 'center' }, h('a', { href: '#/manage' }, state.me.activeProfile.owner ? 'Manage profiles' : 'My profile'));
 
   render(h('h1', { class: 'center' }, "Who's watching?"),
     h('div', { class: 'profiles' },
@@ -378,7 +481,7 @@ async function profilesPage() {
         h('div', { class: 'avatar' }, p.name.slice(0, 1).toUpperCase()), p.name,
         h('div', { class: 'badge' }, [p.kind === 'kids' ? `Kids · ${p.ratingCeiling}` : '', p.hasPin ? '🔒' : ''].filter(Boolean).join(' ')))),
       add),
-    pinArea, h('div', { class: 'center' }, msg));
+    pinArea, h('div', { class: 'center' }, msg), manage);
 }
 
 async function newProfile() {
@@ -492,6 +595,7 @@ async function route() {
       case 'item': return await itemPage(parts[1]);
       case 'person': return await personPage(parts[1]);
       case 'account': return accountPage();
+      case 'manage': return await managePage();
       case 'play': return await playerPage(parts[1]);
       default: return notFound();
     }
