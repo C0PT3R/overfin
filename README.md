@@ -76,8 +76,8 @@ untrusted data, and treats every client as untrusted. Among its rules:
 The full rules are in [SECURITY.md](SECURITY.md), and
 [THREAT_MODEL.md](THREAT_MODEL.md) explains which threat each one answers.
 
-**Jellyfin must not be reachable from the internet.** Overfin replaces public
-access to Jellyfin, including its native apps. It never offers a route to
+**Don't fin, overfin.** Jellyfin must not be reachable from the internet.
+Overfin replaces public access to Jellyfin, including its native apps. It never offers a route to
 Jellyfin's dashboard; operators reach that privately.
 
 ## API
@@ -125,3 +125,6 @@ authorization) are read line by line.
 ## License
 
 [MIT](LICENSE)
+
+Overfin is an independent project. It is not affiliated with or endorsed by
+the Jellyfin project, Seerr or TMDB.
