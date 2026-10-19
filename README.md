@@ -16,6 +16,23 @@ browser ──▶ your website (any stack, even static HTML)
    └──▶ /api/v1/*  ──▶  Overfin  ──▶  Jellyfin (+ TMDB, Seerr)
 ```
 
+## Why build your own?
+
+Any custom client gives you creative freedom. What Overfin changes is the cost
+of that freedom:
+
+| Path | Freedom | Cost |
+| --- | --- | --- |
+| Customize Jellyfin (themes, plugins, injected scripts) | Limited to the slots Jellyfin offers | Breaks with Jellyfin updates |
+| Build on Jellyfin's API | Total | A huge API to learn, tokens in the browser, Jellyfin exposed to the internet |
+| Build on Overfin | Total | A small, documented API, with the security built in |
+
+Overfin doesn't make creativity possible; it makes it cheap and safe, so
+building your own becomes the obvious path instead of the brave one. Your
+components are native to your own stack: a React carousel, a Svelte player, a
+Discord bot, a wall display. They're not plugins squeezed into someone else's
+UI.
+
 > **Status: early development.** The API is specified, the gateway is a
 > skeleton. Nothing here is ready to run in production yet.
 
