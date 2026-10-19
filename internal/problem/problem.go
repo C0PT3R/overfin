@@ -20,10 +20,21 @@ const (
 	// AccountNotAllowed: the identity may not use this instance (not in
 	// the required group, or its account is disabled).
 	AccountNotAllowed Type = "account-not-allowed"
-	InvalidRequest    Type = "invalid-request"
-	InvalidCursor     Type = "invalid-cursor"
-	RateLimited       Type = "rate-limited"
-	Internal          Type = "internal-error"
+	// AccountSetupRequired: no account yet; the site offers to start fresh
+	// or to claim an existing media server account.
+	AccountSetupRequired Type = "account-setup-required"
+	AccountExists        Type = "account-exists"
+	// ClaimFailed: wrong username or password, deliberately not saying
+	// which. ClaimNotAllowed: the credentials were right, but that account
+	// can't be adopted (an administrator, or already adopted).
+	ClaimFailed          Type = "claim-failed"
+	ClaimNotAllowed      Type = "claim-not-allowed"
+	CrossSiteRequest     Type = "cross-site-request"
+	UnsupportedMediaType Type = "unsupported-media-type"
+	InvalidRequest       Type = "invalid-request"
+	InvalidCursor        Type = "invalid-cursor"
+	RateLimited          Type = "rate-limited"
+	Internal             Type = "internal-error"
 )
 
 type info struct {
@@ -34,14 +45,20 @@ type info struct {
 // registry holds the status and title of every type. The title is the same
 // for every occurrence of a type.
 var registry = map[Type]info{
-	NotFound:          {http.StatusNotFound, "Not found"},
-	NotAuthenticated:  {http.StatusUnauthorized, "Not logged in"},
-	OwnerOnly:         {http.StatusForbidden, "Only the account owner can do this"},
-	AccountNotAllowed: {http.StatusForbidden, "This account may not use this service"},
-	InvalidRequest:    {http.StatusBadRequest, "Invalid request"},
-	InvalidCursor:     {http.StatusBadRequest, "Invalid cursor"},
-	RateLimited:       {http.StatusTooManyRequests, "Too many requests"},
-	Internal:          {http.StatusInternalServerError, "Internal error"},
+	NotFound:             {http.StatusNotFound, "Not found"},
+	NotAuthenticated:     {http.StatusUnauthorized, "Not logged in"},
+	OwnerOnly:            {http.StatusForbidden, "Only the account owner can do this"},
+	AccountNotAllowed:    {http.StatusForbidden, "This account may not use this service"},
+	AccountSetupRequired: {http.StatusNotFound, "No account yet"},
+	AccountExists:        {http.StatusConflict, "This account already exists"},
+	ClaimFailed:          {http.StatusForbidden, "Wrong username or password"},
+	ClaimNotAllowed:      {http.StatusForbidden, "This media server account can't be brought over"},
+	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},
+	UnsupportedMediaType: {http.StatusUnsupportedMediaType, "Requests must be JSON"},
+	InvalidRequest:       {http.StatusBadRequest, "Invalid request"},
+	InvalidCursor:        {http.StatusBadRequest, "Invalid cursor"},
+	RateLimited:          {http.StatusTooManyRequests, "Too many requests"},
+	Internal:             {http.StatusInternalServerError, "Internal error"},
 }
 
 // Problem is one error response. Extra fields specific to a type (such as

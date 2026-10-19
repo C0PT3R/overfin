@@ -120,6 +120,10 @@ subtitles and attachments) from anywhere.
   group or claim get Jellyfin users, at a limited rate [15].
 - **Offboarding:** sessions are revalidated, and disabling an identity ends
   them and revokes its Jellyfin tokens [16].
+- **Taking over someone else's history:** adopting an existing Jellyfin
+  account requires its password, attempts are limited, and an account can be
+  adopted only once. Administrator accounts are never adopted, so Overfin
+  never holds an administrator's token [60].
 
 ## Known limitations
 

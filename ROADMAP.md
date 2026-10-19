@@ -28,6 +28,9 @@ once they are implemented and tested.
   bounded responses, validated IDs.
 - Provisioning on first visit (`GET /api/v1/me`): opaque Jellyfin users with
   locked-down policies, required group, rate limit, rollback on failure.
+- Same-origin requests only, and JSON for every change (CSRF protection).
+- Adopting an existing Jellyfin account by its password (`POST /me/claim`),
+  off by default: administrators refused, attempts limited.
 
 ## Milestone 1: a real site, end to end
 
@@ -35,8 +38,8 @@ The first goal is one complete website running on Overfin against a real
 Jellyfin server, using only the public API.
 
 1. Configuration reload without restart.
-2. Adopting existing Jellyfin users: claim by Jellyfin password (off by
-   default), optional matching by name or email, later pseudonymization.
+2. Adoption extras: optional matching by name or email (operator opt-in),
+   and pseudonymizing adopted accounts once the old access path is retired.
 3. Library endpoints, with the image pipeline (decode, check, re-encode,
    cache, access checks).
 4. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,

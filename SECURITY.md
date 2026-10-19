@@ -192,6 +192,15 @@ comes from the internet, and media files can be written by anyone.
 59. No code copied or ported from other projects. Dependencies are few, chosen
     on purpose, and pinned.
 
+### Adoption
+60. Bringing an existing Jellyfin account is off by default. When enabled, the
+    account's password is used once to prove ownership and is never stored or
+    logged; failed attempts are limited per user, and wrong usernames and
+    wrong passwords get the same answer. Administrator accounts are never
+    adopted, and a Jellyfin account can belong to only one Overfin account.
+    Adopted accounts keep their names until the operator pseudonymizes them,
+    an exception to rule 47.
+
 ## Deployment
 
 Jellyfin must not be reachable from the internet. Ideally its port is reachable

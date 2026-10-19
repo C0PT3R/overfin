@@ -39,3 +39,9 @@ max_streams_per_account = 2
 max_transcodes_total = 4
 # 0 means no cap.
 max_bitrate_kbps = 0
+
+[adoption]
+# Let people bring an existing Jellyfin account, with its watch history, by
+# entering its username and password once. Administrator accounts can never
+# be brought over. Off by default.
+claim = false

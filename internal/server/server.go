@@ -5,6 +5,7 @@ package server
 import (
 	"encoding/json"
 	"log/slog"
+	"mime"
 	"net/http"
 
 	"github.com/C0PT3R/overfin/internal/identity"
@@ -36,7 +37,7 @@ func New(logger *slog.Logger, ids *identity.Resolver, plugins ...plugin.Plugin) 
 		problem.Send(w, problem.NotFound, "")
 	})
 
-	return recoverPanics(logger, securityHeaders(limitBody(ids.Middleware(mux)))), nil
+	return recoverPanics(logger, securityHeaders(sameOrigin(limitBody(ids.Middleware(mux))))), nil
 }
 
 // requireIdentity refuses requests that carry no identity (SECURITY.md rule
@@ -64,6 +65,30 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sameOrigin enforces SECURITY.md rule 18. Browsers label every request with
+// Sec-Fetch-Site; only same-origin requests (and "none", for an address typed
+// directly) are accepted, which also shuts out sibling subdomains. Requests
+// that change something must be JSON, which plain HTML forms can't send: that
+// covers old browsers without Sec-Fetch-Site.
+func sameOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("Sec-Fetch-Site") {
+		case "", "same-origin", "none":
+		default:
+			problem.Send(w, problem.CrossSiteRequest, "")
+			return
+		}
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+			if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+				problem.Send(w, problem.UnsupportedMediaType, "")
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }

@@ -25,6 +25,7 @@ type Config struct {
 	Identity Identity `toml:"identity"`
 	Storage  Storage  `toml:"storage"`
 	Limits   Limits   `toml:"limits"`
+	Adoption Adoption `toml:"adoption"`
 
 	// Secrets, loaded from the environment, never from the file.
 	Secrets Secrets `toml:"-"`
@@ -50,6 +51,14 @@ type Identity struct {
 
 	// Parsed form of TrustedProxies, filled in by Load.
 	Proxies []netip.Prefix `toml:"-"`
+}
+
+// Adoption lets people bring an existing media server account (and its
+// history) instead of getting a new one.
+type Adoption struct {
+	// Claim lets a user adopt an existing Jellyfin account by entering its
+	// password once. Off by default.
+	Claim bool `toml:"claim"`
 }
 
 type Storage struct {

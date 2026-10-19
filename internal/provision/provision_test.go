@@ -21,7 +21,13 @@ import (
 	"github.com/C0PT3R/overfin/internal/store"
 )
 
-const jfUser = "b691e62a7c7244b6934a160398466052"
+const (
+	jfUser    = "b691e62a7c7244b6934a160398466052"
+	aliceUser = "0123456789abcdef0123456789abcdef" // an existing account
+	adminUser = "fedcba9876543210fedcba9876543210" // an existing administrator
+	alicePass = "alice-password"
+	adminPass = "admin-password"
+)
 
 // fakeJellyfin records what Overfin does, and can fail on demand.
 type fakeJellyfin struct {
@@ -30,6 +36,7 @@ type fakeJellyfin struct {
 	deleted   []string
 	policy    map[string]any
 	failLogin bool
+	logins    []string
 }
 
 func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -47,11 +54,24 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&f.policy)
 		w.WriteHeader(http.StatusNoContent)
 	case "POST /Users/AuthenticateByName":
-		if f.failLogin {
+		var in struct{ Username, Pw string }
+		json.NewDecoder(r.Body).Decode(&in)
+		f.logins = append(f.logins, in.Username)
+		id := jfUser
+		switch {
+		case in.Username == "alice" && in.Pw == alicePass:
+			id = aliceUser
+		case in.Username == "boss" && in.Pw == adminPass:
+			id = adminUser
+		case f.failLogin || !strings.HasPrefix(in.Username, "of-"):
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"AccessToken": "user-token", "User": map[string]string{"Id": jfUser}})
+		json.NewEncoder(w).Encode(map[string]any{"AccessToken": "token-" + id, "User": map[string]string{"Id": id}})
+	case "GET /Users/" + aliceUser:
+		json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": false}})
+	case "GET /Users/" + adminUser:
+		json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": true}})
 	case "DELETE /Users/" + jfUser:
 		f.deleted = append(f.deleted, jfUser)
 		w.WriteHeader(http.StatusNoContent)
@@ -87,7 +107,7 @@ func TestFirstVisitProvisionsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prof.Owner || prof.JellyfinToken != "user-token" || prof.Name != OwnerProfileName {
+	if !prof.Owner || prof.JellyfinToken != "token-"+jfUser || prof.Name != OwnerProfileName {
 		t.Errorf("owner profile = %+v", prof)
 	}
 	if len(fake.created) != 1 || !strings.HasPrefix(fake.created[0], "of-") {
@@ -169,5 +189,74 @@ func TestBucket(t *testing.T) {
 	}
 	if !b.allow(now.Add(interval)) {
 		t.Error("no refill after one interval")
+	}
+}
+
+func TestClaim(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeJellyfin{}
+	p := setup(t, fake, "")
+	id := identity.Identity{Subject: "alice-subject"}
+
+	_, prof, err := p.Claim(ctx, id, "alice", alicePass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prof.JellyfinUserID != aliceUser || prof.JellyfinToken != "token-"+aliceUser || !prof.Owner {
+		t.Errorf("adopted profile = %+v", prof)
+	}
+	if len(fake.created) != 0 {
+		t.Error("claiming created a new Jellyfin user")
+	}
+
+	// Claiming again, or creating a fresh account, once one exists.
+	if _, _, err := p.Claim(ctx, id, "alice", alicePass); !errors.Is(err, ErrAccountExists) {
+		t.Errorf("second claim: %v", err)
+	}
+	if _, _, err := p.Create(ctx, id); !errors.Is(err, ErrAccountExists) {
+		t.Errorf("create after claim: %v", err)
+	}
+	// Someone else claiming alice's Jellyfin account, with her password.
+	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "other"}, "alice", alicePass); !errors.Is(err, ErrClaimNotAllowed) {
+		t.Errorf("claiming an adopted account: %v", err)
+	}
+}
+
+func TestClaimRefusesAdministrators(t *testing.T) {
+	p := setup(t, &fakeJellyfin{}, "")
+	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "boss", adminPass)
+	if !errors.Is(err, ErrClaimNotAllowed) {
+		t.Errorf("err = %v, want ErrClaimNotAllowed", err)
+	}
+	if _, err := p.Store.AccountBySubject(context.Background(), "s"); !errors.Is(err, store.ErrNotFound) {
+		t.Error("an account was created for an administrator claim")
+	}
+}
+
+func TestClaimAttemptsAreLimited(t *testing.T) {
+	fake := &fakeJellyfin{}
+	p := setup(t, fake, "")
+	id := identity.Identity{Subject: "guesser"}
+	for i := 0; i < maxFailures; i++ {
+		if _, _, err := p.Claim(context.Background(), id, "alice", "wrong"); !errors.Is(err, ErrClaimFailed) {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	// Even the right password is refused now, without asking Jellyfin.
+	before := len(fake.logins)
+	if _, _, err := p.Claim(context.Background(), id, "alice", alicePass); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("after %d failures: %v, want ErrRateLimited", maxFailures, err)
+	}
+	if len(fake.logins) != before {
+		t.Error("Jellyfin was asked despite the limit")
+	}
+}
+
+func TestClaimRespectsRequiredGroup(t *testing.T) {
+	fake := &fakeJellyfin{}
+	p := setup(t, fake, "media")
+	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass)
+	if !errors.Is(err, ErrNotAllowed) || len(fake.logins) != 0 {
+		t.Errorf("err = %v, logins = %v", err, fake.logins)
 	}
 }

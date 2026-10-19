@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/C0PT3R/overfin/internal/identity"
@@ -157,5 +158,55 @@ func TestHealthIsPublic(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", res.StatusCode)
+	}
+}
+
+func TestCrossSiteRequestsAreRefused(t *testing.T) {
+	srv := newTestServer(t)
+	for site, want := range map[string]int{
+		"cross-site":  http.StatusForbidden,
+		"same-site":   http.StatusForbidden, // a sibling subdomain
+		"same-origin": http.StatusOK,
+		"none":        http.StatusOK,
+		"":            http.StatusOK, // non-browser clients
+	} {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/whoami", nil)
+		req.Header.Set("Remote-User", "abc123")
+		if site != "" {
+			req.Header.Set("Sec-Fetch-Site", site)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != want {
+			t.Errorf("Sec-Fetch-Site %q: status %d, want %d", site, res.StatusCode, want)
+		}
+	}
+}
+
+func TestStateChangesMustBeJSON(t *testing.T) {
+	srv := newTestServer(t)
+	for ct, want := range map[string]int{
+		"application/x-www-form-urlencoded": http.StatusUnsupportedMediaType,
+		"text/plain":                        http.StatusUnsupportedMediaType,
+		"multipart/form-data; boundary=x":   http.StatusUnsupportedMediaType,
+		"":                                  http.StatusUnsupportedMediaType,
+		"application/json; charset=utf-8":   http.StatusNotFound, // passes the check; no such route
+	} {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/whoami", strings.NewReader("{}"))
+		req.Header.Set("Remote-User", "abc123")
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != want {
+			t.Errorf("Content-Type %q: status %d, want %d", ct, res.StatusCode, want)
+		}
 	}
 }

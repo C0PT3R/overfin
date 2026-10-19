@@ -187,6 +187,15 @@ func insertProfile(ctx context.Context, tx *sql.Tx, box *seal.Box, p *Profile, n
 	return nil
 }
 
+// JellyfinUserLinked reports whether a Jellyfin user already belongs to a
+// profile.
+func (s *Store) JellyfinUserLinked(ctx context.Context, jellyfinUserID string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM profiles WHERE jellyfin_user_id = ?`, jellyfinUserID).Scan(&n)
+	return n > 0, err
+}
+
 // AccountBySubject finds the account of an identity provider user.
 func (s *Store) AccountBySubject(ctx context.Context, subject string) (*Account, error) {
 	var a Account

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -37,6 +38,16 @@ var (
 	ErrRateLimited = errors.New("provision: rate limited")
 	// ErrAnonymous: anonymous visitors have no account.
 	ErrAnonymous = errors.New("provision: anonymous visitors have no account")
+	// ErrNoAccount: this identity has no account yet.
+	ErrNoAccount = errors.New("provision: no account yet")
+	// ErrAccountExists: this identity already has an account.
+	ErrAccountExists = errors.New("provision: account already exists")
+	// ErrClaimFailed: wrong username or password, deliberately not saying
+	// which.
+	ErrClaimFailed = errors.New("provision: claim failed")
+	// ErrClaimNotAllowed: the credentials were right, but that Jellyfin
+	// account can't be adopted (an administrator, or already adopted).
+	ErrClaimNotAllowed = errors.New("provision: claim not allowed")
 )
 
 // OwnerProfileName is the display name of a new account's first profile.
@@ -52,38 +63,141 @@ type Provisioner struct {
 	LogKey        []byte // keys.LogID, for pseudonymous log entries
 	Logger        *slog.Logger
 
-	// mu serializes account creation. It is rare, and serializing it rules
-	// out two Jellyfin users being created for one person.
-	mu      sync.Mutex
-	limiter bucket
+	// mu serializes account creation and adoption. Both are rare, and
+	// serializing them rules out two accounts for one person.
+	mu       sync.Mutex
+	limiter  bucket
+	attempts failures
 }
 
-// Ensure returns the account and owner profile for id, creating them on the
-// first visit.
-func (p *Provisioner) Ensure(ctx context.Context, id identity.Identity) (*store.Account, *store.Profile, error) {
+// Find returns the account and owner profile for id, or ErrNoAccount.
+func (p *Provisioner) Find(ctx context.Context, id identity.Identity) (*store.Account, *store.Profile, error) {
 	if id.Anonymous {
 		return nil, nil, ErrAnonymous
 	}
-	if acct, prof, err := p.existing(ctx, id.Subject); !errors.Is(err, store.ErrNotFound) {
+	acct, prof, err := p.existing(ctx, id.Subject)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil, ErrNoAccount
+	}
+	return acct, prof, err
+}
+
+// Ensure returns the account for id, creating a fresh one on the first
+// visit.
+func (p *Provisioner) Ensure(ctx context.Context, id identity.Identity) (*store.Account, *store.Profile, error) {
+	acct, prof, err := p.Find(ctx, id)
+	if !errors.Is(err, ErrNoAccount) {
 		return acct, prof, err
 	}
-
-	if p.RequiredGroup != "" && !slices.Contains(id.Groups, p.RequiredGroup) {
-		p.Logger.Info("provisioning refused: not in required group", "user", p.logID(id.Subject))
-		return nil, nil, ErrNotAllowed
+	acct, prof, err = p.Create(ctx, id)
+	if errors.Is(err, ErrAccountExists) {
+		// Another request created it in the meantime; that's the one.
+		return p.Find(ctx, id)
 	}
+	return acct, prof, err
+}
 
+// Create makes a fresh account with a new Jellyfin user, or returns
+// ErrAccountExists.
+func (p *Provisioner) Create(ctx context.Context, id identity.Identity) (*store.Account, *store.Profile, error) {
+	if err := p.allowed(id); err != nil {
+		return nil, nil, err
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Someone else may have created it while we waited for the lock.
-	if acct, prof, err := p.existing(ctx, id.Subject); !errors.Is(err, store.ErrNotFound) {
-		return acct, prof, err
+	// Checked under the lock: someone may have just created it.
+	if _, _, err := p.Find(ctx, id); !errors.Is(err, ErrNoAccount) {
+		if err == nil {
+			return nil, nil, ErrAccountExists
+		}
+		return nil, nil, err
 	}
 	if !p.limiter.allow(time.Now()) {
 		return nil, nil, ErrRateLimited
 	}
 	return p.create(ctx, id.Subject)
+}
+
+// allowed checks the parts of rule 15 that don't need the database.
+func (p *Provisioner) allowed(id identity.Identity) error {
+	if id.Anonymous {
+		return ErrAnonymous
+	}
+	if p.RequiredGroup != "" && !slices.Contains(id.Groups, p.RequiredGroup) {
+		p.Logger.Info("provisioning refused: not in required group", "user", p.logID(id.Subject))
+		return ErrNotAllowed
+	}
+	return nil
+}
+
+// Claim adopts an existing Jellyfin account: the username and password prove
+// ownership, and the account's history comes along. The password is used for
+// this one login and never stored or logged. Administrator accounts are
+// never adopted, so Overfin never holds an administrator's token.
+func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username, password string) (*store.Account, *store.Profile, error) {
+	if err := p.allowed(id); err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	if !p.attempts.allow(id.Subject, now) {
+		return nil, nil, ErrRateLimited
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if _, _, err := p.Find(ctx, id); !errors.Is(err, ErrNoAccount) {
+		if err == nil {
+			return nil, nil, ErrAccountExists
+		}
+		return nil, nil, err
+	}
+	if !p.limiter.allow(now) {
+		return nil, nil, ErrRateLimited
+	}
+
+	// A throwaway device for the check; the kept token gets a stable one.
+	token, userID, err := p.Jellyfin.Authenticate(ctx, "overfin-claim", username, password)
+	if err != nil {
+		if jellyfin.IsStatus(err, http.StatusUnauthorized) || jellyfin.IsStatus(err, http.StatusForbidden) ||
+			jellyfin.IsStatus(err, http.StatusNotFound) || jellyfin.IsStatus(err, http.StatusBadRequest) {
+			p.attempts.fail(id.Subject, now)
+			p.Logger.Info("claim failed: wrong credentials", "user", p.logID(id.Subject))
+			return nil, nil, ErrClaimFailed
+		}
+		return nil, nil, err
+	}
+
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	policy, err := p.Jellyfin.UserPolicy(ctx, admin, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if isAdmin, _ := policy["IsAdministrator"].(bool); isAdmin {
+		p.Logger.Warn("claim refused: administrator account", "user", p.logID(id.Subject))
+		return nil, nil, ErrClaimNotAllowed
+	}
+	// Checked under the lock, so two people can't adopt the same account.
+	// The database's unique constraints remain as a last line of defense.
+	linked, err := p.Store.JellyfinUserLinked(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if linked {
+		p.Logger.Warn("claim refused: account already adopted", "user", p.logID(id.Subject))
+		return nil, nil, ErrClaimNotAllowed
+	}
+
+	acct, prof, err := p.Store.CreateAccount(ctx, id.Subject, store.NewOwner{
+		Name: OwnerProfileName, JellyfinUserID: userID, JellyfinUsername: username, JellyfinToken: token,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	p.attempts.reset(id.Subject)
+	p.Logger.Info("account adopted", "user", p.logID(id.Subject), "account", acct.ID)
+	return acct, prof, nil
 }
 
 func (p *Provisioner) existing(ctx context.Context, subject string) (*store.Account, *store.Profile, error) {
@@ -181,6 +295,51 @@ func randomSecret() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// ---- Claim attempts -----------------------------------------------------------
+
+// failures counts failed claims per identity: at most maxFailures within
+// failureWindow, so the claim endpoint can't be used to guess passwords.
+type failures struct {
+	mu   sync.Mutex
+	seen map[string][]time.Time
+}
+
+const (
+	maxFailures   = 5
+	failureWindow = 15 * time.Minute
+)
+
+func (f *failures) recent(subject string, now time.Time) []time.Time {
+	var keep []time.Time
+	for _, t := range f.seen[subject] {
+		if now.Sub(t) < failureWindow {
+			keep = append(keep, t)
+		}
+	}
+	return keep
+}
+
+func (f *failures) allow(subject string, now time.Time) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.recent(subject, now)) < maxFailures
+}
+
+func (f *failures) fail(subject string, now time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.seen == nil {
+		f.seen = make(map[string][]time.Time)
+	}
+	f.seen[subject] = append(f.recent(subject, now), now)
+}
+
+func (f *failures) reset(subject string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.seen, subject)
 }
 
 // ---- Rate limit ---------------------------------------------------------------

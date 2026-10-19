@@ -115,8 +115,12 @@ paths:
     get:
       operationId: getMe
       summary: The current account and active profile
-      description: On the first visit, this creates the account, its owner
-        profile and the matching media server user.
+      description: |
+        On the first visit, this creates the account, its owner profile and
+        the matching media server user. When the operator enables claiming
+        (`claim` in `Info.features`), it doesn't: it answers
+        `account-setup-required`, and the site offers to start fresh
+        (`POST /me`) or to bring an existing account (`POST /me/claim`).
       tags: [account]
       responses:
         "200":
@@ -127,6 +131,13 @@ paths:
                 $ref: "#/components/schemas/Me"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No account yet, and claiming is enabled
+            (`account-setup-required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "403":
           description: This identity may not use the service, because it isn't
             in the required group or its account is disabled
@@ -154,6 +165,99 @@ paths:
           description: The account is deleted and the session ended.
         "403":
           $ref: "#/components/responses/StepUpOrOwnerOnly"
+
+    post:
+      operationId: createAccount
+      summary: Start fresh with a new account
+      description: Creates the account, its owner profile and a new media
+        server user. Mostly useful when claiming is enabled; otherwise
+        `GET /me` does this on the first visit.
+      tags: [account]
+      responses:
+        "201":
+          description: The new account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "403":
+          description: Not in the required group (`account-not-allowed`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: This identity already has an account
+            (`account-exists`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "429":
+          description: Too many new accounts at once (`rate-limited`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /me/claim:
+    post:
+      operationId: claimAccount
+      summary: Bring an existing media server account, with its history
+      description: |
+        Only when the operator enables claiming. The username and password of
+        the existing Jellyfin account prove ownership; the password is used
+        for that one check and never stored or logged. Administrator accounts
+        can't be brought over. Failed attempts are limited per user.
+      tags: [account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              additionalProperties: false
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+      responses:
+        "201":
+          description: The account, now linked to the existing media server
+            account and its history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "403":
+          description: Wrong username or password, deliberately without
+            saying which (`claim-failed`); or that account can't be brought
+            over, because it's an administrator or already brought over
+            (`claim-not-allowed`); or not in the required group
+            (`account-not-allowed`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: This identity already has an account
+            (`account-exists`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "429":
+          description: Too many attempts (`rate-limited`). Try again later.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 
   /me/export:
     post:
@@ -1772,8 +1876,9 @@ components:
           type: array
           description: |
             Enabled features. Open set; clients ignore unknown values. Known
-            values: `profiles`, `catalog` (TMDB), `lists` (curated catalog
-            lists), `requests` (Seerr), `issueConversations`.
+            values: `profiles`, `claim` (bring an existing media server
+            account), `catalog` (TMDB), `lists` (curated catalog lists),
+            `requests` (Seerr), `issueConversations`.
           items:
             type: string
           examples: [[profiles, catalog, lists, requests]]

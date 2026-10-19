@@ -14,16 +14,28 @@ import (
 	"github.com/C0PT3R/overfin/internal/store"
 )
 
-// Account serves the current account: /me for now.
+// Account serves the current account.
 type Account struct {
 	Provisioner *provision.Provisioner
 	Logger      *slog.Logger
+	// Claim enables adopting an existing Jellyfin account. When it's on, a
+	// first visit asks the user instead of creating an account silently.
+	Claim bool
 }
 
 func (Account) Name() string { return "account" }
 
 func (a Account) Register(r *plugin.Registrar) error {
-	return r.HandleFunc("GET /api/v1/me", a.me)
+	if err := r.HandleFunc("GET /api/v1/me", a.me); err != nil {
+		return err
+	}
+	if err := r.HandleFunc("POST /api/v1/me", a.create); err != nil {
+		return err
+	}
+	if a.Claim {
+		return r.HandleFunc("POST /api/v1/me/claim", a.claim)
+	}
+	return nil
 }
 
 // Shapes from the API specification.
@@ -42,30 +54,78 @@ type meJSON struct {
 
 func (a Account) me(w http.ResponseWriter, r *http.Request) {
 	id, _ := identity.FromContext(r.Context()) // the registrar guarantees one
-	acct, prof, err := a.Provisioner.Ensure(r.Context(), id)
-	switch {
-	case errors.Is(err, provision.ErrNotAllowed):
-		problem.Send(w, problem.AccountNotAllowed, "")
-		return
-	case errors.Is(err, provision.ErrRateLimited):
-		problem.Send(w, problem.RateLimited, "")
-		return
-	case errors.Is(err, provision.ErrAnonymous):
-		problem.Send(w, problem.NotFound, "")
-		return
-	case err != nil:
-		a.Logger.Error("account lookup failed", "err", err)
-		problem.Send(w, problem.Internal, "")
+	var acct *store.Account
+	var prof *store.Profile
+	var err error
+	if a.Claim {
+		acct, prof, err = a.Provisioner.Find(r.Context(), id)
+	} else {
+		acct, prof, err = a.Provisioner.Ensure(r.Context(), id)
+	}
+	a.respond(w, acct, prof, err, http.StatusOK)
+}
+
+func (a Account) create(w http.ResponseWriter, r *http.Request) {
+	id, _ := identity.FromContext(r.Context())
+	acct, prof, err := a.Provisioner.Create(r.Context(), id)
+	a.respond(w, acct, prof, err, http.StatusCreated)
+}
+
+type claimRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (a Account) claim(w http.ResponseWriter, r *http.Request) {
+	var req claimRequest
+	if !decode(r, &req) || req.Username == "" || len(req.Username) > 128 ||
+		req.Password == "" || len(req.Password) > 256 {
+		problem.Send(w, problem.InvalidRequest, "")
 		return
 	}
-	writeJSON(w, meJSON{AccountID: acct.ID, ActiveProfile: toProfileJSON(prof)})
+	id, _ := identity.FromContext(r.Context())
+	acct, prof, err := a.Provisioner.Claim(r.Context(), id, req.Username, req.Password)
+	a.respond(w, acct, prof, err, http.StatusCreated)
+}
+
+// respond maps provisioning results to the API. Errors never carry details.
+func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store.Profile, err error, status int) {
+	switch {
+	case err == nil:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(meJSON{AccountID: acct.ID, ActiveProfile: toProfileJSON(prof)})
+	case errors.Is(err, provision.ErrNoAccount):
+		problem.Send(w, problem.AccountSetupRequired, "")
+	case errors.Is(err, provision.ErrAccountExists):
+		problem.Send(w, problem.AccountExists, "")
+	case errors.Is(err, provision.ErrNotAllowed):
+		problem.Send(w, problem.AccountNotAllowed, "")
+	case errors.Is(err, provision.ErrClaimFailed):
+		problem.Send(w, problem.ClaimFailed, "")
+	case errors.Is(err, provision.ErrClaimNotAllowed):
+		problem.Send(w, problem.ClaimNotAllowed, "")
+	case errors.Is(err, provision.ErrRateLimited):
+		problem.Send(w, problem.RateLimited, "")
+	case errors.Is(err, provision.ErrAnonymous):
+		problem.Send(w, problem.NotFound, "")
+	default:
+		a.Logger.Error("account request failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+	}
+}
+
+// decode reads a small JSON body strictly: unknown fields and trailing data
+// are refused. It reports false on any problem.
+func decode(r *http.Request, v any) bool {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return false
+	}
+	return !dec.More()
 }
 
 func toProfileJSON(p *store.Profile) profileJSON {
 	return profileJSON{ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, HasPIN: p.HasPIN}
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
 }
