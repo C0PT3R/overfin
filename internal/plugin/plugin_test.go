@@ -12,8 +12,9 @@ func TestCheckPattern(t *testing.T) {
 	}{
 		{"GET /api/v1/items/{id}", true},
 		{"POST /api/v1/playback/{session}/progress", true},
-		{"/api/v1/items", false},           // no method
-		{"PATCH /api/v1/items", false},     // method not allowed
+		{"/api/v1/items", false}, // no method
+		{"PATCH /api/v1/profiles/{id}", true},
+		{"HEAD /api/v1/items", false},      // method not allowed
 		{"GET /items", false},              // outside /api/v1/
 		{"GET /api/items", false},          // unversioned
 		{"GET /api/v1/", false},            // whole subtree

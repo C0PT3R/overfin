@@ -108,8 +108,9 @@ from the internet, and media files can be written by anyone.
 
 ### Privacy
 33. Overfin stores only what it needs to run: the account-to-Jellyfin mapping,
-    encrypted tokens, sessions, profiles and short-lived playback state. Watch
-    history stays in Jellyfin, which already keeps it.
+    encrypted tokens, sessions, profiles (with their uploaded avatars) and
+    short-lived playback state. Watch history stays in Jellyfin, which
+    already keeps it.
 34. No analytics, no telemetry, no calls home. Metrics are aggregate counts
     with no user labels.
 35. Client IPs are used in memory (rate limiting) and never stored by Overfin.
@@ -141,9 +142,14 @@ from the internet, and media files can be written by anyone.
     Embedded metadata is still stripped from image files (rule 10).
     Security-sensitive data (file paths, server internals, permission flags) is
     never exposed, whatever the configuration.
+49. Uploaded images (profile avatars) get the same treatment as rule 10, with
+    stricter size limits, and are rate-limited. Overfin stores them itself,
+    never in Jellyfin, whose image endpoints don't check permissions.
+50. Public endpoints (`/health`, `/info`) never reveal software versions,
+    upstream servers or anything about users.
 
 ### Code supply
-49. No code copied or ported from other projects. Dependencies are few, chosen
+51. No code copied or ported from other projects. Dependencies are few, chosen
     on purpose, and pinned.
 
 ## Deployment

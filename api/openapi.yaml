@@ -54,8 +54,17 @@ info:
     **Language.** Metadata comes in the language of the `Accept-Language`
     header, unless the active profile sets its own.
 
+    **Step-up.** Some actions need a fresh confirmation. Overfin then answers
+    with a `step-up-required` error naming what is needed (`pin` or `login`)
+    and, for a login, a `stepUpUrl` to send the user to. After confirming, the
+    client retries the same request. A confirmed login stays fresh for a few
+    minutes.
+
 servers:
   - url: /api/v1
+
+security:
+  - session: []
 
 paths:
   /health:
@@ -63,6 +72,7 @@ paths:
       operationId: getHealth
       summary: Check that the gateway is running
       tags: [system]
+      security: []
       responses:
         "200":
           description: The gateway is up.
@@ -76,7 +86,403 @@ paths:
                     type: string
                     enum: [ok]
 
+  /info:
+    get:
+      operationId: getInfo
+      summary: Describe this Overfin instance
+      description: |
+        Public, so a site can adapt before anyone logs in. It describes
+        features and settings only; it never reveals software versions,
+        upstream servers or anything about users.
+      tags: [system]
+      security: []
+      responses:
+        "200":
+          description: Instance information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Info"
+
+  /me:
+    get:
+      operationId: getMe
+      summary: The current account and active profile
+      tags: [account]
+      responses:
+        "200":
+          description: The current account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      operationId: deleteAccount
+      summary: Delete the account and everything Overfin holds about it
+      description: Needs a fresh login. What happens to the Jellyfin and Seerr
+        users is the operator's choice, reported in `Info.accountDeletion`.
+      tags: [account]
+      responses:
+        "204":
+          description: The account is deleted and the session ended.
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+
+  /me/export:
+    post:
+      operationId: exportMyData
+      summary: Download everything Overfin holds about this account
+      description: Needs a fresh login. Secrets (tokens, PIN hashes, keys)
+        are never included.
+      tags: [account]
+      responses:
+        "200":
+          description: The account's data.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Format documented separately; stable within v1.
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+
+  /logout:
+    post:
+      operationId: logout
+      summary: End the current session
+      tags: [account]
+      responses:
+        "200":
+          description: The session is ended. To also leave the identity
+            provider, send the user to `logoutUrl`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logoutUrl:
+                    type: string
+                    format: uri
+
+  /profiles:
+    get:
+      operationId: listProfiles
+      summary: List the account's profiles
+      tags: [profiles]
+      responses:
+        "200":
+          description: The profiles, owner first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Profile"
+    post:
+      operationId: createProfile
+      summary: Create a profile
+      description: Owner profile only.
+      tags: [profiles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileCreate"
+      responses:
+        "201":
+          description: The new profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /profiles/{profileId}:
+    parameters:
+      - $ref: "#/components/parameters/ProfileId"
+    get:
+      operationId: getProfile
+      summary: Get one profile
+      tags: [profiles]
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateProfile
+      summary: Change some of a profile's settings
+      description: Owner profile only. Changing a kids profile's
+        `ratingCeiling` needs the PIN.
+      tags: [profiles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: The updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      operationId: deleteProfile
+      summary: Delete a profile and its history
+      description: Owner profile only, and needs a fresh login. The owner
+        profile itself can't be deleted; delete the account instead.
+      tags: [profiles]
+      responses:
+        "204":
+          description: The profile is deleted.
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /profiles/{profileId}/activate:
+    parameters:
+      - $ref: "#/components/parameters/ProfileId"
+    post:
+      operationId: activateProfile
+      summary: Switch this session to a profile ("Who's watching?")
+      tags: [profiles]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pin:
+                  $ref: "#/components/schemas/Pin"
+      responses:
+        "200":
+          description: The profile is now active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /profiles/{profileId}/pin:
+    parameters:
+      - $ref: "#/components/parameters/ProfileId"
+    put:
+      operationId: setProfilePin
+      summary: Set or change a profile's PIN
+      description: Owner profile only. Changing an existing PIN needs a fresh
+        login.
+      tags: [profiles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin:
+                  $ref: "#/components/schemas/Pin"
+      responses:
+        "204":
+          description: The PIN is set.
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: removeProfilePin
+      summary: Remove a profile's PIN
+      description: Owner profile only, and needs a fresh login.
+      tags: [profiles]
+      responses:
+        "204":
+          description: The PIN is removed.
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /profiles/{profileId}/avatar:
+    parameters:
+      - $ref: "#/components/parameters/ProfileId"
+    put:
+      operationId: setProfileAvatar
+      summary: Upload a profile picture
+      description: |
+        Owner profile only. The upload is checked for size and dimensions
+        before decoding, then re-encoded into fixed square sizes with all
+        metadata (including location) removed. Rate-limited.
+      tags: [profiles]
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: The profile with its new avatar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedImage"
+    delete:
+      operationId: removeProfileAvatar
+      summary: Remove a profile picture
+      description: Owner profile only.
+      tags: [profiles]
+      responses:
+        "204":
+          description: The avatar is removed.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /profiles/{profileId}/transfer:
+    parameters:
+      - $ref: "#/components/parameters/ProfileId"
+    post:
+      operationId: startProfileTransfer
+      summary: Create a code to move this profile to another account
+      description: Owner profile only, and needs a fresh login. The code is
+        single-use and expires within minutes. The owner profile can't be
+        transferred.
+      tags: [profiles]
+      responses:
+        "201":
+          description: The transfer code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransferCode"
+        "403":
+          $ref: "#/components/responses/StepUpRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /transfers/accept:
+    post:
+      operationId: acceptProfileTransfer
+      summary: Receive a profile into this account with a transfer code
+      description: Owner profile only. If the account already has a profile
+        with the same name, `name` must give a new one.
+      tags: [profiles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  maxLength: 64
+                name:
+                  $ref: "#/components/schemas/ProfileName"
+      responses:
+        "200":
+          description: The profile now belongs to this account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /sessions:
+    get:
+      operationId: listSessions
+      summary: List this account's sessions and devices
+      tags: [account]
+      responses:
+        "200":
+          description: The sessions, current one first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Session"
+    delete:
+      operationId: endAllOtherSessions
+      summary: End every session of this account except the current one
+      tags: [account]
+      responses:
+        "204":
+          description: The other sessions are ended.
+
+  /sessions/{sessionId}:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 64
+    delete:
+      operationId: endSession
+      summary: End one of this account's sessions
+      tags: [account]
+      responses:
+        "204":
+          description: The session is ended.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-overfin
+      description: Session cookie set by Overfin. With forward-auth, the
+        reverse proxy authenticates every request before it reaches Overfin.
+
   parameters:
     Limit:
       name: limit
@@ -94,6 +500,14 @@ components:
       schema:
         type: string
         maxLength: 512
+    ProfileId:
+      name: profileId
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 64
+        examples: [prof_3kq9x2m8w7v1]
 
   schemas:
     Problem:
@@ -116,6 +530,180 @@ components:
           type: string
           description: Human-readable explanation of this occurrence. Never
             parse it.
+        stepUp:
+          type: string
+          description: For `step-up-required`, what is needed. Open set.
+          examples: [pin, login]
+        stepUpUrl:
+          type: string
+          format: uri-reference
+          description: For `step-up-required` with `login`, where to send the
+            user to confirm.
+
+    # ---- System and account --------------------------------------------------
+
+    Info:
+      description: What this instance offers. Never includes software
+        versions, upstream details or user data.
+      type: object
+      required: [apiVersion, features]
+      properties:
+        name:
+          type: string
+          description: The instance's display name, as set by the operator.
+        apiVersion:
+          type: string
+          description: The API level, e.g. `1.3`. Not a software version.
+          examples: ["1.0"]
+        features:
+          type: array
+          description: Enabled features. Open set; clients ignore unknown
+            values.
+          items:
+            type: string
+          examples: [[profiles, requests, music]]
+        login:
+          type: object
+          properties:
+            url:
+              type: string
+              format: uri-reference
+              description: Where to send a user who isn't logged in.
+        imageSizes:
+          type: array
+          description: The sizes images can be requested in.
+          items:
+            type: string
+          examples: [[small, medium, large]]
+        ratingsCountry:
+          type: string
+          description: ISO 3166-1 country whose age ratings kids profiles use.
+          examples: [CA]
+        maxProfilesPerAccount:
+          type: integer
+          minimum: 0
+        maxStreamsPerAccount:
+          type: integer
+          minimum: 0
+        accountDeletion:
+          type: string
+          description: What deleting an account does to its media server
+            users. Open set.
+          examples: [delete, disable]
+
+    Me:
+      type: object
+      required: [accountId, activeProfile]
+      properties:
+        accountId:
+          type: string
+          examples: [acct_8w2n5k1q9z3r]
+        displayName:
+          type: string
+          description: From the identity provider, when it provides one.
+        activeProfile:
+          $ref: "#/components/schemas/Profile"
+
+    ProfileName:
+      type: string
+      minLength: 1
+      maxLength: 32
+      description: Unique within the account.
+
+    Pin:
+      type: string
+      pattern: "^[0-9]{4,8}$"
+
+    Profile:
+      type: object
+      required: [id, name, kind, owner, hasPin]
+      properties:
+        id:
+          type: string
+          examples: [prof_3kq9x2m8w7v1]
+        name:
+          $ref: "#/components/schemas/ProfileName"
+        kind:
+          type: string
+          description: Open set; clients must handle unknown values.
+          examples: [standard, kids]
+        owner:
+          type: boolean
+          description: The account's owner profile, which manages the others.
+        hasPin:
+          type: boolean
+        avatar:
+          $ref: "#/components/schemas/ImageRef"
+        language:
+          type: string
+          description: Preferred metadata language (BCP 47), overriding
+            `Accept-Language`.
+          examples: [fr-CA]
+        ratingCeiling:
+          type: string
+          description: For kids profiles, the highest age rating allowed, in
+            the instance's ratings country.
+          examples: [PG]
+
+    ProfileCreate:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          $ref: "#/components/schemas/ProfileName"
+        kind:
+          type: string
+          enum: [standard, kids]
+        language:
+          type: string
+        ratingCeiling:
+          type: string
+
+    ProfileUpdate:
+      description: Only the fields sent are changed.
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          $ref: "#/components/schemas/ProfileName"
+        language:
+          type: string
+        ratingCeiling:
+          type: string
+        pin:
+          description: Required when changing `ratingCeiling` on a profile
+            with a PIN.
+          $ref: "#/components/schemas/Pin"
+
+    TransferCode:
+      type: object
+      required: [code, expiresAt]
+      properties:
+        code:
+          type: string
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    Session:
+      description: One of the account's own sessions.
+      type: object
+      required: [id, current, createdAt]
+      properties:
+        id:
+          type: string
+          examples: [sess_6p1m4t8c2x9b]
+        current:
+          type: boolean
+        device:
+          type: string
+          description: A readable device description, e.g. `Firefox on
+            Linux`.
+        profileName:
+          type: string
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        lastActiveAt:
+          $ref: "#/components/schemas/Timestamp"
 
     PageInfo:
       description: Paging fields shared by every list response.
@@ -633,6 +1221,42 @@ components:
   responses:
     NotFound:
       description: The resource doesn't exist, or the caller may not see it.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Not logged in (`not-authenticated`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    StepUpRequired:
+      description: A fresh confirmation is needed (`step-up-required`); see
+        `stepUp` and `stepUpUrl`. Also used for a wrong PIN (`pin-incorrect`)
+        and a locked PIN (`pin-locked`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: The request clashes with existing data, e.g. a profile name
+        already used in this account (`name-taken`) or the profile limit
+        reached (`profile-limit-reached`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    TooLarge:
+      description: The upload is too big in bytes or dimensions
+        (`upload-too-large`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedImage:
+      description: The upload isn't a JPEG, PNG or WebP image that decodes
+        cleanly (`unsupported-image`).
       content:
         application/problem+json:
           schema:

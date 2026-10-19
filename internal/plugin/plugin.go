@@ -75,13 +75,14 @@ var allowedMethods = map[string]bool{
 	http.MethodGet:    true,
 	http.MethodPost:   true,
 	http.MethodPut:    true,
+	http.MethodPatch:  true,
 	http.MethodDelete: true,
 }
 
 func checkPattern(pattern string) error {
 	method, path, ok := strings.Cut(pattern, " ")
 	if !ok || !allowedMethods[method] {
-		return fmt.Errorf("route %q: must start with GET, POST, PUT or DELETE", pattern)
+		return fmt.Errorf("route %q: must start with GET, POST, PUT, PATCH or DELETE", pattern)
 	}
 	if !strings.HasPrefix(path, "/api/v1/") {
 		return fmt.Errorf("route %q: path must start with /api/v1/", pattern)
