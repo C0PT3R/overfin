@@ -217,12 +217,42 @@ async function itemPage(id) {
     below.push(h('h2', {}, childKind === 'season' ? 'Seasons' : 'Episodes'),
       h('div', { class: childKind === 'season' ? 'row' : 'grid' }, items.map((i) => card(i, childKind === 'episode'))));
   }
-  const cast = (item.credits || []).filter((c) => c.role === 'actor').slice(0, 12);
+  const cast = (item.credits || []).filter((c) => c.role === 'actor' || c.role === 'guestStar').slice(0, 20);
   if (cast.length) {
-    below.push(h('h2', {}, 'Cast'), h('p', { class: 'muted' },
-      cast.map((c) => c.person.name + (c.character ? ` (${c.character})` : '')).join(', ')));
+    below.push(h('h2', {}, 'Cast'), h('div', { class: 'row' }, cast.map((c) => personCard(c.person, c.character))));
+  }
+  const crew = (item.credits || []).filter((c) => c.role === 'director' || c.role === 'writer');
+  if (crew.length) {
+    below.push(h('p', { class: 'muted' }, ...crew.flatMap((c, i) => [
+      i ? ' · ' : '', `${c.role === 'director' ? 'Directed' : 'Written'} by `,
+      h('a', { href: `#/person/${c.person.id}` }, c.person.name)])));
   }
   render(hero, ...below);
+}
+
+function personCard(person, sub) {
+  const photo = h('div', { class: 'poster' });
+  if (person.image) photo.append(h('img', { src: overfin.imageUrl(person.image, 'small'), alt: '', loading: 'lazy' }));
+  else photo.append(h('div', { class: 'fallback' }, person.name));
+  return h('a', { class: 'card', href: `#/person/${person.id}` },
+    photo, h('div', { class: 'title' }, person.name), h('div', { class: 'sub' }, sub || ''));
+}
+
+// A person's page: who they are, and what of theirs this profile can watch.
+async function personPage(id) {
+  const [person, work] = await Promise.all([
+    overfin.person(id),
+    overfin.items({ person: id, kind: ['movie', 'series'], sort: 'premiereDate', order: 'desc', limit: 100 }),
+  ]);
+  const photo = h('div', { class: 'poster' });
+  if (person.image) photo.append(h('img', { src: overfin.imageUrl(person.image, 'medium'), alt: '' }));
+  const life = person.birthDate && (person.birthDate.slice(0, 4) + (person.deathDate ? ` – ${person.deathDate.slice(0, 4)}` : ''));
+  render(
+    h('div', { class: 'hero' }, h('div', { class: 'info' }, photo,
+      h('div', {}, h('h1', {}, person.name), life && h('div', { class: 'meta' }, life),
+        person.overview && h('p', {}, person.overview)))),
+    h('h2', {}, 'In the library'),
+    work.items.length ? h('div', { class: 'grid' }, work.items.map((i) => card(i))) : h('p', { class: 'muted' }, 'Nothing here.'));
 }
 
 function notFound() {
@@ -411,6 +441,7 @@ async function route() {
       case undefined: return await home();
       case 'library': return await libraryPage(parts[1], params);
       case 'item': return await itemPage(parts[1]);
+      case 'person': return await personPage(parts[1]);
       case 'play': return await playerPage(parts[1]);
       default: return notFound();
     }

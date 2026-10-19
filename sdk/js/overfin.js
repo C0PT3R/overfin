@@ -110,6 +110,8 @@ export class Overfin {
 
   async libraries() { return (await this.request('GET', '/libraries')).items; }
   item(id) { return this.request('GET', `/items/${enc(id)}`); }
+  /** A person's page; their work is items({ person: id }). */
+  person(id) { return this.request('GET', `/people/${enc(id)}`); }
 
   /**
    * One page of items. query: library, kind (string or list), parent, genre,

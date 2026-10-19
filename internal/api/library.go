@@ -49,6 +49,7 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/items/next-up": l.nextUp,
 		"GET /api/v1/items/latest":  l.latest,
 		"GET /api/v1/items/{id}":    l.item,
+		"GET /api/v1/people/{id}":   l.person,
 		"GET /api/v1/images/{id}":   l.image,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
@@ -105,6 +106,34 @@ func (l Library) libraries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeOK(w, map[string]any{"items": out})
+}
+
+// person serves a person's page. It's fetched with the profile's own token,
+// like everything else.
+func (l Library) person(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r) {
+		return
+	}
+	jfID, ok := library.Unwrap(library.PersonPrefix, r.PathValue("id"))
+	if !ok {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	raw, err := l.Jellyfin.Item(r.Context(), auth(p), p.JellyfinUserID, jfID)
+	if err != nil {
+		l.upstreamError(w, err)
+		return
+	}
+	person, ok := library.PersonOf(raw)
+	if !ok {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	writeOK(w, person)
 }
 
 func (l Library) item(w http.ResponseWriter, r *http.Request) {

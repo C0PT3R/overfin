@@ -239,6 +239,18 @@ type CreditPerson struct {
 	Image *ImageRef `json:"image,omitempty"`
 }
 
+// Person is a person's page: who they are, not their work, which is listed
+// with GET /items?person=….
+type Person struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Overview    string            `json:"overview,omitempty"`
+	Image       *ImageRef         `json:"image,omitempty"`
+	BirthDate   string            `json:"birthDate,omitempty"`
+	DeathDate   string            `json:"deathDate,omitempty"`
+	ExternalIDs map[string]string `json:"externalIds,omitempty"`
+}
+
 type Chapter struct {
 	Name    string    `json:"name,omitempty"`
 	StartMs int64     `json:"startMs"`
@@ -460,6 +472,26 @@ func externalIDs(in map[string]string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+// PersonOf translates a Jellyfin person. ok is false for anything that isn't
+// a person.
+func PersonOf(r *jellyfin.RawItem) (Person, bool) {
+	id := wrap(PersonPrefix, r.Id)
+	name := textclean.Plain(r.Name, maxShort)
+	if r.Type != "Person" || id == "" || name == "" {
+		return Person{}, false
+	}
+	jfID, _ := jellyfin.NormalizeID(r.Id)
+	return Person{
+		ID:          id,
+		Name:        name,
+		Overview:    textclean.Plain(r.Overview, maxOverview),
+		Image:       imageRef(jfID, "primary", 0, r.ImageTags["Primary"], r.PrimaryImageAspectRatio, blurHash(r, "Primary")),
+		BirthDate:   calendarDate(r.PremiereDate),
+		DeathDate:   calendarDate(r.EndDate),
+		ExternalIDs: externalIDs(r.ProviderIds),
+	}, true
 }
 
 // ---- Images -----------------------------------------------------------------

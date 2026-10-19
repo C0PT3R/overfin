@@ -82,8 +82,18 @@ export interface ItemSummary {
   [kindPart: string]: unknown;
 }
 
+export interface Person {
+  id: string;
+  name: string;
+  overview?: string;
+  image?: ImageRef;
+  birthDate?: string;
+  deathDate?: string;
+  externalIds?: Record<string, string>;
+}
+
 export interface Credit {
-  person: { id: string; name: string };
+  person: { id: string; name: string; image?: ImageRef };
   role: string;
   character?: string;
 }
@@ -252,6 +262,7 @@ export class Overfin {
 
   libraries(): Promise<Library[]>;
   item(id: string): Promise<Item>;
+  person(id: string): Promise<Person>;
   items(query?: ItemQuery): Promise<ItemPage>;
   pages(query?: ItemQuery): AsyncGenerator<ItemPage>;
   resume(limit?: number): Promise<ItemSummary[]>;

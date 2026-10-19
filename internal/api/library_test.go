@@ -139,6 +139,11 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			items = append(items, movie(i))
 		}
 		json.NewEncoder(w).Encode(map[string]any{"Items": items, "TotalRecordCount": 7})
+	case r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 99):
+		json.NewEncoder(w).Encode(map[string]any{"Id": fmt.Sprintf("%032x", 99), "Type": "Person",
+			"Name": "Ada <b>Lovelace</b>", "Overview": "Wrote the first program.", "PremiereDate": "1815-12-10T00:00:00.0000000Z",
+			"EndDate": "1852-11-27T00:00:00.0000000Z", "ProviderIds": map[string]string{"Imdb": "nm0000001", "Evil": "x"},
+			"ImageTags": map[string]string{"Primary": fmt.Sprintf("%032x", 7)}})
 	case r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 1):
 		json.NewEncoder(w).Encode(movie(0))
 	case r.Method == "POST" && r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 1)+"/PlaybackInfo":
@@ -658,5 +663,29 @@ func TestPlaybackLifecycle(t *testing.T) {
 	// Another account can neither see nor stop these.
 	if code, _ := getAs(t, srv, "other-subject", "/api/v1/playback/"+second); code != http.StatusNotFound {
 		t.Errorf("other account: %d", code)
+	}
+}
+
+func TestPerson(t *testing.T) {
+	srv, _ := newServer(t)
+	code, body := getAs(t, srv, subject, "/api/v1/people/pers_"+fmt.Sprintf("%032x", 99))
+	if code != 200 {
+		t.Fatalf("person: %d %s", code, body)
+	}
+	for _, want := range []string{`"name":"Ada Lovelace"`, `"birthDate":"1815-12-10"`, `"deathDate":"1852-11-27"`,
+		`"imdb":"nm0000001"`, `"url":"/api/v1/images/img_`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("person lacks %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Evil") {
+		t.Errorf("unknown external ID passed through: %s", body)
+	}
+	// An item's ID isn't a person.
+	if code, _ := getAs(t, srv, subject, "/api/v1/people/pers_"+fmt.Sprintf("%032x", 1)); code != 404 {
+		t.Errorf("an item served as a person: %d", code)
+	}
+	if code, _ := getAs(t, srv, subject, "/api/v1/people/item_"+fmt.Sprintf("%032x", 99)); code != 404 {
+		t.Errorf("wrong prefix accepted: %d", code)
 	}
 }
