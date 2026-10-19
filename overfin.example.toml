@@ -1,0 +1,41 @@
+# Overfin configuration example.
+#
+# Copy to overfin.toml and adjust. Secrets never go in this file; set them as
+# environment variables (or NAME_FILE pointing to a file, for Docker secrets):
+#
+#   OVERFIN_JELLYFIN_ADMIN_KEY   Jellyfin API key, used only to create users
+#   OVERFIN_SECRET_KEY           base64, at least 32 random bytes:
+#                                  openssl rand -base64 32
+
+# Address Overfin listens on.
+listen = ":8080"
+
+[jellyfin]
+# Where Overfin reaches Jellyfin. Jellyfin itself must not be reachable from
+# the internet.
+url = "http://192.0.2.10:8096"
+
+[identity]
+# "forwardauth": a reverse proxy authenticates users and passes identity
+# headers. "anonymous": no login at all.
+mode = "forwardauth"
+# Only these addresses may send identity headers.
+trusted_proxies = ["198.51.100.7"]
+# Headers the proxy sets with the user's stable ID and groups. They depend on
+# the proxy, for example:
+#   Authentik:  X-Authentik-Uid   and  X-Authentik-Groups
+#   Authelia:   Remote-User       and  Remote-Groups
+user_header = "Remote-User"
+groups_header = "Remote-Groups"
+# Only members of this group get an account. Leave empty to allow everyone
+# the proxy lets through.
+required_group = "media-users"
+
+[storage]
+path = "/data/overfin.db"
+
+[limits]
+max_streams_per_account = 2
+max_transcodes_total = 4
+# 0 means no cap.
+max_bitrate_kbps = 0

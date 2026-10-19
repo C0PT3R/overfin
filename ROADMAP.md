@@ -13,14 +13,15 @@ once they are implemented and tested.
   catch-all patterns at startup.
 - Security rules and threat model.
 - First complete draft of the API specification.
+- Configuration file (TOML) with strict decoding and validation; secrets from
+  the environment or Docker secret files.
 
 ## Milestone 1: a real site, end to end
 
 The first goal is one complete website running on Overfin against a real
 Jellyfin server, using only the public API.
 
-1. Configuration file (TOML), strict decoding, secrets from the environment,
-   reload without restart.
+1. Configuration reload without restart.
 2. Error responses (RFC 9457) and signed cursors.
 3. Identity: the forward-auth plugin, with the trusted-proxy checks.
 4. Storage: accounts, profiles, sessions and encrypted tokens.

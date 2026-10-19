@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/server"
 )
 
@@ -23,10 +25,18 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
-	addr := os.Getenv("OVERFIN_LISTEN")
-	if addr == "" {
-		addr = ":8080"
+	defaultPath := os.Getenv("OVERFIN_CONFIG")
+	if defaultPath == "" {
+		defaultPath = "/etc/overfin/overfin.toml"
 	}
+	configPath := flag.String("config", defaultPath, "path to the configuration file")
+	flag.Parse()
+
+	cfg, err := config.Load(*configPath, os.Getenv)
+	if err != nil {
+		return err
+	}
+	addr := cfg.Listen
 
 	handler, err := server.New(logger)
 	if err != nil {

@@ -96,7 +96,10 @@ separate adapter, so servers that haven't upgraded aren't left behind.
 
 ```sh
 go test ./...
-go run ./cmd/overfin               # listens on :8080
+
+export OVERFIN_JELLYFIN_ADMIN_KEY=your-jellyfin-api-key
+export OVERFIN_SECRET_KEY="$(openssl rand -base64 32)"
+go run ./cmd/overfin -config overfin.example.toml
 curl localhost:8080/api/v1/health  # {"status":"ok"}
 ```
 
@@ -104,16 +107,26 @@ Docker:
 
 ```sh
 docker build -t overfin .
-docker run --rm -p 8080:8080 overfin
+docker run --rm -p 8080:8080 \
+  -v "$PWD/overfin.toml:/etc/overfin/overfin.toml:ro" \
+  -e OVERFIN_JELLYFIN_ADMIN_KEY -e OVERFIN_SECRET_KEY \
+  overfin
 ```
 
 ## Configuration
 
-Only the listen address exists so far. A TOML configuration file is planned.
+Settings live in a TOML file, by default `/etc/overfin/overfin.toml` (change it
+with `-config` or `OVERFIN_CONFIG`). See
+[overfin.example.toml](overfin.example.toml) for every setting. Unknown or
+invalid settings stop Overfin at startup.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `OVERFIN_LISTEN` | `:8080` | Address the gateway listens on |
+Secrets never go in the file. Set them as environment variables, or as
+`NAME_FILE` pointing to a file (for Docker secrets):
+
+| Variable | Meaning |
+| --- | --- |
+| `OVERFIN_JELLYFIN_ADMIN_KEY` | Jellyfin API key, used only to create users |
+| `OVERFIN_SECRET_KEY` | Base64, at least 32 random bytes; encrypts tokens and signs cursors |
 
 ## AI-assisted development
 
