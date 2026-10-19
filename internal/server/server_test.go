@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -51,9 +52,17 @@ func TestUnknownPathsAre404(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		var body struct{ Type string }
+		_ = json.NewDecoder(res.Body).Decode(&body)
 		res.Body.Close()
 		if res.StatusCode != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", path, res.StatusCode)
+		}
+		if ct := res.Header.Get("Content-Type"); ct != "application/problem+json" {
+			t.Errorf("GET %s: Content-Type = %q, want application/problem+json", path, ct)
+		}
+		if body.Type != "not-found" {
+			t.Errorf("GET %s: type = %q, want not-found", path, body.Type)
 		}
 	}
 }

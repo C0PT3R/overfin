@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/C0PT3R/overfin/internal/plugin"
+	"github.com/C0PT3R/overfin/internal/problem"
 )
 
 // maxBodyBytes caps request bodies. The API takes small JSON bodies only.
@@ -30,7 +31,7 @@ func New(logger *slog.Logger, plugins ...plugin.Plugin) (http.Handler, error) {
 
 	// Anything no route matched gets the same plain 404.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotFound, "not found")
+		problem.Send(w, problem.NotFound, "")
 	})
 
 	return recoverPanics(logger, securityHeaders(limitBody(mux))), nil
@@ -72,7 +73,7 @@ func recoverPanics(logger *slog.Logger, next http.Handler) http.Handler {
 				// Log the route pattern, not the path: paths can carry
 				// stream tickets, which must never reach the logs.
 				logger.Error("panic", "value", v, "route", r.Pattern)
-				writeError(w, http.StatusInternalServerError, "internal error")
+				problem.Send(w, problem.Internal, "")
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -83,8 +84,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
 }

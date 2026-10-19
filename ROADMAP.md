@@ -15,6 +15,10 @@ once they are implemented and tested.
 - First complete draft of the API specification.
 - Configuration file (TOML) with strict decoding and validation; secrets from
   the environment or Docker secret files.
+- Error responses as RFC 9457 problem details, from one registry of error
+  types.
+- Key derivation (HKDF): one working key per purpose from the secret key.
+- Signed cursors, bound to their query.
 
 ## Milestone 1: a real site, end to end
 
@@ -22,17 +26,16 @@ The first goal is one complete website running on Overfin against a real
 Jellyfin server, using only the public API.
 
 1. Configuration reload without restart.
-2. Error responses (RFC 9457) and signed cursors.
-3. Identity: the forward-auth plugin, with the trusted-proxy checks.
-4. Storage: accounts, profiles, sessions and encrypted tokens.
-5. Provisioning: Jellyfin users created on first login, with opaque names.
-6. Jellyfin 12 adapter.
-7. Library endpoints, with the image pipeline (decode, check, re-encode,
+2. Identity: the forward-auth plugin, with the trusted-proxy checks.
+3. Storage: accounts, profiles, sessions and encrypted tokens.
+4. Provisioning: Jellyfin users created on first login, with opaque names.
+5. Jellyfin 12 adapter.
+6. Library endpoints, with the image pipeline (decode, check, re-encode,
    cache, access checks).
-8. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
+7. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
    limits, transcode cleanup.
-9. Profiles, PINs and step-up.
-10. A minimal demo site in plain HTML and JavaScript.
+8. Profiles, PINs and step-up.
+9. A minimal demo site in plain HTML and JavaScript.
 
 ## Designed, to implement after milestone 1
 
