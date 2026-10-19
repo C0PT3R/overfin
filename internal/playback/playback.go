@@ -9,8 +9,6 @@
 package playback
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -18,10 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/C0PT3R/overfin/internal/ids"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/textclean"
 )
@@ -223,125 +218,6 @@ func Decide(info *jellyfin.PlaybackInfo, itemID string, audioItem bool, deviceID
 	}
 	return &Decision{Method: method, Protocol: "hls", Source: src,
 		Upstream: Upstream{Path: u.Path, Query: u.Query()}}, nil
-}
-
-// ---- Tickets ----------------------------------------------------------------------
-
-// Stream is one active playback, as Overfin keeps it.
-type Stream struct {
-	ID            string // play_…, the playback session's public ID
-	Ticket        string // secret, in stream URLs only
-	ProfileID     string
-	ItemID        string // Jellyfin ID
-	SourceID      string
-	PlaySessionID string
-	Decision      Decision
-	Expires       time.Time
-
-	mu sync.Mutex
-	// files maps the neutral names in rewritten playlists to the real
-	// upstream URLs. It grows as playlists are fetched.
-	files map[string]Upstream
-}
-
-// AddFiles records the real URLs behind a rewritten playlist's names.
-func (s *Stream) AddFiles(files map[string]Upstream) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.files == nil {
-		s.files = map[string]Upstream{}
-	}
-	for k, v := range files {
-		s.files[k] = v
-	}
-}
-
-// File returns the real URL behind a neutral name.
-func (s *Stream) File(name string) (Upstream, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	u, ok := s.files[name]
-	return u, ok
-}
-
-// TextSubtitle reports whether index is a text subtitle track of the
-// stream's version, the only kind served as WebVTT.
-func (s *Stream) TextSubtitle(index int) bool {
-	for _, ms := range s.Decision.Source.MediaStreams {
-		if ms.Type == "Subtitle" && ms.Index == index && ms.IsTextSubtitleStream {
-			return true
-		}
-	}
-	return false
-}
-
-// Tickets holds active streams in memory. Playback state is short-lived and
-// never written to disk (rule 40).
-//
-// TODO: bind tickets to the browser session as well (rule 30) once sessions
-// exist; for now they are bound to the profile.
-type Tickets struct {
-	mu       sync.Mutex
-	byTicket map[string]*Stream
-	byID     map[string]*Stream
-	TTL      time.Duration
-}
-
-// NewTickets returns an empty store.
-func NewTickets(ttl time.Duration) *Tickets {
-	return &Tickets{byTicket: map[string]*Stream{}, byID: map[string]*Stream{}, TTL: ttl}
-}
-
-// Add registers a stream and gives it its public ID and secret ticket.
-func (t *Tickets) Add(s *Stream, now time.Time) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.prune(now)
-	s.ID = ids.New("play")
-	s.Ticket = random(24)
-	s.Expires = now.Add(t.TTL)
-	t.byTicket[s.Ticket] = s
-	t.byID[s.ID] = s
-}
-
-// ByTicket finds a live stream by its ticket.
-func (t *Tickets) ByTicket(ticket string, now time.Time) (*Stream, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	s, ok := t.byTicket[ticket]
-	if !ok || !now.Before(s.Expires) {
-		return nil, false
-	}
-	return s, true
-}
-
-// ByID finds a live stream by its public ID, only for the profile that owns
-// it (rule 23).
-func (t *Tickets) ByID(id, profileID string, now time.Time) (*Stream, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	s, ok := t.byID[id]
-	if !ok || s.ProfileID != profileID || !now.Before(s.Expires) {
-		return nil, false
-	}
-	return s, true
-}
-
-func (t *Tickets) prune(now time.Time) {
-	for k, s := range t.byTicket {
-		if !now.Before(s.Expires) {
-			delete(t.byTicket, k)
-			delete(t.byID, s.ID)
-		}
-	}
-}
-
-// random returns n random bytes as URL-safe text. Tickets get 24 bytes, well
-// above the 128-bit minimum (rule 23).
-func random(n int) string {
-	b := make([]byte, n)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // Describe gives a version a neutral name from its streams, such as

@@ -39,6 +39,9 @@ max_streams_per_account = 2
 max_transcodes_total = 4
 # 0 means no cap.
 max_bitrate_kbps = 0
+# When an account starts one stream too many: "replace-oldest" stops its
+# oldest stream (that device is told why), "refuse" refuses the new one.
+on_limit = "replace-oldest"
 
 [adoption]
 # Let people bring an existing Jellyfin account, with its watch history, by

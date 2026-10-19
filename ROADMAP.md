@@ -49,6 +49,10 @@ once they are implemented and tested.
   only for the profile that started the playback.
 - Version names replaced by neutral descriptions unless the operator
   exposes them (`[privacy] expose`).
+- Playback lifecycle: progress reported to Jellyfin, stop that ends the
+  transcode, idle playbacks ended after two minutes by a janitor, stream
+  limits that replace the account's oldest playback (or refuse), a total
+  transcode limit, and restoring the current playback after a reload.
 
 ## Milestone 1: a real site, end to end
 
@@ -58,10 +62,8 @@ Jellyfin server, using only the public API.
 1. Configuration reload without restart.
 2. Adoption extras: optional matching by name or email (operator opt-in),
    and pseudonymizing adopted accounts once the old access path is retired.
-3. Playback: capabilities, stream tickets, HLS playlist rewriting, progress,
-   limits, transcode cleanup.
-4. Profiles, PINs and step-up.
-5. A minimal demo site in plain HTML and JavaScript.
+3. Profiles, PINs and step-up.
+4. A minimal demo site in plain HTML and JavaScript.
 
 ## Designed, to implement after milestone 1
 
@@ -72,6 +74,10 @@ Jellyfin server, using only the public API.
 - Trickplay, lyrics, skip markers, bitrate test.
 
 ## Planned, not designed yet
+
+- **Playback extras:** changing tracks or quality mid-playback (`PATCH`),
+  queues and "advance", and degrading (direct play, lower quality) before
+  refusing when the server is busy.
 
 - **Native-app login.** Today's login works in browsers (and webview apps).
   Native apps, including third-party ones, need:

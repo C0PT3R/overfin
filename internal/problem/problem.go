@@ -27,10 +27,16 @@ const (
 	// ClaimFailed: wrong username or password, deliberately not saying
 	// which. ClaimNotAllowed: the credentials were right, but that account
 	// can't be adopted (an administrator, or already adopted).
-	ClaimFailed          Type = "claim-failed"
-	ClaimNotAllowed      Type = "claim-not-allowed"
-	CrossSiteRequest     Type = "cross-site-request"
-	NotPlayable          Type = "not-playable"
+	ClaimFailed        Type = "claim-failed"
+	ClaimNotAllowed    Type = "claim-not-allowed"
+	CrossSiteRequest   Type = "cross-site-request"
+	NotPlayable        Type = "not-playable"
+	StreamLimitReached Type = "stream-limit-reached"
+	ServerBusy         Type = "server-busy"
+	// A playback that no longer exists, and why.
+	PlaybackTakenOver    Type = "playback-taken-over"
+	PlaybackExpired      Type = "playback-expired"
+	PlaybackStopped      Type = "playback-stopped"
 	UnsupportedMediaType Type = "unsupported-media-type"
 	InvalidRequest       Type = "invalid-request"
 	InvalidCursor        Type = "invalid-cursor"
@@ -56,6 +62,11 @@ var registry = map[Type]info{
 	ClaimNotAllowed:      {http.StatusForbidden, "This media server account can't be brought over"},
 	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},
 	NotPlayable:          {http.StatusConflict, "This item can't be played"},
+	StreamLimitReached:   {http.StatusConflict, "Too many streams on this account"},
+	ServerBusy:           {http.StatusServiceUnavailable, "The server is busy; try again shortly"},
+	PlaybackTakenOver:    {http.StatusGone, "Playback continued on another device"},
+	PlaybackExpired:      {http.StatusGone, "Playback ended after a period of inactivity"},
+	PlaybackStopped:      {http.StatusGone, "Playback was stopped"},
 	UnsupportedMediaType: {http.StatusUnsupportedMediaType, "Requests must be JSON"},
 	InvalidRequest:       {http.StatusBadRequest, "Invalid request"},
 	InvalidCursor:        {http.StatusBadRequest, "Invalid cursor"},
@@ -70,6 +81,8 @@ type Problem struct {
 	Title  string `json:"title"`
 	Status int    `json:"status"`
 	Detail string `json:"detail,omitempty"`
+	// TakenOverBy names the device that took over a playback.
+	TakenOverBy string `json:"takenOverBy,omitempty"`
 }
 
 // New returns the problem for t, with an optional human-readable detail.

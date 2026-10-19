@@ -94,8 +94,10 @@ func run(logger *slog.Logger) error {
 	}
 
 	lib := api.Library{Provisioner: prov, Jellyfin: jf, Images: images.New(jf, 64<<20), CursorKey: k.Cursor, Logger: logger}
-	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(6 * time.Hour),
-		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"), Logger: logger}
+	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(24 * time.Hour),
+		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
+		MaxStreams: cfg.Limits.MaxStreamsPerAccount, MaxTranscodes: cfg.Limits.MaxTranscodesTotal,
+		RefuseOverLimit: cfg.Limits.OnLimit == "refuse", Logger: logger}
 	handler, err := server.New(logger, ids,
 		api.Account{Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim},
 		lib, pb, api.Stream{Playback: pb},
@@ -115,6 +117,7 @@ func run(logger *slog.Logger) error {
 	// Stop cleanly on Ctrl+C or `docker stop`.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go pb.RunJanitor(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

@@ -34,7 +34,7 @@ func TestUnknownTypeBecomesInternal(t *testing.T) {
 }
 
 func TestEveryTypeIsRegistered(t *testing.T) {
-	for _, typ := range []Type{NotFound, NotAuthenticated, OwnerOnly, AccountNotAllowed, AccountSetupRequired, AccountExists, ClaimFailed, ClaimNotAllowed, CrossSiteRequest, NotPlayable, UnsupportedMediaType, InvalidRequest, InvalidCursor, RateLimited, Internal} {
+	for _, typ := range []Type{NotFound, NotAuthenticated, OwnerOnly, AccountNotAllowed, AccountSetupRequired, AccountExists, ClaimFailed, ClaimNotAllowed, CrossSiteRequest, NotPlayable, StreamLimitReached, ServerBusy, PlaybackTakenOver, PlaybackExpired, PlaybackStopped, UnsupportedMediaType, InvalidRequest, InvalidCursor, RateLimited, Internal} {
 		if _, ok := registry[typ]; !ok {
 			t.Errorf("%s has no status and title", typ)
 		}

@@ -111,23 +111,55 @@ func TestDecideRefuses(t *testing.T) {
 	}
 }
 
-func TestTickets(t *testing.T) {
-	tk := NewTickets(time.Hour)
+func TestRegistry(t *testing.T) {
+	tk := NewTickets(24 * time.Hour)
 	now := time.Now()
-	s := &Stream{ProfileID: "prof_a", ItemID: item}
-	tk.Add(s, now)
+	old := &Stream{AccountID: "acct_a", ProfileID: "prof_a", ItemID: item}
+	tk.Add(old, 0, now)
+	newer := &Stream{AccountID: "acct_a", ProfileID: "prof_b", ItemID: item, Decision: Decision{Protocol: "hls"}}
+	tk.Add(newer, 0, now.Add(time.Second))
 
-	if len(s.Ticket) < 32 || !strings.HasPrefix(s.ID, "play_") {
-		t.Errorf("ticket %q, id %q", s.Ticket, s.ID)
+	if len(old.Ticket) < 32 || !strings.HasPrefix(old.ID, "play_") {
+		t.Errorf("ticket %q, id %q", old.Ticket, old.ID)
 	}
-	if got, ok := tk.ByTicket(s.Ticket, now); !ok || got != s {
+	if got, ok := tk.ByTicket(old.Ticket, now); !ok || got != old {
 		t.Error("ticket not found")
 	}
-	if _, ok := tk.ByID(s.ID, "prof_b", now); ok {
+	if _, _, ok := tk.ByID(old.ID, "prof_b", now); ok {
 		t.Error("another profile found the playback")
 	}
-	if _, ok := tk.ByTicket(s.Ticket, now.Add(2*time.Hour)); ok {
-		t.Error("expired ticket still works")
+	if list := tk.ForAccount("acct_a"); len(list) != 2 || list[0] != old {
+		t.Errorf("ForAccount: oldest first expected, got %v", list)
+	}
+	if tk.Transcodes() != 1 {
+		t.Errorf("transcodes = %d", tk.Transcodes())
+	}
+
+	// Taken over: the ticket stops working, and the reason is remembered.
+	if !tk.Remove(old, "taken-over", "Living room TV", now) {
+		t.Fatal("Remove failed")
+	}
+	if tk.Remove(old, "stopped", "", now) {
+		t.Error("a playback was removed twice")
+	}
+	if _, ok := tk.ByTicket(old.Ticket, now); ok {
+		t.Error("an ended playback's ticket still works")
+	}
+	if _, e, ok := tk.ByID(old.ID, "prof_a", now); !ok || e == nil || e.Reason != "taken-over" || e.By != "Living room TV" {
+		t.Errorf("ended: %+v", e)
+	}
+
+	// Idle detection: activity through the ticket or progress counts.
+	later := now.Add(3 * time.Minute)
+	if idle := tk.Idle(later, 2*time.Minute); len(idle) != 1 || idle[0] != newer {
+		t.Errorf("idle: %v", idle)
+	}
+	tk.Progress(newer, 600_000_000, true, later)
+	if idle := tk.Idle(later, 2*time.Minute); len(idle) != 0 {
+		t.Errorf("a reporting playback was idle")
+	}
+	if snap := tk.Snapshot(newer); snap.PositionTicks != 600_000_000 || !snap.Paused {
+		t.Errorf("snapshot: %+v", snap)
 	}
 }
 

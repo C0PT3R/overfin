@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,11 +18,17 @@ import (
 	"github.com/C0PT3R/overfin/internal/textclean"
 )
 
-// Playback starts streams. The stream endpoints themselves come next.
+// Playback starts, follows, ends and restores playbacks.
 type Playback struct {
 	Library        Library // for the active profile and Jellyfin access
 	Tickets        *playback.Tickets
 	MaxBitrateKbps int // the operator's cap; 0 means none
+	// MaxStreams per account and MaxTranscodes in total; 0 means no limit.
+	MaxStreams    int
+	MaxTranscodes int
+	// RefuseOverLimit refuses a stream over the account's limit instead of
+	// replacing its oldest.
+	RefuseOverLimit bool
 	// VersionNames shows Jellyfin's version names, derived from file names,
 	// instead of neutral descriptions (privacy.expose "version.names").
 	VersionNames bool
@@ -31,7 +38,183 @@ type Playback struct {
 func (Playback) Name() string { return "playback" }
 
 func (pb Playback) Register(r *plugin.Registrar) error {
-	return r.HandleFunc("POST /api/v1/playback", pb.start)
+	for pattern, h := range map[string]http.HandlerFunc{
+		"POST /api/v1/playback":               pb.start,
+		"GET /api/v1/playback/current":        pb.current,
+		"GET /api/v1/playback/{id}":           pb.get,
+		"POST /api/v1/playback/{id}/progress": pb.progress,
+		"POST /api/v1/playback/{id}/stop":     pb.stop,
+	} {
+		if err := r.HandleFunc(pattern, h); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IdleTimeout ends a playback with neither progress reports nor stream
+// requests for this long. Clients report every few seconds, paused or not.
+const IdleTimeout = 2 * time.Minute
+
+// RunJanitor ends idle playbacks, and their transcodes, until ctx is done.
+// Jellyfin doesn't stop abandoned transcodes by itself (rule 33).
+func (pb Playback) RunJanitor(ctx context.Context) {
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-tick.C:
+			for _, s := range pb.Tickets.Idle(now, IdleTimeout) {
+				pb.end(s, "expired", "")
+			}
+		}
+	}
+}
+
+// end stops a playback once: it is forgotten at once, and Jellyfin is told
+// in the background, its transcode included.
+func (pb Playback) end(s *playback.Stream, reason, by string) {
+	if !pb.Tickets.Remove(s, reason, by, time.Now()) {
+		return
+	}
+	snap := pb.Tickets.Snapshot(s)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		jf := pb.Library.Jellyfin
+		if err := jf.ReportStopped(ctx, s.Auth, pb.state(s, snap)); err != nil {
+			pb.Logger.Warn("could not report a stopped playback", "playback", s.ID, "err", err)
+		}
+		if s.Decision.Protocol == "hls" {
+			if err := jf.StopEncoding(ctx, s.Auth, s.Auth.DeviceID, s.PlaySessionID); err != nil {
+				pb.Logger.Warn("could not stop a transcode", "playback", s.ID, "err", err)
+			}
+		}
+	}()
+}
+
+func (pb Playback) state(s *playback.Stream, snap playback.Snapshot) jellyfin.PlayState {
+	return jellyfin.PlayState{
+		ItemId: s.ItemID, MediaSourceId: s.SourceID, PlaySessionId: s.PlaySessionID,
+		PositionTicks: snap.PositionTicks, IsPaused: snap.Paused, CanSeek: true,
+		PlayMethod: s.PlayMethod(), AudioStreamIndex: s.AudioIndex, SubtitleStreamIndex: s.SubtitleIndex,
+	}
+}
+
+// ---- Progress, stop, restore ---------------------------------------------------
+
+type progressRequest struct {
+	PositionMs int64 `json:"positionMs"`
+	Paused     bool  `json:"paused"`
+	Ended      bool  `json:"ended"`
+}
+
+var playIDRe = regexp.MustCompile(`^play_[a-z2-7]{26}$`)
+
+// find returns the caller's playback, or writes the right answer: 404, or
+// 410 with the reason it ended.
+func (pb Playback) find(w http.ResponseWriter, r *http.Request) *playback.Stream {
+	id := r.PathValue("id")
+	if !playIDRe.MatchString(id) {
+		problem.Send(w, problem.NotFound, "")
+		return nil
+	}
+	p := pb.Library.active(w, r)
+	if p == nil {
+		return nil
+	}
+	s, ended, ok := pb.Tickets.ByID(id, p.ID, time.Now())
+	switch {
+	case !ok:
+		problem.Send(w, problem.NotFound, "")
+	case ended != nil:
+		sendEnded(w, ended)
+	default:
+		return s
+	}
+	return nil
+}
+
+func sendEnded(w http.ResponseWriter, e *playback.Ended) {
+	switch e.Reason {
+	case "taken-over":
+		prob := problem.New(problem.PlaybackTakenOver, "")
+		prob.TakenOverBy = e.By
+		problem.Write(w, prob)
+	case "expired":
+		problem.Send(w, problem.PlaybackExpired, "")
+	default:
+		problem.Send(w, problem.PlaybackStopped, "")
+	}
+}
+
+func (pb Playback) progress(w http.ResponseWriter, r *http.Request) {
+	var req progressRequest
+	if !decode(r, &req) || req.PositionMs < 0 {
+		problem.Send(w, problem.InvalidRequest, "")
+		return
+	}
+	s := pb.find(w, r)
+	if s == nil {
+		return
+	}
+	pb.Tickets.Progress(s, req.PositionMs*10_000, req.Paused, time.Now())
+	if err := pb.Library.Jellyfin.ReportProgress(r.Context(), s.Auth, pb.state(s, pb.Tickets.Snapshot(s))); err != nil {
+		pb.Logger.Warn("could not report progress", "playback", s.ID, "err", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// stop is safe to call more than once: a playback already ended, or unknown,
+// is simply already stopped.
+func (pb Playback) stop(w http.ResponseWriter, r *http.Request) {
+	var req progressRequest
+	if !decode(r, &req) || req.PositionMs < 0 || !playIDRe.MatchString(r.PathValue("id")) {
+		problem.Send(w, problem.InvalidRequest, "")
+		return
+	}
+	p := pb.Library.active(w, r)
+	if p == nil {
+		return
+	}
+	if s, ended, ok := pb.Tickets.ByID(r.PathValue("id"), p.ID, time.Now()); ok && ended == nil {
+		pb.Tickets.Progress(s, req.PositionMs*10_000, false, time.Now())
+		pb.end(s, "stopped", "")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (pb Playback) get(w http.ResponseWriter, r *http.Request) {
+	if s := pb.find(w, r); s != nil {
+		pb.writeView(w, s)
+	}
+}
+
+// current restores the profile's latest playback, at its last reported
+// position, after a reload.
+func (pb Playback) current(w http.ResponseWriter, r *http.Request) {
+	p := pb.Library.active(w, r)
+	if p == nil {
+		return
+	}
+	s, ok := pb.Tickets.Latest(p.ID, time.Now())
+	if !ok {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	pb.writeView(w, s)
+}
+
+func (pb Playback) writeView(w http.ResponseWriter, s *playback.Stream) {
+	view, ok := s.View.(sessionJSON)
+	if !ok {
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	view.PositionMs = pb.Tickets.Snapshot(s).PositionTicks / 10_000
+	writeOK(w, view)
 }
 
 type startRequest struct {
@@ -195,12 +378,37 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The account's stream limit: replace its oldest playback, whose device
+	// is then told who took over, or refuse (rule 32). Another account's
+	// playback is never touched.
+	device := req.Device
+	if device == "" {
+		device = "another device"
+	}
+	if pb.MaxStreams > 0 {
+		active := pb.Tickets.ForAccount(p.AccountID)
+		if len(active) >= pb.MaxStreams {
+			if pb.RefuseOverLimit {
+				problem.Send(w, problem.StreamLimitReached, "")
+				return
+			}
+			for _, old := range active[:len(active)-pb.MaxStreams+1] {
+				pb.end(old, "taken-over", device)
+			}
+		}
+	}
+	if dec.Protocol == "hls" && pb.MaxTranscodes > 0 && pb.Tickets.Transcodes() >= pb.MaxTranscodes {
+		problem.Send(w, problem.ServerBusy, "")
+		return
+	}
+
 	sourceID, _ := jellyfin.NormalizeID(dec.Source.Id)
 	s := &playback.Stream{
-		ProfileID: p.ID, ItemID: jfItem, SourceID: sourceID,
-		PlaySessionID: info.PlaySessionId, Decision: *dec,
+		AccountID: p.AccountID, ProfileID: p.ID, Device: device,
+		ItemID: jfItem, SourceID: sourceID, PlaySessionID: info.PlaySessionId, Decision: *dec,
+		Auth: auth(p), AudioIndex: pr.AudioStreamIndex, SubtitleIndex: pr.SubtitleStreamIndex,
 	}
-	pb.Tickets.Add(s, time.Now())
+	pb.Tickets.Add(s, pr.StartTimeTicks, time.Now())
 
 	out := sessionJSON{
 		ID: s.ID, Item: summary, Method: dec.Method,
@@ -259,6 +467,10 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.View = out
+	if err := l.Jellyfin.ReportStart(ctx, s.Auth, pb.state(s, pb.Tickets.Snapshot(s))); err != nil {
+		pb.Logger.Warn("could not report a playback start", "playback", s.ID, "err", err)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	writeOK(w, out)

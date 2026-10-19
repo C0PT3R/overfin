@@ -87,6 +87,9 @@ type Limits struct {
 	MaxTranscodesTotal   int `toml:"max_transcodes_total"`
 	// MaxBitrateKbps caps every stream; 0 means no cap.
 	MaxBitrateKbps int `toml:"max_bitrate_kbps"`
+	// OnLimit is what happens when an account starts one stream too many:
+	// "replace-oldest" (the default) or "refuse".
+	OnLimit string `toml:"on_limit"`
 }
 
 type Secrets struct {
@@ -110,6 +113,7 @@ func defaults() Config {
 		Limits: Limits{
 			MaxStreamsPerAccount: 2,
 			MaxTranscodesTotal:   4,
+			OnLimit:              "replace-oldest",
 		},
 	}
 }
@@ -238,6 +242,9 @@ func (c *Config) validate() error {
 	}
 	if c.Limits.MaxTranscodesTotal < 0 {
 		add("limits.max_transcodes_total must not be negative")
+	}
+	if c.Limits.OnLimit != "replace-oldest" && c.Limits.OnLimit != "refuse" {
+		add("limits.on_limit must be \"replace-oldest\" or \"refuse\"")
 	}
 	if c.Limits.MaxBitrateKbps < 0 {
 		add("limits.max_bitrate_kbps must not be negative")

@@ -1219,8 +1219,10 @@ paths:
     post:
       operationId: reportProgress
       summary: Report the position, every few seconds while playing
-      description: Keeps the stream ticket alive and saves progress. Playback
-        that stops reporting is ended and its transcode stopped.
+      description: Keeps the playback alive and saves progress. Report at
+        least every 30 seconds, also while paused. A playback with neither
+        progress reports nor stream requests for two minutes is ended
+        (`playback-expired`) and its transcode stopped.
       tags: [playback]
       requestBody:
         required: true
@@ -3157,7 +3159,8 @@ components:
         This playback no longer exists. With `playback-taken-over`, another
         device of the same account started playing; `takenOverBy` names it,
         so the site can offer to continue here. With `playback-expired`, it
-        stopped reporting progress for too long.
+        stopped reporting progress for too long. With `playback-stopped`, it
+        was stopped.
       content:
         application/problem+json:
           schema:

@@ -39,6 +39,19 @@ type fakeJellyfin struct {
 	mu       sync.Mutex
 	badAuth  int
 	lastQury url.Values
+	calls    []string // playstate and encoding calls, in order
+}
+
+func (f *fakeJellyfin) called(prefix string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 func movie(i int) map[string]any {
@@ -55,6 +68,13 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	f.lastQury = q
+	if strings.HasPrefix(r.URL.Path, "/Sessions/Playing") || r.URL.Path == "/Videos/ActiveEncodings" {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		f.calls = append(f.calls, fmt.Sprintf("%s %s %v", r.Method, r.URL.Path, body["PositionTicks"]))
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if q.Get("userId") != userJF && !strings.HasPrefix(r.URL.Path, "/MediaSegments/") &&
 		!strings.HasPrefix(strings.ToLower(r.URL.Path), "/videos/") {
 		w.WriteHeader(http.StatusBadRequest)
@@ -120,6 +140,10 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func newServer(t *testing.T) (*httptest.Server, *fakeJellyfin) {
+	return newServerLimited(t, 0)
+}
+
+func newServerLimited(t *testing.T, maxStreams int) (*httptest.Server, *fakeJellyfin) {
 	t.Helper()
 	fake := &fakeJellyfin{}
 	jfSrv := httptest.NewServer(fake)
@@ -149,7 +173,7 @@ func newServer(t *testing.T) (*httptest.Server, *fakeJellyfin) {
 	prov := &provision.Provisioner{Store: st, Jellyfin: jf, LogKey: []byte("k"), Logger: logger}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "")
 	lib := api.Library{Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
-	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger}
+	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
 	h, err := server.New(logger, ids, lib, pb, api.Stream{Playback: pb})
 	if err != nil {
 		t.Fatal(err)
@@ -458,5 +482,90 @@ func TestStreamingThroughRewrittenPlaylists(t *testing.T) {
 	}
 	if code, _ := getAs(t, srv, "other-subject", base+"seg0.mp4"); code != http.StatusNotFound {
 		t.Errorf("another account used the ticket: status %d", code)
+	}
+}
+
+func startPlayback(t *testing.T, srv *httptest.Server, device string) string {
+	t.Helper()
+	code, body := post(t, srv, "/api/v1/playback",
+		`{"itemId":"item_`+fmt.Sprintf("%032x", 1)+`","capabilities":{},"device":"`+device+`","startPositionMs":1000}`)
+	if code != http.StatusCreated {
+		t.Fatalf("start: %d %s", code, body)
+	}
+	var s struct{ ID string }
+	json.Unmarshal([]byte(body), &s)
+	return s.ID
+}
+
+// eventually waits for background reporting to reach the fake.
+func eventually(t *testing.T, cond func() bool) bool {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+func TestPlaybackLifecycle(t *testing.T) {
+	srv, fake := newServerLimited(t, 1)
+
+	first := startPlayback(t, srv, "Bedroom laptop")
+	second := startPlayback(t, srv, "Living room TV")
+
+	// The limit is 1: the first playback was taken over, and its device
+	// learns by whom.
+	code, body := getAs(t, srv, subject, "/api/v1/playback/"+first)
+	var gone struct{ Type, TakenOverBy string }
+	json.Unmarshal([]byte(body), &gone)
+	if code != http.StatusGone || gone.Type != "playback-taken-over" || gone.TakenOverBy != "Living room TV" {
+		t.Errorf("taken over: %d %+v", code, gone)
+	}
+	if !eventually(t, func() bool { return fake.called("DELETE /Videos/ActiveEncodings") == 1 }) {
+		t.Error("the taken-over transcode was not stopped")
+	}
+
+	// Progress reaches Jellyfin; a reload restores the position.
+	if code, _ := post(t, srv, "/api/v1/playback/"+second+"/progress", `{"positionMs":61000,"paused":true}`); code != http.StatusNoContent {
+		t.Fatalf("progress: %d", code)
+	}
+	if fake.called("POST /Sessions/Playing/Progress 6.1e+08") != 1 {
+		t.Errorf("progress not reported: %v", fake.calls)
+	}
+	code, body = getAs(t, srv, subject, "/api/v1/playback/current")
+	var cur struct {
+		ID         string
+		PositionMs int64
+	}
+	json.Unmarshal([]byte(body), &cur)
+	if code != 200 || cur.ID != second || cur.PositionMs != 61000 {
+		t.Errorf("current: %d %+v", code, cur)
+	}
+
+	// Stop reports the final position and ends the transcode; twice is fine.
+	for i := 0; i < 2; i++ {
+		if code, _ := post(t, srv, "/api/v1/playback/"+second+"/stop", `{"positionMs":90000}`); code != http.StatusNoContent {
+			t.Errorf("stop %d: %d", i, code)
+		}
+	}
+	if !eventually(t, func() bool { return fake.called("POST /Sessions/Playing/Stopped 9e+08") == 1 }) {
+		t.Errorf("final position not reported once: %v", fake.calls)
+	}
+	if !eventually(t, func() bool { return fake.called("DELETE /Videos/ActiveEncodings") == 2 }) {
+		t.Error("the stopped transcode was not stopped")
+	}
+	code, body = getAs(t, srv, subject, "/api/v1/playback/"+second)
+	json.Unmarshal([]byte(body), &gone)
+	if code != http.StatusGone || gone.Type != "playback-stopped" {
+		t.Errorf("after stop: %d %+v", code, gone)
+	}
+	if code, _ := getAs(t, srv, subject, "/api/v1/playback/current"); code != http.StatusNotFound {
+		t.Errorf("current after stop: %d", code)
+	}
+	// Another account can neither see nor stop these.
+	if code, _ := getAs(t, srv, "other-subject", "/api/v1/playback/"+second); code != http.StatusNotFound {
+		t.Errorf("other account: %d", code)
 	}
 }
