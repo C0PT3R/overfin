@@ -154,8 +154,10 @@ comes from the internet, and media files can be written by anyone.
     side, also invites, account expiry and limits, and labels the operator
     sets. Watch history stays in Jellyfin, which already keeps it. The admin
     side reads history and activity from Jellyfin live, for the page being
-    viewed, and never stores or caches it. Names and emails from the identity
-    provider are shown live through its connector, never stored.
+    viewed, and never stores it: at most it keeps it in memory, never on
+    disk, for a few minutes and within a size limit, so a restart forgets
+    it. Names and emails from the identity provider are shown live through
+    its connector, the same way, never stored.
 41. No analytics, no telemetry, no calls home. Metrics are aggregate counts
     with no user labels.
 42. Client IPs are used in memory (rate limiting) and never stored by Overfin.
@@ -167,7 +169,10 @@ comes from the internet, and media files can be written by anyone.
     and Seerr users are deleted or disabled, as the operator configures, and
     the site tells the user which.
 46. Overfin offers no hooks for extra data collection. Operators who want more
-    collect it with their own tools.
+    collect it with their own tools. Social features are out of Overfin's
+    scope: it stores no relations between users, comments, likes, messages
+    or anything of the kind. Operators who want them build them in their own
+    backend, logging users in with the same identity provider.
 47. Jellyfin and Seerr users created by Overfin get opaque names (e.g.
     `of-7f3k2q`), never real names or emails. Only Overfin links them to an
     identity.

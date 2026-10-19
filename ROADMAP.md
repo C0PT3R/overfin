@@ -129,8 +129,6 @@ SDK part, so operators build the admin page they want.
   request status.
 - **Casting** to Chromecast and similar devices, using stream tickets.
 - **Downloads** for offline viewing in apps.
-- **Social features**, with each user's consent on top of the operator's:
-  watch parties, shared playlists, recommendations between friends.
 - **Jellyfin companion plugin**, only where the Jellyfin API falls short.
 - **A full reference website**, possibly growing out of the demo site.
 
