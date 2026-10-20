@@ -10,6 +10,7 @@
 #   OVERFIN_SITE_NAME            the name people see, e.g. "Movie night"
 #   OVERFIN_OIDC_CLIENT_SECRET   Overfin's client secret
 #   OVERFIN_CONNECTOR_TOKEN      the connector's API token
+#   OVERFIN_ADMIN_GROUP          the admins' group (default overfin-admins)
 # Authentik's default flows are left as they are.
 version: 1
 metadata:
@@ -103,11 +104,12 @@ entries:
   # ---- Overfin's admins ------------------------------------------------------
 
   # Members may sign in to Overfin's control panel. Created once, with the
-  # initial admin in it; who's in it afterwards is up to the operator.
+  # initial admin in it; who's in it afterwards is up to the operator, and
+  # an existing group is left as it is.
   - model: authentik_core.group
     state: created
     identifiers:
-      name: overfin-admins
+      name: !Env [OVERFIN_ADMIN_GROUP, overfin-admins]
     attrs:
       users:
         - !Find [authentik_core.user, [username, akadmin]]

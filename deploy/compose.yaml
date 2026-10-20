@@ -70,6 +70,7 @@ services:
       # For the Overfin blueprint (authentik/overfin.yaml).
       OVERFIN_DOMAIN: ${OVERFIN_DOMAIN}
       OVERFIN_SITE_NAME: ${OVERFIN_SITE_NAME:-}
+      OVERFIN_ADMIN_GROUP: ${OVERFIN_ADMIN_GROUP:-overfin-admins}
       OVERFIN_OIDC_CLIENT_SECRET: ${OVERFIN_OIDC_CLIENT_SECRET}
       OVERFIN_CONNECTOR_TOKEN: ${OVERFIN_CONNECTOR_TOKEN}
     volumes:

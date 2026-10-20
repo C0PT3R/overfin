@@ -7,10 +7,16 @@
 		reverse_proxy overfin:8080
 	}
 	# The site's pages are private too: Overfin's gate sends visitors who
-	# aren't logged in to the login, and back.
+	# aren't logged in to the login, and back. The headers fit the demo site:
+	# everything from this site only, nothing embedded elsewhere.
 	handle {
 		forward_auth overfin:8080 {
 			uri /api/v1/gate
+		}
+		header {
+			Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy no-referrer
 		}
 		root * /srv/site
 		file_server
