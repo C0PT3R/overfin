@@ -24,6 +24,9 @@ const (
 	// AccountSetupRequired: no account yet; the site offers to start fresh
 	// or to claim an existing media server account.
 	AccountSetupRequired Type = "account-setup-required"
+	// InvitationRequired: accounts are created by invitation only here, and
+	// the visitor has no valid one.
+	InvitationRequired Type = "invitation-required"
 	// AccountExpired: the operator set an end to this account's access.
 	AccountExpired Type = "account-expired"
 	AccountExists  Type = "account-exists"
@@ -76,6 +79,7 @@ var registry = map[Type]info{
 	AccountSetupRequired: {http.StatusNotFound, "No account yet"},
 	AccountExists:        {http.StatusConflict, "This account already exists"},
 	AccountExpired:       {http.StatusForbidden, "Access to this account has ended"},
+	InvitationRequired:   {http.StatusForbidden, "An invitation is needed to join"},
 	ClaimFailed:          {http.StatusForbidden, "Wrong username or password"},
 	ClaimNotAllowed:      {http.StatusForbidden, "This account can't be brought over"},
 	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},

@@ -12,6 +12,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/library"
 	"github.com/C0PT3R/overfin/internal/plugin"
+	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/store"
 	"github.com/C0PT3R/overfin/module"
 )
@@ -140,4 +141,100 @@ func (m Mount) Export(ctx context.Context, c *Caller) (data any, ok bool, err er
 	}
 	data, err = ex.Export(ctx, &host{mount: m}, CallerFor(m.Library, c))
 	return data, true, err
+}
+
+// creationHooks gives the switched-on modules their say in creating an
+// account for the visitor making r: each may refuse it or shape it, and is
+// told once it exists. The first plan given shapes the account.
+func creationHooks(r *http.Request, mounts []Mount, prov *provision.Provisioner) *provision.Hooks {
+	type say struct {
+		mount Mount
+		gate  module.AccountGate
+		plan  *module.AccountPlan
+	}
+	var said []say
+	return &provision.Hooks{
+		Before: func(ctx context.Context) error {
+			for _, m := range mounts {
+				g, ok := m.Module.(module.AccountGate)
+				if !ok {
+					continue
+				}
+				plan, err := g.NewAccount(ctx, &host{mount: m}, r)
+				if err != nil {
+					return err
+				}
+				said = append(said, say{mount: m, gate: g, plan: plan})
+			}
+			return nil
+		},
+		After: func(ctx context.Context, acct *store.Account, owner *store.Profile) error {
+			for _, s := range said {
+				if s.plan != nil {
+					if err := applyPlan(ctx, prov, acct.ID, s.plan); err != nil {
+						return err
+					}
+					break
+				}
+			}
+			for _, s := range said {
+				if err := s.gate.AccountCreated(ctx, &host{mount: s.mount}, r, acct.ID, s.plan); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+}
+
+// applyPlan shapes a new account: its template, when its access ends, its
+// label, and its starter profiles.
+func applyPlan(ctx context.Context, prov *provision.Provisioner, accountID string, plan *module.AccountPlan) error {
+	db := prov.Store
+	if plan.Template != "" {
+		if err := db.SetAccountTemplate(ctx, accountID, plan.Template); err != nil {
+			return fmt.Errorf("plan: template %q: %w", plan.Template, err)
+		}
+	}
+	if !plan.Expires.IsZero() {
+		if err := db.SetAccountExpiry(ctx, accountID, plan.Expires); err != nil {
+			return err
+		}
+	}
+	if plan.Label != "" {
+		if err := db.SetAccountLabel(ctx, accountID, plan.Label); err != nil {
+			return err
+		}
+	}
+	if len(plan.Profiles) == 0 {
+		return nil
+	}
+	acct, err := db.AccountByID(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	for _, sp := range plan.Profiles {
+		np := store.NewProfile{Name: sp.Name, Kind: "standard"}
+		var ceiling *jellyfin.Rating
+		if sp.Kind == "kids" {
+			ratings, err := prov.Ratings(ctx)
+			if err != nil {
+				return err
+			}
+			for _, rt := range ratings {
+				if rt.Name == sp.RatingCeiling {
+					ceiling = &rt
+					break
+				}
+			}
+			if ceiling == nil {
+				return fmt.Errorf("plan: unknown rating %q", sp.RatingCeiling)
+			}
+			np.Kind, np.RatingCeiling = "kids", ceiling.Name
+		}
+		if _, err := prov.AddProfile(ctx, accountID, np, ceiling, acct.Template.MaxProfiles); err != nil {
+			return fmt.Errorf("plan: profile %q: %w", sp.Name, err)
+		}
+	}
+	return nil
 }

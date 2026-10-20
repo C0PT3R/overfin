@@ -99,14 +99,36 @@ func (p *Provisioner) Find(ctx context.Context, id identity.Identity) (*store.Ac
 	return acct, prof, nil
 }
 
+// Hooks give modules a say in creating an account. Both run under the
+// creation lock. Before runs when nothing is created yet; an error refuses.
+// After runs once the account exists; an error undoes it.
+type Hooks struct {
+	Before func(ctx context.Context) error
+	After  func(ctx context.Context, acct *store.Account, owner *store.Profile) error
+}
+
+func (h *Hooks) before(ctx context.Context) error {
+	if h == nil || h.Before == nil {
+		return nil
+	}
+	return h.Before(ctx)
+}
+
+func (h *Hooks) after(ctx context.Context, acct *store.Account, owner *store.Profile) error {
+	if h == nil || h.After == nil {
+		return nil
+	}
+	return h.After(ctx, acct, owner)
+}
+
 // Ensure returns the account for id, creating a fresh one on the first
 // visit.
-func (p *Provisioner) Ensure(ctx context.Context, id identity.Identity) (*store.Account, *store.Profile, error) {
+func (p *Provisioner) Ensure(ctx context.Context, id identity.Identity, hooks *Hooks) (*store.Account, *store.Profile, error) {
 	acct, prof, err := p.Find(ctx, id)
 	if !errors.Is(err, ErrNoAccount) {
 		return acct, prof, err
 	}
-	acct, prof, err = p.Create(ctx, id)
+	acct, prof, err = p.Create(ctx, id, hooks)
 	if errors.Is(err, ErrAccountExists) {
 		// Another request created it in the meantime; that's the one.
 		return p.Find(ctx, id)
@@ -116,7 +138,7 @@ func (p *Provisioner) Ensure(ctx context.Context, id identity.Identity) (*store.
 
 // Create makes a fresh account with a new Jellyfin user, or returns
 // ErrAccountExists.
-func (p *Provisioner) Create(ctx context.Context, id identity.Identity) (*store.Account, *store.Profile, error) {
+func (p *Provisioner) Create(ctx context.Context, id identity.Identity, hooks *Hooks) (*store.Account, *store.Profile, error) {
 	if err := p.allowed(id); err != nil {
 		return nil, nil, err
 	}
@@ -133,7 +155,21 @@ func (p *Provisioner) Create(ctx context.Context, id identity.Identity) (*store.
 	if !p.limiter.allow(time.Now()) {
 		return nil, nil, ErrRateLimited
 	}
-	return p.create(ctx, id.Subject)
+	if err := hooks.before(ctx); err != nil {
+		return nil, nil, err
+	}
+	acct, owner, err := p.create(ctx, id.Subject)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := hooks.after(ctx, acct, owner); err != nil {
+		// Undone whole: the account and its Jellyfin users go.
+		if _, derr := p.DeleteAccount(ctx, acct.ID, false); derr != nil {
+			p.Logger.Error("undoing an account failed", "account", acct.ID, "err", derr)
+		}
+		return nil, nil, err
+	}
+	return acct, owner, nil
 }
 
 // allowed checks the parts of rule 15 that don't need the database.
@@ -156,7 +192,7 @@ func (p *Provisioner) allowed(id identity.Identity) error {
 // ownership, and the account's history comes along. The password is used for
 // this one login and never stored or logged. Administrator accounts are
 // never adopted, so Overfin never holds an administrator's token.
-func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username, password string) (*store.Account, *store.Profile, error) {
+func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username, password string, hooks *Hooks) (*store.Account, *store.Profile, error) {
 	if err := p.allowed(id); err != nil {
 		return nil, nil, err
 	}
@@ -176,6 +212,11 @@ func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username,
 	}
 	if !p.limiter.allow(now) {
 		return nil, nil, ErrRateLimited
+	}
+	// Modules have their say first (an invitation, say), before the old
+	// account is even looked at.
+	if err := hooks.before(ctx); err != nil {
+		return nil, nil, err
 	}
 
 	// A throwaway device for the check; the kept token gets a stable one.
@@ -230,6 +271,17 @@ func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username,
 		Name: OwnerProfileName, JellyfinUserID: userID, JellyfinUsername: name, JellyfinToken: token,
 	})
 	if err != nil {
+		if undo != nil {
+			undo()
+		}
+		return nil, nil, err
+	}
+	if err := hooks.after(ctx, acct, prof); err != nil {
+		// Undone: the account goes, and the old Jellyfin account is put
+		// back as it was. It's someone's real account: never deleted.
+		if derr := p.Store.DeleteAccount(ctx, acct.ID); derr != nil {
+			p.Logger.Error("undoing an adopted account failed", "account", acct.ID, "err", derr)
+		}
 		if undo != nil {
 			undo()
 		}

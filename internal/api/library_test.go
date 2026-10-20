@@ -47,9 +47,10 @@ type fakeJellyfin struct {
 	mu        sync.Mutex
 	badAuth   int
 	lastQury  url.Values
-	calls     []string       // playstate and encoding calls, in order
-	lastToken string         // the token of the last library call
-	policy    map[string]any // the last policy set by the admin
+	calls     []string          // playstate and encoding calls, in order
+	lastToken string            // the token of the last library call
+	policy    map[string]any    // the last policy set by the admin
+	users     map[string]string // created users: name -> ID (the first gets partnerJF)
 }
 
 func (f *fakeJellyfin) called(prefix string) int {
@@ -74,21 +75,41 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	authz := r.Header.Get("Authorization")
 	switch {
 	case r.URL.Path == "/Users/AuthenticateByName":
-		json.NewEncoder(w).Encode(map[string]any{"AccessToken": partnerToken, "User": map[string]string{"Id": partnerJF}})
+		var in struct{ Username string }
+		json.NewDecoder(r.Body).Decode(&in)
+		id := f.users[in.Username]
+		if id == "" {
+			id = partnerJF
+		}
+		json.NewEncoder(w).Encode(map[string]any{"AccessToken": partnerToken, "User": map[string]string{"Id": id}})
 		return
 	case strings.Contains(authz, `Token="admin"`):
 		switch r.Method + " " + r.URL.Path {
 		case "POST /Users/New":
-			json.NewEncoder(w).Encode(map[string]string{"Id": partnerJF})
-		case "GET /Users/" + partnerJF:
-			json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": false}})
-		case "POST /Users/" + partnerJF + "/Policy":
-			json.NewDecoder(r.Body).Decode(&f.policy)
-			w.WriteHeader(http.StatusNoContent)
+			var in struct{ Name string }
+			json.NewDecoder(r.Body).Decode(&in)
+			if f.users == nil {
+				f.users = map[string]string{}
+			}
+			id := partnerJF
+			if len(f.users) > 0 {
+				id = fmt.Sprintf("%032x", 0xd0000+len(f.users))
+			}
+			f.users[in.Name] = id
+			json.NewEncoder(w).Encode(map[string]string{"Id": id})
 		case "GET /Localization/ParentalRatings":
 			io.WriteString(w, `[{"Name":"PG-13","RatingScore":{"score":13}},{"Name":"G","RatingScore":{"score":0}},{"Name":"PG","Value":10}]`)
 		default:
-			w.WriteHeader(http.StatusNoContent)
+			switch {
+			case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/Users/"):
+				json.NewEncoder(w).Encode(map[string]any{"Policy": map[string]any{"IsAdministrator": false}})
+			case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/Policy"):
+				f.policy = nil
+				json.NewDecoder(r.Body).Decode(&f.policy)
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				w.WriteHeader(http.StatusNoContent)
+			}
 		}
 		return
 	case strings.Contains(authz, `Token="`+partnerToken+`"`):
@@ -203,6 +224,9 @@ type options struct {
 	login    bool
 	// modules are extra modules to mount, as an operator's build would.
 	modules []module.Module
+	// template, when set, receives the ID of the test account's template
+	// (3 profiles).
+	template *string
 }
 
 func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
@@ -238,6 +262,9 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	if err := st.SetAccountTemplate(context.Background(), acct.ID, tmpl.ID); err != nil {
 		t.Fatal(err)
 	}
+	if o.template != nil {
+		*o.template = tmpl.ID
+	}
 	// A second account, to check tickets don't work across accounts. Its
 	// Jellyfin token differs, so the fake refuses its Jellyfin calls.
 	if _, _, err := st.CreateAccount(context.Background(), "other-subject", store.NewOwner{
@@ -270,14 +297,17 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		t.Fatal(err)
 	}
 	wl := api.Mount{Module: watchlist.Module{}, Library: lib, DB: st.DB(), Logger: logger}
+	mounts := []api.Mount{wl}
 	for _, m := range o.modules {
 		if err := st.MigrateModule(context.Background(), m.Info().Name, m.Info().Migrations); err != nil {
 			t.Fatal(err)
 		}
-		extra = append(extra, api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger})
+		mount := api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger}
+		mounts = append(mounts, mount)
+		extra = append(extra, mount)
 	}
 	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb}, wl,
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker, Mounts: []api.Mount{wl}},
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker, Mounts: mounts},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},
 	}, extra...)

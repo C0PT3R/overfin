@@ -14,6 +14,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/problem"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin/module"
 )
 
 // Account serves the current account.
@@ -78,7 +79,7 @@ func (a Account) me(w http.ResponseWriter, r *http.Request) {
 	id, _ := identity.FromContext(r.Context()) // the registrar guarantees one
 	if !a.Claim {
 		// Without claiming, the first visit creates the account.
-		if _, _, err := a.Provisioner.Ensure(r.Context(), id); err != nil {
+		if _, _, err := a.Provisioner.Ensure(r.Context(), id, creationHooks(r, a.Mounts, a.Provisioner)); err != nil {
 			a.respond(w, nil, nil, err, http.StatusOK)
 			return
 		}
@@ -92,7 +93,7 @@ func (a Account) me(w http.ResponseWriter, r *http.Request) {
 
 func (a Account) create(w http.ResponseWriter, r *http.Request) {
 	id, _ := identity.FromContext(r.Context())
-	acct, prof, err := a.Provisioner.Create(r.Context(), id)
+	acct, prof, err := a.Provisioner.Create(r.Context(), id, creationHooks(r, a.Mounts, a.Provisioner))
 	a.respond(w, acct, prof, err, http.StatusCreated)
 }
 
@@ -109,12 +110,13 @@ func (a Account) claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := identity.FromContext(r.Context())
-	acct, prof, err := a.Provisioner.Claim(r.Context(), id, req.Username, req.Password)
+	acct, prof, err := a.Provisioner.Claim(r.Context(), id, req.Username, req.Password, creationHooks(r, a.Mounts, a.Provisioner))
 	a.respond(w, acct, prof, err, http.StatusCreated)
 }
 
 // respond maps provisioning results to the API. Errors never carry details.
 func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store.Profile, err error, status int) {
+	var refusal *module.Refusal // a module refused the account
 	switch {
 	case err == nil:
 		w.Header().Set("Content-Type", "application/json")
@@ -125,6 +127,8 @@ func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store
 			out.ActiveProfile = &pj
 		}
 		_ = json.NewEncoder(w).Encode(out)
+	case errors.As(err, &refusal):
+		problem.Send(w, refusal.Type, refusal.Detail)
 	case errors.Is(err, provision.ErrNoAccount):
 		a.Sessions.setupRequired(w)
 	case errors.Is(err, provision.ErrAccountExists):
