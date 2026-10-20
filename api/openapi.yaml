@@ -292,6 +292,69 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
 
+  /me/watchlist:
+    get:
+      operationId: getWatchlist
+      summary: The active profile's watchlist, most recently added first
+      description: |
+        Only when the operator enables the watchlist plugin. Movies, whole
+        shows, seasons and single episodes, as the person added them; a show
+        is the show itself, so its new episodes come along. Private to the
+        profile. Titles the profile can't see (a kids limit, say) or that no
+        longer exist are left out.
+      tags: [watchlist]
+      responses:
+        "200":
+          description: The watchlist.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ItemSummary"
+
+  /me/watchlist/{itemId}:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: onWatchlist
+      summary: Whether a title is on the watchlist
+      tags: [watchlist]
+      responses:
+        "204":
+          description: It is.
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: addToWatchlist
+      summary: Put a title on the watchlist
+      description: A movie, show, season, episode or video the profile can
+        see. One already there stays where it was. At most 1000 titles.
+      tags: [watchlist]
+      responses:
+        "204":
+          description: It's on the watchlist.
+        "400":
+          description: Not a kind of title one watches, or the watchlist is
+            full (`invalid-request`).
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: removeFromWatchlist
+      summary: Take a title off the watchlist
+      tags: [watchlist]
+      responses:
+        "204":
+          description: It's off the watchlist (or wasn't on it).
+
   /me/export:
     post:
       operationId: exportMyData

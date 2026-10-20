@@ -119,6 +119,7 @@ only what its operator lists. A disabled plugin's routes don't exist at all.
 | --- | --- | --- | --- |
 | `library` | Libraries, items, filters and sorting, shuffle, continue watching, next up, recently added, images | | Available |
 | `playback` | Direct play, repackaging or transcoding, token-free HLS, WebVTT subtitles, progress and resume, stream limits, skip-intro markers | `library` | Available |
+| `watchlist` | Each profile's own watchlist: movies, whole shows, seasons or single episodes, as the person chooses | `library` | Available |
 | `catalog` | Discover lists, curated lists, titles not in the library yet | a TMDB key | Planned |
 | `requests` | Requests, quotas, problem reports; kids profiles limited to their ceiling | Seerr | Planned |
 

@@ -120,6 +120,9 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 	if cfg.Plugins.Enabled("playback") {
 		plugins = append(plugins, pb, api.Stream{Playback: pb})
 	}
+	if cfg.Plugins.Enabled("watchlist") {
+		plugins = append(plugins, api.Watchlist{Library: lib})
+	}
 	logger.Info("plugins", "enabled", cfg.Plugins.Enable)
 	return server.New(logger, identityMiddleware, plugins...)
 }

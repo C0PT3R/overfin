@@ -148,8 +148,9 @@ type Plugins struct {
 // KnownPlugins are the plugins an operator may enable, and what each one
 // needs enabled with it.
 var KnownPlugins = map[string][]string{
-	"library":  nil,
-	"playback": {"library"},
+	"library":   nil,
+	"playback":  {"library"},
+	"watchlist": {"library"},
 }
 
 // Enabled reports whether the operator enabled a plugin.

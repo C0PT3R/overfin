@@ -110,14 +110,16 @@ function row(title, items, wide = false) {
 // ---- Screens ---------------------------------------------------------------
 
 async function home() {
-  const [resume, nextUp, latest] = await Promise.all([
+  const [resume, nextUp, watchlist, latest] = await Promise.all([
     overfin.resume(12),
     overfin.nextUp(12),
+    overfin.watchlist().catch(() => []), // the server may not offer it
     Promise.all(state.libraries.map(async (lib) => [lib, await overfin.latest(lib.id, 16)])),
   ]);
   const parts = [
     row('Continue watching', resume, true),
     row('Next up', nextUp, true),
+    row('My watchlist', watchlist),
     ...latest.map(([lib, items]) => row(`Latest in ${lib.name}`, items)),
   ].flat().filter(Boolean);
   render(...(parts.length ? parts : [h('p', { class: 'muted' }, 'Nothing here yet.')]));
@@ -187,6 +189,19 @@ async function itemPage(id) {
     item.genres?.length && h('span', {}, item.genres.join(', ')));
 
   const actions = h('div', { class: 'actions' });
+  // Watchlist: movies, whole shows, seasons or single episodes, as the
+  // person chooses.
+  if (['movie', 'series', 'season', 'episode', 'video', 'musicVideo'].includes(item.kind)) {
+    const label = (on) => (on ? '✓ On my watchlist' : '+ Watchlist');
+    overfin.onWatchlist(item.id).then((on) => {
+      const button = h('button', { onclick: async () => {
+        on = !on;
+        button.textContent = label(on);
+        await (on ? overfin.addToWatchlist(item.id) : overfin.removeFromWatchlist(item.id));
+      } }, label(on));
+      actions.append(button);
+    }).catch(() => {}); // not offered here
+  }
   if (playableKinds.has(item.kind)) {
     const pos = item.userState?.positionMs || 0;
     if (pos) {

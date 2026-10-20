@@ -275,6 +275,11 @@ export class Overfin {
   latest(libraryId: string, limit?: number): Promise<ItemSummary[]>;
   imageUrl(ref: ImageRef | undefined, size?: 'small' | 'medium' | 'large'): string;
 
+  watchlist(): Promise<ItemSummary[]>;
+  onWatchlist(id: string): Promise<boolean>;
+  addToWatchlist(id: string): Promise<null>;
+  removeFromWatchlist(id: string): Promise<null>;
+
   startPlayback(request: PlaybackRequest): Promise<Playback>;
   playback(id: string): Promise<Playback>;
   currentPlayback(): Promise<Playback>;

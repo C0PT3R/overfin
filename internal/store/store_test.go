@@ -312,3 +312,34 @@ func TestLinkedProfiles(t *testing.T) {
 		t.Errorf("profile after the move: %+v", p)
 	}
 }
+
+func TestWatchlist(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	a, p, _ := s.CreateAccount(ctx, "subject", owner("1"))
+	_ = s.WatchlistAdd(ctx, p.ID, "item-a")
+	_ = s.WatchlistAdd(ctx, p.ID, "item-b")
+	_ = s.WatchlistAdd(ctx, p.ID, "item-a") // already there
+	got, _ := s.Watchlist(ctx, p.ID)
+	if len(got) != 2 || got[0] != "item-b" {
+		t.Errorf("watchlist = %v, want newest first", got)
+	}
+	if has, _ := s.WatchlistHas(ctx, p.ID, "item-a"); !has {
+		t.Error("item-a missing")
+	}
+	_ = s.WatchlistRemove(ctx, p.ID, "item-a")
+	if has, _ := s.WatchlistHas(ctx, p.ID, "item-a"); has {
+		t.Error("item-a still there")
+	}
+	// Private to the profile, and gone with the account.
+	kid, _ := s.AddProfile(ctx, a.ID, newProfile("Kid", "k"), 0)
+	if got, _ := s.Watchlist(ctx, kid.ID); len(got) != 0 {
+		t.Errorf("another profile sees %v", got)
+	}
+	_ = s.DeleteAccount(ctx, a.ID)
+	var n int
+	s.db.QueryRow(`SELECT count(*) FROM watchlist`).Scan(&n)
+	if n != 0 {
+		t.Errorf("%d watchlist rows outlived their account", n)
+	}
+}

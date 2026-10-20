@@ -139,6 +139,8 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			items = append(items, movie(i))
 		}
 		json.NewEncoder(w).Encode(map[string]any{"Items": items, "TotalRecordCount": 7})
+	case r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 3):
+		json.NewEncoder(w).Encode(movie(2))
 	case r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 99):
 		json.NewEncoder(w).Encode(map[string]any{"Id": fmt.Sprintf("%032x", 99), "Type": "Person",
 			"Name": "Ada <b>Lovelace</b>", "Overview": "Wrote the first program.", "PremiereDate": "1815-12-10T00:00:00.0000000Z",
@@ -245,7 +247,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
 	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
-	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb},
+	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb}, api.Watchlist{Library: lib},
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},

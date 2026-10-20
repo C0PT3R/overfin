@@ -149,6 +149,23 @@ export class Overfin {
   async nextUp(limit = 12) { return (await this.request('GET', `/items/next-up${toQuery({ limit })}`)).items; }
   async latest(libraryId, limit = 16) { return (await this.request('GET', `/items/latest${toQuery({ library: libraryId, limit })}`)).items; }
 
+  // ---- Watchlist (the watchlist plugin) -------------------------------------
+
+  /** The profile's watchlist: movies, shows, seasons, episodes; newest first. */
+  async watchlist() { return (await this.request('GET', '/me/watchlist')).items; }
+  /** Whether a title is on the watchlist. */
+  async onWatchlist(id) {
+    try {
+      await this.request('GET', `/me/watchlist/${enc(id)}`);
+      return true;
+    } catch (err) {
+      if (err.status === 404) return false;
+      throw err;
+    }
+  }
+  addToWatchlist(id) { return this.request('PUT', `/me/watchlist/${enc(id)}`); }
+  removeFromWatchlist(id) { return this.request('DELETE', `/me/watchlist/${enc(id)}`); }
+
   /** The address of an image reference, in a size: 'small', 'medium' or 'large'. */
   imageUrl(ref, size = 'medium') { return ref ? `${ref.url}?size=${size}` : ''; }
 

@@ -1038,3 +1038,67 @@ func (s *Store) UnlockPIN(ctx context.Context, profileID string) error {
 		WHERE id = ?`, profileID)
 	return oneRow(res, err)
 }
+
+// ---- Watchlist ------------------------------------------------------------------
+
+// MaxWatchlist caps one profile's watchlist.
+const MaxWatchlist = 1000
+
+// ErrWatchlistFull: the profile's watchlist has MaxWatchlist titles.
+var ErrWatchlistFull = errors.New("store: watchlist full")
+
+// WatchlistAdd puts a title on a profile's watchlist; one already there
+// stays where it was.
+func (s *Store) WatchlistAdd(ctx context.Context, profileID, itemID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM watchlist WHERE profile_id = ?`, profileID).Scan(&n); err != nil {
+		return err
+	}
+	if n >= MaxWatchlist {
+		return ErrWatchlistFull
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO watchlist (profile_id, item_id, added_at) VALUES (?, ?, ?)
+		ON CONFLICT DO NOTHING`, profileID, itemID, s.now().Unix()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// WatchlistRemove takes a title off a profile's watchlist.
+func (s *Store) WatchlistRemove(ctx context.Context, profileID, itemID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM watchlist WHERE profile_id = ? AND item_id = ?`, profileID, itemID)
+	return err
+}
+
+// WatchlistHas reports whether a title is on a profile's watchlist.
+func (s *Store) WatchlistHas(ctx context.Context, profileID, itemID string) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM watchlist WHERE profile_id = ? AND item_id = ?`, profileID, itemID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Watchlist lists a profile's watchlist, most recently added first.
+func (s *Store) Watchlist(ctx context.Context, profileID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT item_id FROM watchlist WHERE profile_id = ? ORDER BY added_at DESC, rowid DESC`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

@@ -127,14 +127,14 @@ Overfin keeps looking for what people miss in Jellyfin's own experience and
 offers it, built on what Jellyfin already stores wherever possible, so
 Overfin keeps holding as little as it can.
 
-- **Watchlist**, per profile: one "watch later" button on every title, a
-  home row, and titles marked or dropped once watched. Underneath, one
-  private Jellyfin playlist owned by the profile's own Jellyfin user, so
-  Overfin stores nothing, kids limits apply on their own, and deleting a
-  profile deletes it. Never shared: sharing is social, out of scope
-  (SECURITY.md rule 46). Its own plugin, off by default, needing `library`.
+- ~~**Watchlist**, per profile.~~ Done (the `watchlist` plugin): movies,
+  whole shows, seasons or single episodes, as the person chooses; a show
+  brings its new episodes along. Overfin keeps the list itself, because
+  Jellyfin's playlists expand a show into its episodes; titles are always
+  read with the profile's token, so kids limits apply. Next: marking or
+  dropping what's been watched.
 - **Personal lists**, per profile (`/me/lists`): create, rename and delete
-  lists, add, remove and reorder titles, on the same private playlists.
+  lists, add, remove and reorder titles, kept like the watchlist.
   Distinct from the operator's curated `/lists`.
 - **Titles not in the library yet** on the watchlist: they have no Jellyfin
   item, so they come with the TMDB catalog and Seerr requests plugins (Seerr

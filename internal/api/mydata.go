@@ -77,6 +77,8 @@ type exportProfileJSON struct {
 	// WatchHistory is read from the media server for this download; Overfin
 	// doesn't keep it.
 	WatchHistory []exportItemJSON `json:"watchHistory"`
+	// Watchlist is the profile's watchlist, most recently added first.
+	Watchlist []library.ItemSummary `json:"watchlist"`
 }
 
 type exportItemJSON struct {
@@ -145,10 +147,16 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 			problem.Send(w, problem.Internal, "")
 			return
 		}
+		watchlist, err := watchlistItems(ctx, Library{Sessions: a.Sessions, Jellyfin: a.Provisioner.Jellyfin}, p)
+		if err != nil {
+			a.Logger.Error("reading the watchlist for an export failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
 		out.Profiles = append(out.Profiles, exportProfileJSON{
 			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language,
 			RatingCeiling: p.RatingCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
-			WatchHistory: history,
+			WatchHistory: history, Watchlist: watchlist,
 		})
 	}
 	sessions, err := a.Sessions.Store.Sessions(ctx, c.Account.ID)

@@ -64,6 +64,16 @@ test('pages follow cursors and keep the shuffle seed', async () => {
   assert.match(calls[1].url, /seed=s1/);
 });
 
+test('onWatchlist is a yes or no', async () => {
+  fakeServer({
+    'GET /api/v1/me/watchlist/item_on': () => [204, null],
+    'GET /api/v1/me/watchlist/item_off': () => [404, { type: 'not-found', status: 404 }],
+  });
+  const overfin = new Overfin();
+  assert.equal(await overfin.onWatchlist('item_on'), true);
+  assert.equal(await overfin.onWatchlist('item_off'), false);
+});
+
 test('no content is null', async () => {
   fakeServer({ 'DELETE /api/v1/profiles/p1/pin': () => [204, null] });
   assert.equal(await new Overfin().removePin('p1'), null);

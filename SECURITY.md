@@ -161,7 +161,8 @@ comes from the internet, and media files can be written by anyone.
     encrypted tokens, sessions, profiles (with their uploaded avatars), which
     profile made each request, and short-lived playback state; with the admin
     side, also invites, account expiry and limits, and labels the operator
-    sets. Watch history stays in Jellyfin, which already keeps it. The admin
+    sets; with the watchlist, each profile's list of titles (private to it,
+    deleted with it). Watch history stays in Jellyfin, which already keeps it. The admin
     side reads history and activity from Jellyfin live, for the page being
     viewed, and never stores it: at most it keeps it in memory, never on
     disk, for a few minutes and within a size limit, so a restart forgets
