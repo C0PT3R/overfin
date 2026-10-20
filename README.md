@@ -155,7 +155,7 @@ example.org {
 }
 ```
 
-Open your domain and log in: you're on [overfin-web](web), Overfin's own
+Open your domain and log in: you're on [overfin-web](https://github.com/C0PT3R/overfin-web), Overfin's own
 web client, served to logged-in visitors only.
 
 **Your own client instead?** Set `[site] serve` to its folder: Overfin
@@ -227,9 +227,11 @@ module you add is your responsibility, as with any code you run.
 - **The JavaScript SDK**, [sdk/js](sdk/js): one ES module, no dependencies,
   TypeScript types, and a player that handles progress, recovery and
   takeovers.
-- **overfin-web**, [web](web): Overfin's own client, plain HTML, CSS and
-  JavaScript on the SDK, no build step, served by Overfin by default. It's
-  what the real server runs. Examples of other clients will come later.
+- **overfin-web**, in
+  [its own repository](https://github.com/C0PT3R/overfin-web): Overfin's own
+  client, plain HTML, CSS and JavaScript on the SDK, no build step, bundled
+  by the official build and served by default. It's what the real server
+  runs. Examples of other clients will come later.
 
 ## Security
 
@@ -271,8 +273,9 @@ authorization) are read line by line.
 
 ## License
 
-[MIT](LICENSE). overfin-web includes [hls.js](https://github.com/video-dev/hls.js),
-unmodified, under the Apache License 2.0.
+[MIT](LICENSE). overfin-web, which the official build bundles, includes
+[hls.js](https://github.com/video-dev/hls.js), unmodified, under the Apache
+License 2.0.
 
 Overfin is an independent project, not affiliated with or endorsed by the
 Jellyfin project, Seerr or TMDB.

@@ -22,8 +22,9 @@ website someone else builds. MIT, public.
   is code that can be reviewed, and review is part of security.
 - `gofmt`, `go vet ./...` and `go test ./...` must pass, and
   `node --test sdk/js/overfin.test.js` for the JavaScript SDK.
-- `web/overfin.js` (overfin-web) is a copy of `sdk/js/overfin.js`; a test
-  keeps them identical, so copy it over after changing the SDK.
+- overfin-web (its own repository, required in go.mod) carries a copy of
+  `sdk/js/overfin.js`; a test checks the bundled version matches, so after
+  changing the SDK, update overfin-web and bump it in go.mod.
 - After editing `api/openapi.yaml`, check it still parses:
   `python3 -c "import yaml; yaml.safe_load(open('api/openapi.yaml'))"`.
   A colon followed by a space inside a plain-text description breaks it.

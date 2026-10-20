@@ -74,7 +74,7 @@ func TestCoreDoesNotBundleTheWebClient(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if strings.Contains(string(b), `"github.com/C0PT3R/overfin/web"`) {
+		if strings.Contains(string(b), `"github.com/C0PT3R/overfin-web"`) {
 			t.Errorf("%s imports overfin-web; only builds (cmd/…) may", rel)
 		}
 		return nil

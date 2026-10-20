@@ -109,7 +109,7 @@ import (
 	"github.com/C0PT3R/overfin"
 	"github.com/C0PT3R/overfin/module"
 	"github.com/C0PT3R/overfin/modules/watchlist"
-	"github.com/C0PT3R/overfin/web"
+	web "github.com/C0PT3R/overfin-web"
 	"example.org/mymodule"
 )
 

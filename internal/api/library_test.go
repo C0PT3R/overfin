@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	web "github.com/C0PT3R/overfin-web"
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/identity"
@@ -35,7 +36,6 @@ import (
 	"github.com/C0PT3R/overfin/module"
 	"github.com/C0PT3R/overfin/modules/migration"
 	"github.com/C0PT3R/overfin/modules/watchlist"
-	"github.com/C0PT3R/overfin/web"
 )
 
 const (

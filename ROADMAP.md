@@ -75,7 +75,7 @@ Jellyfin server, using only the public API.
    and removing PINs, deleting profiles and accounts, downloading your data,
    and lifting PIN locks; the PIN lock threshold is a setting.
 5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done; it has
-   since become overfin-web ([web](web)).
+   since become overfin-web ([its own repository](https://github.com/C0PT3R/overfin-web)).
 
 ## Next: the core and its modules
 
@@ -234,9 +234,11 @@ provider.
    file shrinks to almost nothing.
 4. ~~**Overfin serves the site itself**~~ Done: the core serves the site
    its build includes; the official build bundles overfin-web (the former
-   demo site, [web](web), an app of its own on the public API, which the
-   core never imports). It's served by default, to logged-in visitors only, so the reverse proxy only passes everything on
-   (`reverse_proxy overfin:8080`). `[site] serve` takes a folder with your
+   demo site, now
+   [its own repository](https://github.com/C0PT3R/overfin-web), an app on
+   the public API, which the core never imports). It's served by default,
+   to logged-in visitors only, so the reverse proxy only passes everything
+   on (`reverse_proxy overfin:8080`). `[site] serve` takes a folder with your
    own client instead (served live, never outside the folder, with your
    CSP, optionally as a single-page app), or `"none"` to serve it
    elsewhere.

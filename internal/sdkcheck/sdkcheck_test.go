@@ -1,4 +1,5 @@
-// Package sdkcheck keeps overfin-web on the current JavaScript SDK.
+// Package sdkcheck keeps overfin-web, as the official build bundles it, on
+// the current JavaScript SDK.
 package sdkcheck
 
 import (
@@ -6,21 +7,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	web "github.com/C0PT3R/overfin-web"
 )
 
-// overfin-web ships its own copy of the SDK, so its files are served as they
-// are. The copy must be the SDK itself, never a variant.
+// overfin-web ships its own copy of the SDK. The version the official build
+// bundles must carry this SDK itself, never a variant: after changing the
+// SDK, update overfin-web and the version go.mod requires.
 func TestWebUsesTheSDK(t *testing.T) {
-	root := filepath.Join("..", "..")
-	sdk, err := os.ReadFile(filepath.Join(root, "sdk", "js", "overfin.js"))
+	sdk, err := os.ReadFile(filepath.Join("..", "..", "sdk", "js", "overfin.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	web, err := os.ReadFile(filepath.Join(root, "web", "overfin.js"))
+	bundled, err := web.Files.ReadFile("overfin.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(sdk, web) {
-		t.Error("web/overfin.js differs from sdk/js/overfin.js; copy it over")
+	if !bytes.Equal(sdk, bundled) {
+		t.Error("the overfin-web version in go.mod carries another SDK than sdk/js/overfin.js; update overfin-web")
 	}
 }

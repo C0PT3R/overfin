@@ -297,3 +297,9 @@ identity headers, before adding its own (rules 13 and 14).
 
 Please don't open a public issue. Use GitHub's private vulnerability reporting
 on this repository instead.
+
+## Reporting a vulnerability
+
+Please report it privately, through this repository's **Security** tab
+(*Report a vulnerability*), not in a public issue. You'll get an answer, and
+credit if you'd like it, once it's fixed.

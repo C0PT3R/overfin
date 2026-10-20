@@ -1,0 +1,12 @@
+# Keeps the dependencies up to date, by pull request: Go modules (overfin-web
+# included) and the workflows' GitHub Actions.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
