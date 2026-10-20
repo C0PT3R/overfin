@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/creation"
-	"github.com/C0PT3R/overfin/internal/problem"
+	"github.com/C0PT3R/overfin-gateway/internal/creation"
+	"github.com/C0PT3R/overfin-gateway/internal/problem"
 )
 
 // AccountGate is implemented by a module with a say in creating accounts:

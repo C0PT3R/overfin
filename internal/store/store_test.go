@@ -9,8 +9,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/ids"
-	"github.com/C0PT3R/overfin/internal/seal"
+	"github.com/C0PT3R/overfin-gateway/internal/ids"
+	"github.com/C0PT3R/overfin-gateway/internal/seal"
 )
 
 func openTest(t *testing.T) *Store {

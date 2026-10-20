@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0PT3R/overfin/module"
-	"github.com/C0PT3R/overfin/modules/invites"
+	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/modules/invites"
 )
 
 // The invites module: a link from the panel opens the way to an account,

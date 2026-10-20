@@ -7,8 +7,8 @@
 //	package main
 //
 //	import (
-//		"github.com/C0PT3R/overfin"
-//		"github.com/C0PT3R/overfin/modules/watchlist"
+//		"github.com/C0PT3R/overfin-gateway"
+//		"github.com/C0PT3R/overfin-gateway/modules/watchlist"
 //		"example.org/mymodule"
 //	)
 //
@@ -30,26 +30,26 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/admin"
-	"github.com/C0PT3R/overfin/internal/api"
-	"github.com/C0PT3R/overfin/internal/config"
-	"github.com/C0PT3R/overfin/internal/connector"
-	"github.com/C0PT3R/overfin/internal/images"
-	"github.com/C0PT3R/overfin/internal/jellyfin"
-	"github.com/C0PT3R/overfin/internal/keys"
-	"github.com/C0PT3R/overfin/internal/oidc"
-	"github.com/C0PT3R/overfin/internal/playback"
-	"github.com/C0PT3R/overfin/internal/provision"
-	"github.com/C0PT3R/overfin/internal/seal"
-	"github.com/C0PT3R/overfin/internal/store"
-	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin-gateway/internal/admin"
+	"github.com/C0PT3R/overfin-gateway/internal/api"
+	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/connector"
+	"github.com/C0PT3R/overfin-gateway/internal/images"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/keys"
+	"github.com/C0PT3R/overfin-gateway/internal/oidc"
+	"github.com/C0PT3R/overfin-gateway/internal/playback"
+	"github.com/C0PT3R/overfin-gateway/internal/provision"
+	"github.com/C0PT3R/overfin-gateway/internal/seal"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 // builtinSite is the web client this build includes, if any.
 var builtinSite fs.FS
 
 // Version is set at build time with
-// -ldflags "-X github.com/C0PT3R/overfin.Version=…".
+// -ldflags "-X github.com/C0PT3R/overfin-gateway.Version=…".
 var Version = "dev"
 
 // Main runs Overfin with the given modules compiled in, and no site of its

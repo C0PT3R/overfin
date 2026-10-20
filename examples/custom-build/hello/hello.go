@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 //go:embed migrations/*.sql ui

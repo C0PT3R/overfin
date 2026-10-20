@@ -1,16 +1,23 @@
-# Overfin
+# Overfin gateway
 
-Overfin sits in front of a Jellyfin server and lets you run your own website
-for it. Your site talks to Overfin's small API; Jellyfin stays private,
-never exposed to the internet or to browsers. Overfin also takes care of the
-people using your server: logins through your identity provider, accounts
-and profiles, invitations, and a control panel to manage it all.
+Overfin is your own streaming service on top of a Jellyfin server: its
+gateway, its own clients, and your brand on all of it. This repository is
+the **gateway**, the part everything goes through, made to be reusable on
+its own.
+
+The gateway sits in front of Jellyfin and keeps it private, never exposed to
+the internet or to browsers. It takes care of the people using your server
+(logins through your identity provider, accounts and profiles, invitations,
+and a control panel to manage it all), and offers clients a small,
+documented API. It serves Overfin's own web client,
+[overfin-web](https://github.com/C0PT3R/overfin-web), by default; you can
+serve a changed copy, or a client of your own, instead.
 
 ```
-browser ──▶ your site (any stack, even static HTML)
-   └──▶ /api/v1/*  ──▶  Overfin  ──▶  Jellyfin (private)
-                          │
-                          └──▶  your identity provider (login)
+browser ──▶ the site (overfin-web, or your own)
+   └──▶ /api/v1/*  ──▶  Overfin gateway  ──▶  Jellyfin (private)
+                              │
+                              └──▶  your identity provider (login)
 ```
 
 ## Where it stands

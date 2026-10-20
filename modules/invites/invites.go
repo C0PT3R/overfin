@@ -27,7 +27,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 //go:embed migrations/*.sql ui/panel.js

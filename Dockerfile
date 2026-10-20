@@ -17,7 +17,7 @@ ARG MODULES=""
 # set -f: module names are never expanded as file patterns.
 RUN set -f; target=./cmd/overfin; \
     if [ -n "$MODULES" ]; then go run ./cmd/overfin-build $MODULES && target=./cmd/custom; fi; \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/C0PT3R/overfin.Version=${VERSION}" -o /overfin "$target"
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/C0PT3R/overfin-gateway.Version=${VERSION}" -o /overfin "$target"
 # The final image has no shell, so the data folder is prepared here.
 RUN mkdir /data
 

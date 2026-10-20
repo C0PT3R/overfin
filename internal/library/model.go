@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/jellyfin"
-	"github.com/C0PT3R/overfin/internal/textclean"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/textclean"
 )
 
 // Text limits, in bytes.

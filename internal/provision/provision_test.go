@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/identity"
-	"github.com/C0PT3R/overfin/internal/jellyfin"
-	"github.com/C0PT3R/overfin/internal/seal"
-	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin-gateway/internal/identity"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/seal"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
 const (

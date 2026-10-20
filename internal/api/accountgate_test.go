@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 // gate is a module with a say in creating accounts: it wants an

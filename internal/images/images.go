@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
 )
 
 // Limits on what gets decoded.

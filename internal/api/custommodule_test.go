@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0PT3R/overfin/examples/custom-build/hello"
-	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin-gateway/examples/custom-build/hello"
+	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 // The example module from MODULES.md, mounted like an operator's own: its

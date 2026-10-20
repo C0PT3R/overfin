@@ -106,9 +106,9 @@ Overfin's core is a Go package; your build is a few lines:
 package main
 
 import (
-	"github.com/C0PT3R/overfin"
-	"github.com/C0PT3R/overfin/module"
-	"github.com/C0PT3R/overfin/modules/watchlist"
+	"github.com/C0PT3R/overfin-gateway"
+	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/modules/watchlist"
 	web "github.com/C0PT3R/overfin-web"
 	"example.org/mymodule"
 )

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/config"
 )
 
 // newBrowser is a fresh browser: its own cookies, no redirects followed,

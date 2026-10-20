@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 type demoModule struct{}

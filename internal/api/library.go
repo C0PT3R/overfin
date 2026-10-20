@@ -17,14 +17,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/C0PT3R/overfin/internal/cursor"
-	"github.com/C0PT3R/overfin/internal/images"
-	"github.com/C0PT3R/overfin/internal/jellyfin"
-	"github.com/C0PT3R/overfin/internal/library"
-	"github.com/C0PT3R/overfin/internal/plugin"
-	"github.com/C0PT3R/overfin/internal/problem"
-	"github.com/C0PT3R/overfin/internal/provision"
-	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin-gateway/internal/cursor"
+	"github.com/C0PT3R/overfin-gateway/internal/images"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/library"
+	"github.com/C0PT3R/overfin-gateway/internal/plugin"
+	"github.com/C0PT3R/overfin-gateway/internal/problem"
+	"github.com/C0PT3R/overfin-gateway/internal/provision"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
 // Library serves browsing: libraries, item queries, details and the home

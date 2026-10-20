@@ -3,12 +3,12 @@
 package main
 
 import (
-	"github.com/C0PT3R/overfin"
+	"github.com/C0PT3R/overfin-gateway"
+	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/modules/invites"
+	"github.com/C0PT3R/overfin-gateway/modules/migration"
+	"github.com/C0PT3R/overfin-gateway/modules/watchlist"
 	web "github.com/C0PT3R/overfin-web"
-	"github.com/C0PT3R/overfin/module"
-	"github.com/C0PT3R/overfin/modules/invites"
-	"github.com/C0PT3R/overfin/modules/migration"
-	"github.com/C0PT3R/overfin/modules/watchlist"
 )
 
 func main() {

@@ -5,9 +5,9 @@
 package main
 
 import (
-	"github.com/C0PT3R/overfin"
-	"github.com/C0PT3R/overfin/examples/custom-build/hello"
-	"github.com/C0PT3R/overfin/modules/watchlist"
+	"github.com/C0PT3R/overfin-gateway"
+	"github.com/C0PT3R/overfin-gateway/examples/custom-build/hello"
+	"github.com/C0PT3R/overfin-gateway/modules/watchlist"
 )
 
 func main() {

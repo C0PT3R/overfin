@@ -26,11 +26,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/config"
-	"github.com/C0PT3R/overfin/internal/connector"
-	"github.com/C0PT3R/overfin/internal/oidc"
-	"github.com/C0PT3R/overfin/internal/provision"
-	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/connector"
+	"github.com/C0PT3R/overfin-gateway/internal/oidc"
+	"github.com/C0PT3R/overfin-gateway/internal/provision"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
 //go:embed ui

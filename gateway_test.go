@@ -15,15 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/config"
-	"github.com/C0PT3R/overfin/internal/images"
-	"github.com/C0PT3R/overfin/internal/jellyfin"
-	"github.com/C0PT3R/overfin/internal/keys"
-	"github.com/C0PT3R/overfin/internal/playback"
-	"github.com/C0PT3R/overfin/internal/seal"
-	"github.com/C0PT3R/overfin/internal/store"
-	"github.com/C0PT3R/overfin/module"
-	"github.com/C0PT3R/overfin/modules/migration"
+	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/images"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/keys"
+	"github.com/C0PT3R/overfin-gateway/internal/playback"
+	"github.com/C0PT3R/overfin-gateway/internal/seal"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/modules/migration"
 )
 
 const baseConfig = `

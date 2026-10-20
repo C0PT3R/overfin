@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/jellyfin"
-	"github.com/C0PT3R/overfin/internal/library"
-	"github.com/C0PT3R/overfin/internal/playback"
-	"github.com/C0PT3R/overfin/internal/plugin"
-	"github.com/C0PT3R/overfin/internal/problem"
-	"github.com/C0PT3R/overfin/internal/textclean"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/library"
+	"github.com/C0PT3R/overfin-gateway/internal/playback"
+	"github.com/C0PT3R/overfin-gateway/internal/plugin"
+	"github.com/C0PT3R/overfin-gateway/internal/problem"
+	"github.com/C0PT3R/overfin-gateway/internal/textclean"
 )
 
 // Playback starts, follows, ends and restores playbacks.

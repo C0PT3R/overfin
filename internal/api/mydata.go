@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/jellyfin"
-	"github.com/C0PT3R/overfin/internal/library"
-	"github.com/C0PT3R/overfin/internal/problem"
-	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/library"
+	"github.com/C0PT3R/overfin-gateway/internal/problem"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
 // ---- Deleting an account ----------------------------------------------------

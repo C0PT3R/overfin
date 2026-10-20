@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/C0PT3R/overfin/internal/identity"
-	"github.com/C0PT3R/overfin/internal/plugin"
-	"github.com/C0PT3R/overfin/internal/problem"
+	"github.com/C0PT3R/overfin-gateway/internal/identity"
+	"github.com/C0PT3R/overfin-gateway/internal/plugin"
+	"github.com/C0PT3R/overfin-gateway/internal/problem"
 )
 
 // maxBodyBytes caps request bodies. The API takes small JSON bodies only.

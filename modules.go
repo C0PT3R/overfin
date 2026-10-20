@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/C0PT3R/overfin/internal/config"
-	"github.com/C0PT3R/overfin/internal/store"
-	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 // modules are the modules compiled into this build, given to Main.

@@ -24,7 +24,7 @@ func TestGenerate(t *testing.T) {
 func TestGenerateRefuses(t *testing.T) {
 	for _, bad := range []string{
 		`example.org/mod"; os.Exit(1)`, "example.org/mod@v1; rm -rf /", "nodomain", "../escape/mod",
-		"example.org/*", "-flag/mod", "example.org/mod@", "github.com/C0PT3R/overfin/modules/watchlist",
+		"example.org/*", "-flag/mod", "example.org/mod@", "github.com/C0PT3R/overfin-gateway/modules/watchlist",
 	} {
 		if _, err := generate([]string{bad}); err == nil {
 			t.Errorf("%q accepted", bad)
@@ -42,7 +42,7 @@ func TestOfficialMatchesTheOfficialBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	var imported []string
-	for _, m := range regexp.MustCompile(`"(github\.com/C0PT3R/overfin/modules/[^"]+)"`).FindAllStringSubmatch(string(b), -1) {
+	for _, m := range regexp.MustCompile(`"(github\.com/C0PT3R/overfin-gateway/modules/[^"]+)"`).FindAllStringSubmatch(string(b), -1) {
 		imported = append(imported, m[1])
 	}
 	if !slices.Equal(imported, official) {

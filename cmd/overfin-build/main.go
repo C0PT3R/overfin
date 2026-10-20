@@ -21,12 +21,12 @@ import (
 
 // official are the official build's modules, as cmd/overfin imports them.
 var official = []string{
-	"github.com/C0PT3R/overfin/modules/invites",
-	"github.com/C0PT3R/overfin/modules/migration",
-	"github.com/C0PT3R/overfin/modules/watchlist",
+	"github.com/C0PT3R/overfin-gateway/modules/invites",
+	"github.com/C0PT3R/overfin-gateway/modules/migration",
+	"github.com/C0PT3R/overfin-gateway/modules/watchlist",
 }
 
-const self = "github.com/C0PT3R/overfin"
+const self = "github.com/C0PT3R/overfin-gateway"
 
 // spec is a module path with an optional version: nothing that could be
 // read as anything but a path ends up in the generated source or the go

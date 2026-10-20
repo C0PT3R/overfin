@@ -19,8 +19,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/C0PT3R/overfin/internal/config"
-	"github.com/C0PT3R/overfin/internal/oidc"
+	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/oidc"
 )
 
 // memFeatures keeps feature settings in memory, refusing what config would.
