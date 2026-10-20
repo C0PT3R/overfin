@@ -175,10 +175,10 @@ function toLocalInput(iso) {
 const statusText = { active: 'Active', disabled: 'Disabled', expired: 'Expired' };
 const lastActive = (a) => a.sessions.map((s) => s.lastActiveAt).sort().at(-1) || '';
 // nameOf is the best name for an account: the identity provider's, then the
-// operator's label, then the owner profile's name.
+// operator's label, then the owner profile's name. Labels only stand in for
+// the provider's names: when it gives one, the label isn't shown.
 const nameOf = (a) => a.person?.name || a.person?.username || a.label || a.profiles.find((p) => p.owner)?.name || 'Unnamed';
-const subline = (a) => [a.person?.username && a.person.name ? a.person.username : '', a.person?.email || '',
-  a.label && (a.person?.name || a.person?.username) ? `"${a.label}"` : ''].filter(Boolean).join(' · ');
+const subline = (a) => [a.person?.username && a.person.name ? a.person.username : '', a.person?.email || ''].filter(Boolean).join(' · ');
 
 // The users view: a table of accounts, and the selected one's details.
 async function users(selected = '') {
@@ -199,7 +199,7 @@ async function users(selected = '') {
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     const shown = items.filter((a) => (!filter.value || a.status === filter.value) &&
-      (!q || [a.label, a.subject, a.id, ...a.profiles.map((p) => p.name)].some((v) => (v || '').toLowerCase().includes(q))));
+      (!q || [a.label, a.person?.name, a.person?.username, a.person?.email, a.subject, a.id, ...a.profiles.map((p) => p.name)].some((v) => (v || '').toLowerCase().includes(q))));
     tbody.replaceChildren(...shown.map((a) => {
       const kids = a.profiles.filter((p) => p.kind === 'kids').length;
       const tr = h('tr', { 'data-id': a.id, onclick: () => select(a) },
@@ -251,7 +251,7 @@ function accountDetail(a, templates, reload) {
   };
   const patch = (change) => run(() => api('PATCH', `/admin/api/accounts/${a.id}`, change));
 
-  const label = h('input', { value: a.label || '', maxlength: '64', placeholder: 'e.g. Bob, or "the cabin"' });
+  const label = h('input', { value: a.label || '', maxlength: '64', placeholder: 'e.g. Bob' });
   const expires = h('input', { type: 'datetime-local', value: toLocalInput(a.expiresAt) });
   const template = h('select', {}, templates.map((t) => h('option', { value: t.id, selected: t.id === a.template.id },
     `${t.name} (${t.maxStreams} stream${t.maxStreams > 1 ? 's' : ''}, ${t.maxProfiles} profile${t.maxProfiles > 1 ? 's' : ''})`)));
@@ -278,11 +278,11 @@ function accountDetail(a, templates, reload) {
       !a.person.active && h('div', { class: 'error' }, 'Turned off in the identity provider')),
     h('p', { class: 'hint' }, `Since ${when(a.createdAt)}`, h('br'), `Identity provider ID: ${a.subject}`),
     h('h3', {}, 'Access'),
-    field('Label', '(your note)', label),
+    !a.person && field('Label', '(a name for it, until the identity provider gives one)', label),
     field('Access ends', '(empty: never)', expires),
     field('Template', '(what the account may do)', template),
     h('div', { class: 'toolbar' }, h('button', { class: 'primary', onclick: () => patch({
-      label: label.value,
+      ...(a.person ? {} : { label: label.value }),
       expiresAt: expires.value ? new Date(expires.value).toISOString() : '',
       templateId: template.value,
     }) }, 'Save'), msg),
