@@ -53,6 +53,9 @@ type Info struct {
 	// module's admin routes, panel.h for building elements). It's served
 	// on the panel's private listener only, beside any files it needs.
 	AdminUI fs.FS
+	// Settings are the module's settings, shown with it in the control
+	// panel; Host.Setting reads them.
+	Settings []Setting
 	// Migrations holds the module's own SQL migrations, named 001_….sql,
 	// 002_….sql and so on, applied in order and only once. Tables should
 	// start with the module's name, and rows belonging to a profile should
@@ -68,11 +71,23 @@ type Host interface {
 	// found the account and the active profile (PIN, expiry, group…), and
 	// answered the caller itself if anything was missing.
 	Handle(pattern string, h Handler) error
+	// HandleVisitor registers a route for visitors: people signed in at the
+	// identity provider who have no account here yet. The pattern is like
+	// Handle's. Before h runs, the core has checked the login, that the
+	// visitor may have an account (required group…), and that they have
+	// none yet.
+	HandleVisitor(pattern string, h VisitorHandler) error
 	// HandleAdmin registers a control panel route, for the module's tab.
 	// The pattern is "METHOD /path"; the core files it under
 	// /admin/api/modules/<name>/path, on the panel's private listener, where
 	// only signed-in admins reach it.
 	HandleAdmin(pattern string, h http.HandlerFunc) error
+	// Setting is the current value of one of the module's settings: the
+	// chosen value, or "on" or "off" for a switch.
+	Setting(key string) string
+	// Adoption is the media backend's side of bringing existing accounts
+	// over, or nil when it can't.
+	Adoption() Adoption
 	// DB is the database, for the module's own tables.
 	DB() *sql.DB
 	// Logger is the module's logger. Never log tokens, passwords, PINs or

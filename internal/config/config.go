@@ -7,6 +7,7 @@
 package config
 
 import (
+	"cmp"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -23,21 +24,25 @@ import (
 
 // Config is the whole configuration. Field tags give the TOML key names.
 type Config struct {
-	Listen    string    `toml:"listen"`
-	Jellyfin  Jellyfin  `toml:"jellyfin"`
-	Identity  Identity  `toml:"identity"`
-	Storage   Storage   `toml:"storage"`
-	Limits    Limits    `toml:"limits"`
+	Listen   string   `toml:"listen"`
+	Jellyfin Jellyfin `toml:"jellyfin"`
+	Identity Identity `toml:"identity"`
+	Storage  Storage  `toml:"storage"`
+	Limits   Limits   `toml:"limits"`
+	Privacy  Privacy  `toml:"privacy"`
+	Plugins  Plugins  `toml:"plugins"`
+	Accounts Accounts `toml:"accounts"`
+	// Modules holds the modules' own settings: module name, then setting.
+	Modules map[string]map[string]string `toml:"modules"`
+	// Adoption is the former [adoption] section, only read to carry it
+	// over to the migration module.
 	Adoption  Adoption  `toml:"adoption"`
-	Privacy   Privacy   `toml:"privacy"`
-	Plugins   Plugins   `toml:"plugins"`
-	Accounts  Accounts  `toml:"accounts"`
 	OIDC      OIDC      `toml:"oidc"`
 	Admin     Admin     `toml:"admin"`
 	Connector Connector `toml:"connector"`
 
 	// FeaturesInFile reports whether the file held feature settings
-	// (limits, adoption, privacy, plugins, accounts). Those live in the
+	// (limits, privacy, plugins, accounts, modules). Those live in the
 	// database now; the file's are only read to fill an empty one.
 	FeaturesInFile bool `toml:"-"`
 
@@ -77,17 +82,30 @@ type Identity struct {
 	Proxies []netip.Prefix `toml:"-"`
 }
 
-// Adoption lets people bring an existing media server account (and its
-// history) instead of getting a new one.
+// Adoption is the former [adoption] section: bringing existing accounts
+// over is the migration module's now, and ImportAdoption carries these
+// settings over to it.
 type Adoption struct {
-	// Claim lets a user adopt an existing Jellyfin account by entering its
-	// password once. Off by default.
-	Claim bool `toml:"claim" json:"claim"`
-	// Mode is "move" (the default: claiming is one-way, the Jellyfin account
-	// gets an opaque name, the lock-down and a new password nobody knows) or
-	// "link" (it keeps its name and password, for a transition; the
-	// operator moves it later with overfin -move-linked).
-	Mode string `toml:"mode" json:"mode"`
+	Claim bool   `toml:"claim" json:"claim"`
+	Mode  string `toml:"mode" json:"mode"`
+}
+
+// ImportAdoption carries the former [adoption] settings over to the
+// migration module: switched on, in the same mode.
+func (f *Features) ImportAdoption(a Adoption) {
+	if !a.Claim {
+		return
+	}
+	if !f.Plugins.Enabled("migration") {
+		f.Plugins.Enable = append(f.Plugins.Enable, "migration")
+	}
+	if f.Modules == nil {
+		f.Modules = map[string]map[string]string{}
+	}
+	if f.Modules["migration"] == nil {
+		f.Modules["migration"] = map[string]string{}
+	}
+	f.Modules["migration"]["mode"] = cmp.Or(a.Mode, "move")
 }
 
 // Privacy lists the privacy-sensitive fields the operator chooses to
@@ -158,11 +176,47 @@ var PluginDescriptions = map[string]string{
 	"playback": "Watching, with subtitles",
 }
 
+// PluginSettings are the settings each module declares.
+var PluginSettings = map[string][]Setting{}
+
+// Setting is one of a module's settings. Without Choices, it's a switch:
+// "on" or "off".
+type Setting struct {
+	Key     string   `json:"key"`
+	Label   string   `json:"label"`
+	Hint    string   `json:"hint,omitempty"`
+	Choices []Choice `json:"choices,omitempty"`
+}
+
+// Choice is one value a setting can take.
+type Choice struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// fallback is the setting's default: its first choice, or "off".
+func (s Setting) fallback() string {
+	if len(s.Choices) == 0 {
+		return "off"
+	}
+	return s.Choices[0].Value
+}
+
+// allows reports whether v is one of the setting's values.
+func (s Setting) allows(v string) bool {
+	if len(s.Choices) == 0 {
+		return v == "on" || v == "off"
+	}
+	return slices.ContainsFunc(s.Choices, func(c Choice) bool { return c.Value == v })
+}
+
 // RegisterPlugin makes a compiled-in module known to the configuration, so
-// operators can switch it on. Call it before loading the configuration.
-func RegisterPlugin(name string, needs []string, description string) {
+// operators can switch it on and change its settings. Call it before
+// loading the configuration.
+func RegisterPlugin(name string, needs []string, description string, settings []Setting) {
 	KnownPlugins[name] = needs
 	PluginDescriptions[name] = description
+	PluginSettings[name] = settings
 }
 
 // Enabled reports whether the operator enabled a plugin.
@@ -173,16 +227,23 @@ func (p Plugins) Enabled(name string) bool {
 // Features are the settings the control panel switches on and off. They
 // live in the database and apply at once.
 type Features struct {
-	Limits   Limits   `json:"limits"`
-	Adoption Adoption `json:"adoption"`
-	Privacy  Privacy  `json:"privacy"`
-	Plugins  Plugins  `json:"plugins"`
-	Accounts Accounts `json:"accounts"`
+	Limits   Limits                       `json:"limits"`
+	Privacy  Privacy                      `json:"privacy"`
+	Plugins  Plugins                      `json:"plugins"`
+	Accounts Accounts                     `json:"accounts"`
+	Modules  map[string]map[string]string `json:"modules"`
 }
 
 // Features returns the configuration's feature settings.
 func (c *Config) Features() Features {
-	return Features{Limits: c.Limits, Adoption: c.Adoption, Privacy: c.Privacy, Plugins: c.Plugins, Accounts: c.Accounts}
+	f := Features{Limits: c.Limits, Privacy: c.Privacy, Plugins: c.Plugins, Accounts: c.Accounts, Modules: c.Modules}
+	f.Plugins.Enable = slices.Clone(f.Plugins.Enable)
+	f.Modules = make(map[string]map[string]string, len(c.Modules))
+	for name, values := range c.Modules {
+		f.Modules[name] = maps.Clone(values)
+	}
+	f.ImportAdoption(c.Adoption)
+	return f
 }
 
 // DefaultFeatures are the feature settings of a new instance: everything
@@ -196,7 +257,8 @@ func DefaultFeatures() Features {
 // settings, validated together with the rest.
 func (c *Config) WithFeatures(f Features) (*Config, error) {
 	n := *c
-	n.Limits, n.Adoption, n.Privacy, n.Plugins, n.Accounts = f.Limits, f.Adoption, f.Privacy, f.Plugins, f.Accounts
+	n.Limits, n.Privacy, n.Plugins, n.Accounts, n.Modules = f.Limits, f.Privacy, f.Plugins, f.Accounts, f.Modules
+	n.Adoption = Adoption{}  // carried over into f already
 	n.Identity.Proxies = nil // filled again by validate
 	if err := n.validate(); err != nil {
 		return nil, err
@@ -295,7 +357,6 @@ func defaults() Config {
 			OnLimit:            "replace-oldest",
 		},
 		OIDC:     OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
-		Adoption: Adoption{Mode: "move"},
 		Accounts: Accounts{OnDelete: "delete"},
 	}
 }
@@ -319,7 +380,7 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 		return nil, fmt.Errorf("config: unknown keys: %s", strings.Join(keys, ", "))
 	}
 
-	for _, section := range []string{"limits", "adoption", "privacy", "plugins", "accounts"} {
+	for _, section := range []string{"limits", "adoption", "privacy", "plugins", "accounts", "modules"} {
 		if meta.IsDefined(section) {
 			cfg.FeaturesInFile = true
 		}
@@ -491,9 +552,7 @@ func (c *Config) validate() error {
 	if c.Accounts.OnDelete != "delete" && c.Accounts.OnDelete != "disable" {
 		add("accounts.on_delete must be \"delete\" or \"disable\", got %q", c.Accounts.OnDelete)
 	}
-	if c.Adoption.Mode != "move" && c.Adoption.Mode != "link" {
-		add("adoption.mode must be \"move\" or \"link\", got %q", c.Adoption.Mode)
-	}
+	c.settleModules(add)
 
 	if a := c.Admin; a.Enabled() {
 		if !c.OIDC.Enabled() {
@@ -598,4 +657,40 @@ func parsePrefix(s string) (netip.Prefix, error) {
 		return netip.Prefix{}, err
 	}
 	return netip.PrefixFrom(addr, addr.BitLen()), nil
+}
+
+// settleModules checks the modules' settings and fills in the defaults, so
+// every compiled-in module has all of its settings. Those of modules this
+// build doesn't have are kept as they are, for a build that does.
+func (c *Config) settleModules(add func(string, ...any)) {
+	settled := make(map[string]map[string]string, len(c.Modules))
+	for name, values := range c.Modules {
+		if _, known := PluginSettings[name]; !known {
+			settled[name] = values
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(PluginSettings)) {
+		settings := PluginSettings[name]
+		values := c.Modules[name]
+		for _, key := range slices.Sorted(maps.Keys(values)) {
+			if !slices.ContainsFunc(settings, func(s Setting) bool { return s.Key == key }) {
+				add("modules.%s: unknown setting %q", name, key)
+			}
+		}
+		out := make(map[string]string, len(settings))
+		for _, s := range settings {
+			v, set := values[s.Key]
+			switch {
+			case !set:
+				v = s.fallback()
+			case !s.allows(v):
+				add("modules.%s.%s: %q is not one of its values", name, s.Key, v)
+			}
+			out[s.Key] = v
+		}
+		if len(out) > 0 {
+			settled[name] = out
+		}
+	}
+	c.Modules = settled
 }

@@ -234,7 +234,8 @@ paths:
       operationId: claimAccount
       summary: Bring an existing media server account, with its history
       description: |
-        Only when the operator enables claiming. The username and password of
+        Only when the operator switches the migration module on. The username
+        and password of
         the existing Jellyfin account prove ownership; the password is used
         for that one check and never stored or logged. Administrator accounts
         can't be brought over. Failed attempts are limited per user.

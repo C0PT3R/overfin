@@ -27,9 +27,10 @@ type Sessions struct {
 	Logger      *slog.Logger
 	// Lifetime of a session without activity; it slides with use.
 	Lifetime time.Duration
-	// ClaimMode is the adoption mode when claiming is on ("move" or
-	// "link"), empty when it's off; account-setup-required says so.
-	ClaimMode string
+	// SetupOffers are the other ways modules offer to set an account up
+	// than a new one, as account-setup-required carries them. While there
+	// are any, a first visit asks instead of creating an account.
+	SetupOffers map[string]string
 	// Auth is the instance's OpenID Connect side, nil when it has none:
 	// actions that need a fresh login are then refused.
 	Auth *Auth
@@ -150,11 +151,11 @@ func (s *Sessions) CurrentAccount(w http.ResponseWriter, r *http.Request) *Calle
 	return &Caller{Account: acct, Session: sess, Profile: prof, Owner: owner}
 }
 
-// setupRequired answers that there's no account yet, and whether an
-// existing one can be brought.
+// setupRequired answers that there's no account yet, with the other ways
+// modules offer to set one up.
 func (s *Sessions) setupRequired(w http.ResponseWriter) {
 	p := problem.New(problem.AccountSetupRequired, "")
-	p.Claim = s.ClaimMode
+	p.Offers = s.SetupOffers
 	problem.Write(w, p)
 }
 

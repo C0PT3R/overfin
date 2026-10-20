@@ -68,7 +68,7 @@ Jellyfin server, using only the public API.
 1. ~~Configuration reload without restart.~~ Done: SIGHUP.
 2. ~~Adoption extras.~~ Done: claiming is a one-way move by default
    (opaque name, lock-down, new password), or "link" for a transition, moved
-   later with `overfin -move-linked`. No matching by name or email: only the
+   later (now from the migration module's tab). No matching by name or email: only the
    username and password prove an account.
 3. ~~Kids profiles (rating ceilings enforced by Jellyfin) and PINs.~~ Done.
 4. ~~Step-up for destructive actions.~~ Done, over OpenID Connect: changing
@@ -139,10 +139,10 @@ stay signed in while active (30 idle minutes end it).
 **Settings move to the panel.** The configuration file keeps only what
 Overfin needs to start (listen addresses, Jellyfin, the database, the
 identity provider, the admin listener; secrets stay in the environment).
-Every feature (plugins, limits, adoption, account deletion, privacy fields,
-PIN attempts, and later invites, catalog, requests) lives in the database,
-is switched on and off from the panel, and applies at once. Everything is
-off by default.
+Every feature (plugins and their settings, limits, account deletion,
+privacy fields, PIN attempts, and later invites, catalog, requests) lives in
+the database, is switched on and off from the panel, and applies at once.
+Everything is off by default.
 
 1. ~~The admin listener and panel: sign-in, the admin group, and the
    feature settings.~~ Done.
@@ -156,7 +156,7 @@ off by default.
    make their own. Access length stays individual. A template only sets
    how many profiles an account may have: every account starts with its
    owner profile alone, never a kids one, and its owner creates the rest.
-2d. **Migration as a module** (`migration`): bringing old accounts and
+2d. ~~Migration as a module~~ Done (`migration`): bringing old accounts and
    their history over, the same on every backend. Claiming an old account
    with its username and password (move or link), and moving linked
    accounts from its own panel tab. How an existing user is checked and

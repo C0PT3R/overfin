@@ -229,9 +229,9 @@ comes from the internet, and media files can be written by anyone.
     on purpose, and pinned.
 
 ### Adoption
-60. Bringing an existing Jellyfin account is off by default. When enabled, the
-    account's password is used once to prove ownership and is never stored or
-    logged; failed attempts are limited per user, and wrong usernames and
+60. Bringing an existing Jellyfin account (the migration module) is off by
+    default. When enabled, the account's password is used once to prove
+    ownership and is never stored or logged; failed attempts are limited per user, and wrong usernames and
     wrong passwords get the same answer. Administrator accounts are never
     adopted, and a Jellyfin account can belong to only one Overfin account.
     Nothing is guessed: no matching by name or email, only the username and
@@ -249,8 +249,9 @@ comes from the internet, and media files can be written by anyone.
 ### Modules
 62. Modules are compiled in; nothing is loaded while Overfin runs. A
     module's routes go through the same registrar as the core's (no
-    catch-alls, a login required), it acts only as the calling profile, and
-    it never gets the media server's admin key. That keeps well-behaved
+    catch-alls, a login required), it acts only as the calling profile (or,
+    on a visitor's route, can only have the core set the visitor's account
+    up), and it never gets the media server's admin key. That keeps well-behaved
     modules safe, but it's a convention, not a sandbox: a module runs with
     Overfin's full power. These rules cover the core and the official
     modules; a third-party module is its developer's responsibility, and the

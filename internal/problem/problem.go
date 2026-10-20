@@ -119,11 +119,13 @@ type Problem struct {
 	// the instance offers no step-up.
 	StepUp    string `json:"stepUp,omitempty"`
 	StepUpURL string `json:"stepUpUrl,omitempty"`
-	// Claim, for account-setup-required, says whether an existing media
-	// server account can be brought, and how: "move" (its old login stops
-	// working) or "link" (it keeps working). Absent when it can't.
-	Claim string `json:"claim,omitempty"`
+	// Offers, for account-setup-required, are the other ways modules offer
+	// to set an account up, each a member of its own: "claim": "move", say.
+	Offers map[string]string `json:"-"`
 }
+
+// Members are the names a problem's own members use, which offers can't.
+var Members = []string{"type", "title", "status", "detail", "takenOverBy", "retryAfter", "stepUp", "stepUpUrl"}
 
 // New returns the problem for t, with an optional human-readable detail.
 // The detail must never contain upstream error text or internal details
@@ -145,7 +147,19 @@ func Write(w http.ResponseWriter, p Problem) {
 		w.Header().Set("Retry-After", strconv.Itoa(p.RetryAfter))
 	}
 	w.WriteHeader(p.Status)
-	_ = json.NewEncoder(w).Encode(p)
+	if len(p.Offers) == 0 {
+		_ = json.NewEncoder(w).Encode(p)
+		return
+	}
+	b, _ := json.Marshal(p)
+	var members map[string]any
+	_ = json.Unmarshal(b, &members)
+	for name, value := range p.Offers {
+		if _, taken := members[name]; !taken {
+			members[name] = value
+		}
+	}
+	_ = json.NewEncoder(w).Encode(members)
 }
 
 // Send is New followed by Write.

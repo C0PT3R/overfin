@@ -31,6 +31,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/server"
 	"github.com/C0PT3R/overfin/internal/store"
 	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin/modules/migration"
 	"github.com/C0PT3R/overfin/modules/watchlist"
 )
 
@@ -275,7 +276,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	prov := &provision.Provisioner{Store: st, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"), Logger: logger}
-	sessions := &api.Sessions{Provisioner: prov, Store: st, Logger: logger, Lifetime: time.Hour, ClaimMode: "move"}
+	sessions := &api.Sessions{Provisioner: prov, Store: st, Logger: logger, Lifetime: time.Hour}
 	extra := []plugin.Plugin{}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "", "|")
 	identify := ids.Middleware
@@ -296,18 +297,26 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	if err := st.MigrateModule(context.Background(), "watchlist", watchlist.Module{}.Info().Migrations); err != nil {
 		t.Fatal(err)
 	}
-	wl := api.Mount{Module: watchlist.Module{}, Library: lib, DB: st.DB(), Logger: logger}
-	mounts := []api.Mount{wl}
+	// So is migration, bringing accounts over in "move" mode.
+	mounts := []api.Mount{
+		{Module: watchlist.Module{}, Library: lib, DB: st.DB(), Logger: logger},
+		{Module: migration.Module{}, Library: lib, DB: st.DB(), Logger: logger, Settings: map[string]string{"mode": "move"}},
+	}
 	for _, m := range o.modules {
 		if err := st.MigrateModule(context.Background(), m.Info().Name, m.Info().Migrations); err != nil {
 			t.Fatal(err)
 		}
-		mount := api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger}
-		mounts = append(mounts, mount)
-		extra = append(extra, mount)
+		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger})
 	}
-	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb}, wl,
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker, Mounts: mounts},
+	for i := range mounts {
+		mounts[i].Peers = mounts
+		extra = append(extra, mounts[i])
+	}
+	if sessions.SetupOffers, err = api.SetupOffers(mounts); err != nil {
+		t.Fatal(err)
+	}
+	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb},
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, PINs: checker, Mounts: mounts},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},
 	}, extra...)

@@ -61,12 +61,21 @@ function render(state, draft) {
     fields.at(-1).path = path;
     return h('div', { class: 'row' }, h('div', {}, label, hint && h('div', { class: 'hint' }, hint)), input);
   };
-  const toggle = (label, hint, path) => {
+  // A module's switch setting is "on" or "off".
+  const onOff = (label, hint, path) => {
     const input = h('input', { type: 'checkbox' });
-    fields.push(field(() => input.checked, (v) => { input.checked = v; }, input));
+    fields.push(field(() => (input.checked ? 'on' : 'off'), (v) => { input.checked = v === 'on'; }, input));
     fields.at(-1).path = path;
-    return h('div', { class: 'row' }, h('div', {}, label, hint && h('div', { class: 'hint' }, hint)), input);
+    return h('div', { class: 'row sub' }, h('div', {}, label, hint && h('div', { class: 'hint' }, hint)), input);
   };
+  // A module's settings, under its switch.
+  const moduleSettings = (p) => (p.settings || []).map((s) => {
+    const path = `modules.${p.name}.${s.key}`;
+    if (!s.choices) return onOff(s.label, s.hint, path);
+    const row = choice(s.label, s.hint, path, s.choices.map((c) => [c.value, c.label]));
+    row.classList.add('sub');
+    return row;
+  });
   // Lists (plugins, exposed fields) are sets of checkboxes.
   const listToggle = (label, hint, path, value) => {
     const input = h('input', { type: 'checkbox' });
@@ -79,12 +88,11 @@ function render(state, draft) {
 
   const sections = [
     h('section', {}, h('h2', {}, 'Plugins'),
-      ...state.plugins.map((p) => listToggle(p.name,
+      ...state.plugins.flatMap((p) => [listToggle(p.name,
         (p.description || '') +
-        (p.needs ? ` (needs ${p.needs.join(', ')})` : ''), 'plugins.enable', p.name))),
+        (p.needs ? ` (needs ${p.needs.join(', ')})` : ''), 'plugins.enable', p.name),
+      ...moduleSettings(p)])),
     h('section', {}, h('h2', {}, 'Accounts'),
-      toggle('Bring existing accounts', 'People bring their Jellyfin account and history with its username and password', 'adoption.claim'),
-      choice('When an account is brought', null, 'adoption.mode', [['move', 'Move it (old login stops working)'], ['link', 'Link it (old login keeps working)']]),
       choice('When an account is deleted', null, 'accounts.onDelete', [['delete', 'Delete its history too'], ['disable', 'Keep its history, unusable']]),
       num('Wrong PINs before a lock', '3 to 10', 'limits.pinAttempts', 3)),
     h('section', {}, h('h2', {}, 'Streams'),

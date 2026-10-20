@@ -237,7 +237,7 @@ func TestClaim(t *testing.T) {
 	p := setup(t, fake, "")
 	id := identity.Identity{Subject: "alice-subject"}
 
-	_, prof, err := p.Claim(ctx, id, "alice", alicePass, nil)
+	_, prof, err := p.Claim(ctx, id, "alice", alicePass, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,21 +249,21 @@ func TestClaim(t *testing.T) {
 	}
 
 	// Claiming again, or creating a fresh account, once one exists.
-	if _, _, err := p.Claim(ctx, id, "alice", alicePass, nil); !errors.Is(err, ErrAccountExists) {
+	if _, _, err := p.Claim(ctx, id, "alice", alicePass, false, nil); !errors.Is(err, ErrAccountExists) {
 		t.Errorf("second claim: %v", err)
 	}
 	if _, _, err := p.Create(ctx, id, nil); !errors.Is(err, ErrAccountExists) {
 		t.Errorf("create after claim: %v", err)
 	}
 	// Someone else claiming alice's Jellyfin account, with her password.
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "other"}, "alice", alicePass, nil); !errors.Is(err, ErrClaimNotAllowed) {
+	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "other"}, "alice", alicePass, false, nil); !errors.Is(err, ErrClaimNotAllowed) {
 		t.Errorf("claiming an adopted account: %v", err)
 	}
 }
 
 func TestClaimRefusesAdministrators(t *testing.T) {
 	p := setup(t, &fakeJellyfin{}, "")
-	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "boss", adminPass, nil)
+	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "boss", adminPass, false, nil)
 	if !errors.Is(err, ErrClaimNotAllowed) {
 		t.Errorf("err = %v, want ErrClaimNotAllowed", err)
 	}
@@ -277,13 +277,13 @@ func TestClaimAttemptsAreLimited(t *testing.T) {
 	p := setup(t, fake, "")
 	id := identity.Identity{Subject: "guesser"}
 	for i := 0; i < maxFailures; i++ {
-		if _, _, err := p.Claim(context.Background(), id, "alice", "wrong", nil); !errors.Is(err, ErrClaimFailed) {
+		if _, _, err := p.Claim(context.Background(), id, "alice", "wrong", false, nil); !errors.Is(err, ErrClaimFailed) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
 	// Even the right password is refused now, without asking Jellyfin.
 	before := len(fake.logins)
-	if _, _, err := p.Claim(context.Background(), id, "alice", alicePass, nil); !errors.Is(err, ErrRateLimited) {
+	if _, _, err := p.Claim(context.Background(), id, "alice", alicePass, false, nil); !errors.Is(err, ErrRateLimited) {
 		t.Errorf("after %d failures: %v, want ErrRateLimited", maxFailures, err)
 	}
 	if len(fake.logins) != before {
@@ -294,7 +294,7 @@ func TestClaimAttemptsAreLimited(t *testing.T) {
 func TestClaimRespectsRequiredGroup(t *testing.T) {
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "media")
-	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, nil)
+	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, false, nil)
 	if !errors.Is(err, ErrNotAllowed) || len(fake.logins) != 0 {
 		t.Errorf("err = %v, logins = %v", err, fake.logins)
 	}
@@ -304,9 +304,8 @@ func TestClaimMoves(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "")
-	p.MoveOnClaim = true
 
-	_, prof, err := p.Claim(ctx, identity.Identity{Subject: "alice-subject"}, "alice", alicePass, nil)
+	_, prof, err := p.Claim(ctx, identity.Identity{Subject: "alice-subject"}, "alice", alicePass, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,8 +335,7 @@ func TestClaimMoveFailureRestores(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			fake := &fakeJellyfin{failing: step}
 			p := setup(t, fake, "")
-			p.MoveOnClaim = true
-			if _, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, nil); err == nil {
+			if _, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, true, nil); err == nil {
 				t.Fatal("claim succeeded")
 			}
 			if fake.aliceName != "alice" || fake.alicePw != alicePass {
@@ -356,7 +354,7 @@ func TestClaimMoveFailureRestores(t *testing.T) {
 func TestClaimLinkKeepsTheLogin(t *testing.T) {
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "")
-	_, prof, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, nil)
+	_, prof, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,9 +362,16 @@ func TestClaimLinkKeepsTheLogin(t *testing.T) {
 		t.Errorf("link changed the login: %q %q", fake.aliceName, fake.alicePw)
 	}
 	// Moved later, without the old password.
-	name, token, err := p.MoveLinked(context.Background(), aliceUser)
-	if err != nil || !strings.HasPrefix(name, "of-") || token == "" || fake.alicePw == alicePass {
-		t.Errorf("move later: %q %q %v", name, token, err)
+	moved, err := p.MoveLinked(context.Background())
+	if err != nil || moved != 1 || !strings.HasPrefix(fake.aliceName, "of-") || fake.alicePw == alicePass {
+		t.Errorf("move later: %d %q %v", moved, fake.aliceName, err)
+	}
+	prof, _ = p.Store.Profile(context.Background(), prof.AccountID, prof.ID)
+	if prof.JellyfinUsername != fake.aliceName || prof.JellyfinToken == "" {
+		t.Errorf("profile after the move: %q %q", prof.JellyfinUsername, prof.JellyfinToken)
+	}
+	if moved, err := p.MoveLinked(context.Background()); err != nil || moved != 0 {
+		t.Errorf("moving again: %d %v", moved, err)
 	}
 }
 
@@ -403,11 +408,10 @@ func TestClaimHooks(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "")
-	p.MoveOnClaim = true
 
 	// Refused before the old account is even looked at.
 	refuse := &Hooks{Before: func(context.Context) error { return errors.New("no invitation") }}
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, refuse); err == nil {
+	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, true, refuse); err == nil {
 		t.Fatal("claim went through a refusal")
 	}
 	if len(fake.logins) != 0 {
@@ -418,7 +422,7 @@ func TestClaimHooks(t *testing.T) {
 	fail := &Hooks{After: func(context.Context, *store.Account, *store.Profile) error {
 		return errors.New("invitation used meanwhile")
 	}}
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, fail); err == nil {
+	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, true, fail); err == nil {
 		t.Fatal("claim succeeded")
 	}
 	if fake.aliceName != "alice" || fake.alicePw != alicePass || fake.alicePolicy["IsHidden"] == true {
@@ -428,7 +432,7 @@ func TestClaimHooks(t *testing.T) {
 		t.Error("an account was left behind")
 	}
 	// And it can be claimed properly afterwards.
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, nil); err != nil {
+	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, true, nil); err != nil {
 		t.Errorf("claim after the undo: %v", err)
 	}
 }

@@ -66,12 +66,6 @@ type Provisioner struct {
 	RequiredGroup string
 	LogKey        []byte // keys.LogID, for pseudonymous log entries
 	Logger        *slog.Logger
-	// MoveOnClaim makes claiming one-way (adoption.mode = "move"): the
-	// Jellyfin user gets an opaque name, the lock-down and a password nobody
-	// knows, so its old login stops working. Otherwise ("link") it keeps its
-	// name and password until moved later.
-	MoveOnClaim bool
-
 	// mu serializes account creation and adoption. Both are rare, and
 	// serializing them rules out two accounts for one person.
 	mu       sync.Mutex
@@ -192,7 +186,11 @@ func (p *Provisioner) allowed(id identity.Identity) error {
 // ownership, and the account's history comes along. The password is used for
 // this one login and never stored or logged. Administrator accounts are
 // never adopted, so Overfin never holds an administrator's token.
-func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username, password string, hooks *Hooks) (*store.Account, *store.Profile, error) {
+//
+// With move, claiming is one-way: the Jellyfin user gets an opaque name, the
+// lock-down and a password nobody knows, so its old login stops working.
+// Otherwise it keeps its name and password until moved later (link).
+func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username, password string, move bool, hooks *Hooks) (*store.Account, *store.Profile, error) {
 	if err := p.allowed(id); err != nil {
 		return nil, nil, err
 	}
@@ -259,7 +257,7 @@ func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username,
 
 	var undo func()
 	name := username
-	if p.MoveOnClaim {
+	if move {
 		if name, token, undo, err = p.move(ctx, userID, password); err != nil {
 			return nil, nil, err
 		}
@@ -490,12 +488,35 @@ func (p *Provisioner) move(ctx context.Context, userID, oldPassword string) (nam
 	return name, token, undo, nil
 }
 
-// MoveLinked moves an account adopted in "link" mode for good, as claiming
-// in "move" mode would have: the operator runs it once the old way to
-// Jellyfin is closed. It returns the new name and token.
-func (p *Provisioner) MoveLinked(ctx context.Context, jellyfinUserID string) (name, token string, err error) {
-	name, token, _, err = p.move(ctx, jellyfinUserID, "")
-	return name, token, err
+// MoveLinked moves every account adopted in "link" mode for good, as
+// claiming in "move" mode would have: for when the operator closes the old
+// way to Jellyfin. Their owners' old logins stop working. It returns how
+// many moved; the others are left for a retry.
+func (p *Provisioner) MoveLinked(ctx context.Context) (moved int, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	linked, err := p.Store.LinkedProfiles(ctx)
+	if err != nil {
+		return 0, err
+	}
+	failed := 0
+	for _, l := range linked {
+		name, token, _, err := p.move(ctx, l.JellyfinUserID, "")
+		if err == nil {
+			err = p.Store.SetJellyfinUser(ctx, l.ProfileID, name, token)
+		}
+		if err != nil {
+			failed++
+			p.Logger.Error("linked account not moved", "profile", l.ProfileID, "err", err)
+			continue
+		}
+		moved++
+		p.Logger.Info("linked account moved", "profile", l.ProfileID)
+	}
+	if failed > 0 {
+		return moved, fmt.Errorf("provision: %d linked accounts not moved", failed)
+	}
+	return moved, nil
 }
 
 // Relogin gives a profile's Jellyfin user a new random password and logs in

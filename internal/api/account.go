@@ -22,9 +22,6 @@ type Account struct {
 	Sessions    *Sessions
 	Provisioner *provision.Provisioner
 	Logger      *slog.Logger
-	// Claim enables adopting an existing Jellyfin account. When it's on, a
-	// first visit asks the user instead of creating an account silently.
-	Claim bool
 	// KeepOnDelete disables a deleted account's Jellyfin users, keeping
 	// their history, instead of deleting them (accounts.on_delete).
 	KeepOnDelete bool
@@ -32,8 +29,8 @@ type Account struct {
 	Images *images.Pipeline
 	// PINs checks a profile's PIN before it downloads its own data.
 	PINs *pin.Checker
-	// Mounts are the modules switched on, for their part of "Download my
-	// data".
+	// Mounts are the modules switched on, for their say in creating
+	// accounts and their part of "Download my data".
 	Mounts []Mount
 }
 
@@ -49,13 +46,7 @@ func (a Account) Register(r *plugin.Registrar) error {
 	if err := r.HandleFunc("DELETE /api/v1/me", a.deleteAccount); err != nil {
 		return err
 	}
-	if err := r.HandleFunc("POST /api/v1/me/export", a.export); err != nil {
-		return err
-	}
-	if a.Claim {
-		return r.HandleFunc("POST /api/v1/me/claim", a.claim)
-	}
-	return nil
+	return r.HandleFunc("POST /api/v1/me/export", a.export)
 }
 
 // Shapes from the API specification.
@@ -77,8 +68,8 @@ type meJSON struct {
 
 func (a Account) me(w http.ResponseWriter, r *http.Request) {
 	id, _ := identity.FromContext(r.Context()) // the registrar guarantees one
-	if !a.Claim {
-		// Without claiming, the first visit creates the account.
+	if len(a.Sessions.SetupOffers) == 0 {
+		// With nothing else on offer, the first visit creates the account.
 		if _, _, err := a.Provisioner.Ensure(r.Context(), id, creationHooks(r, a.Mounts, a.Provisioner)); err != nil {
 			a.respond(w, nil, nil, err, http.StatusOK)
 			return
@@ -97,25 +88,13 @@ func (a Account) create(w http.ResponseWriter, r *http.Request) {
 	a.respond(w, acct, prof, err, http.StatusCreated)
 }
 
-type claimRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-func (a Account) claim(w http.ResponseWriter, r *http.Request) {
-	var req claimRequest
-	if !decode(r, &req) || req.Username == "" || len(req.Username) > 128 ||
-		req.Password == "" || len(req.Password) > 256 {
-		problem.Send(w, problem.InvalidRequest, "")
-		return
-	}
-	id, _ := identity.FromContext(r.Context())
-	acct, prof, err := a.Provisioner.Claim(r.Context(), id, req.Username, req.Password, creationHooks(r, a.Mounts, a.Provisioner))
-	a.respond(w, acct, prof, err, http.StatusCreated)
-}
-
-// respond maps provisioning results to the API. Errors never carry details.
 func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store.Profile, err error, status int) {
+	accountResult(w, a.Sessions, a.Logger, acct, prof, err, status)
+}
+
+// accountResult maps provisioning results to the API. Errors never carry
+// details.
+func accountResult(w http.ResponseWriter, sessions *Sessions, logger *slog.Logger, acct *store.Account, prof *store.Profile, err error, status int) {
 	var refusal *module.Refusal // a module refused the account
 	switch {
 	case err == nil:
@@ -130,7 +109,7 @@ func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store
 	case errors.As(err, &refusal):
 		problem.Send(w, refusal.Type, refusal.Detail)
 	case errors.Is(err, provision.ErrNoAccount):
-		a.Sessions.setupRequired(w)
+		sessions.setupRequired(w)
 	case errors.Is(err, provision.ErrAccountExists):
 		problem.Send(w, problem.AccountExists, "")
 	case errors.Is(err, provision.ErrNotAllowed):
@@ -146,7 +125,7 @@ func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store
 	case errors.Is(err, provision.ErrAnonymous):
 		problem.Send(w, problem.NotFound, "")
 	default:
-		a.Logger.Error("account request failed", "err", err)
+		logger.Error("account request failed", "err", err)
 		problem.Send(w, problem.Internal, "")
 	}
 }

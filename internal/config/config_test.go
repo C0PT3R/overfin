@@ -262,3 +262,59 @@ redirect_url = "http://localhost:8081/admin/auth/callback"
 		t.Errorf("LAN admin: %v", err)
 	}
 }
+
+func TestModuleSettings(t *testing.T) {
+	RegisterPlugin("settings-test", nil, "", []Setting{
+		{Key: "mode", Choices: []Choice{{Value: "a"}, {Value: "b"}}},
+		{Key: "loud"},
+	})
+	t.Cleanup(func() {
+		delete(KnownPlugins, "settings-test")
+		delete(PluginDescriptions, "settings-test")
+		delete(PluginSettings, "settings-test")
+	})
+	cfg, err := Load(writeFile(t, goodFile), env(goodEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := cfg.Modules["settings-test"]; m["mode"] != "a" || m["loud"] != "off" {
+		t.Errorf("defaults: %v", m)
+	}
+	for file, ok := range map[string]bool{
+		`mode = "b"`:    true,
+		`loud = "on"`:   true,
+		`mode = "c"`:    false,
+		`loud = "yes"`:  false,
+		`volume = "on"`: false,
+	} {
+		_, err := Load(writeFile(t, goodFile+"\n[modules.settings-test]\n"+file+"\n"), env(goodEnv()))
+		if (err == nil) != ok {
+			t.Errorf("%s: err = %v", file, err)
+		}
+	}
+	// A module this build doesn't have keeps its settings, untouched.
+	cfg, err = Load(writeFile(t, goodFile+"\n[modules.elsewhere]\nx = \"y\"\n"), env(goodEnv()))
+	if err != nil || cfg.Modules["elsewhere"]["x"] != "y" {
+		t.Errorf("another build's module: %v %v", cfg.Modules, err)
+	}
+}
+
+// The former [adoption] section switches the migration module on, in the
+// same mode.
+func TestAdoptionCarriedOver(t *testing.T) {
+	var f Features
+	f.ImportAdoption(Adoption{Claim: false, Mode: "link"})
+	if f.Plugins.Enabled("migration") {
+		t.Error("switched on without claiming")
+	}
+	f.ImportAdoption(Adoption{Claim: true, Mode: "link"})
+	f.ImportAdoption(Adoption{Claim: true, Mode: "link"})
+	if len(f.Plugins.Enable) != 1 || !f.Plugins.Enabled("migration") || f.Modules["migration"]["mode"] != "link" {
+		t.Errorf("carried over: %v %v", f.Plugins, f.Modules)
+	}
+	var g Features
+	g.ImportAdoption(Adoption{Claim: true})
+	if g.Modules["migration"]["mode"] != "move" {
+		t.Errorf("default mode: %v", g.Modules)
+	}
+}

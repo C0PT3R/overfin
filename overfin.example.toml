@@ -120,17 +120,17 @@ pin_attempts = 5
 # oldest stream (that device is told why), "refuse" refuses the new one.
 on_limit = "replace-oldest"
 
-[adoption]
-# Let people bring an existing Jellyfin account, with its watch history, by
-# entering its username and password once. Administrator accounts can never
-# be brought over. Off by default.
-claim = false
-# "move": claiming is one-way. The Jellyfin account gets an opaque name, the
-#   lock-down and a new password nobody knows; its old login and Jellyfin
-#   apps stop working. When you overfin, you don't fin.
+# Modules' own settings, each under its name. The migration module lets
+# people bring an existing Jellyfin account, with its watch history, by
+# entering its username and password once (switch it on in [plugins]).
+# Administrator accounts can never be brought over.
+[modules.migration]
+# "move": bringing an account is one-way. The Jellyfin account gets an opaque
+#   name, the lock-down and a new password nobody knows; its old login and
+#   Jellyfin apps stop working. When you overfin, you don't fin.
 # "link": it keeps its name and password, for a transition period. Move
-#   these accounts later with `overfin -move-linked`, once the old way to
-#   Jellyfin is closed.
+#   these accounts later from the module's tab in the control panel, once
+#   the old way to Jellyfin is closed.
 mode = "move"
 
 [accounts]

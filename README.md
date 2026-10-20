@@ -123,6 +123,7 @@ only what its operator lists. A disabled plugin's routes don't exist at all.
 | --- | --- | --- | --- |
 | `library` | Libraries, items, filters and sorting, shuffle, continue watching, next up, recently added, images | | Available |
 | `playback` | Direct play, repackaging or transcoding, token-free HLS, WebVTT subtitles, progress and resume, stream limits, skip-intro markers | `library` | Available |
+| `migration` | People bring their previous account and its watch history, with its username and password (see [Migrating from Jellyfin](#migrating-from-jellyfin)) | | Available |
 | `watchlist` | Each profile's own watchlist: movies, whole shows, seasons or single episodes, as the person chooses | `library` | Available |
 | `catalog` | Discover lists, curated lists, titles not in the library yet | a TMDB key | Planned |
 | `requests` | Requests, quotas, problem reports; kids profiles limited to their ceiling | Seerr | Planned |
@@ -228,18 +229,18 @@ your identity provider. Without it, anyone who can log in there gets in.
 
 People already using your Jellyfin server keep their watch history:
 
-1. Set `adoption.claim = true`.
+1. Switch the `migration` module on in the control panel.
 2. Announce a date, and give everyone a login at your identity provider.
 3. On their first visit, people choose "bring my existing account" and enter
    their old Jellyfin username and password, once.
 4. On the date, close the old way to Jellyfin.
 
-By default (`adoption.mode = "move"`) bringing an account is a move: the
+By default (the module's mode is "move") bringing an account is a move: the
 Jellyfin account gets an opaque name and a new password nobody knows, so the
 old login and Jellyfin apps stop working for that person at once. When you
-overfin, you don't fin. For a gentler transition, `mode = "link"` lets moved
-people keep using Jellyfin apps until the date; then run
-`overfin -move-linked` once.
+overfin, you don't fin. For a gentler transition, "link" lets people keep
+using Jellyfin apps until the date; then press "Move linked accounts" in the
+module's tab.
 
 What people see is your site, under your name: they may never have heard of
 Jellyfin, and Overfin never names it to them. Speak of "your previous

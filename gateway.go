@@ -48,7 +48,6 @@ func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
 		RequiredGroup: cfg.Identity.RequiredGroup,
 		LogKey:        sh.keys.LogID,
 		Logger:        sh.logger,
-		MoveOnClaim:   cfg.Adoption.Mode == "move",
 	}
 }
 
@@ -77,9 +76,6 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	prov := newProvisioner(cfg, sh)
 
 	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
-	if cfg.Adoption.Claim {
-		sessions.ClaimMode = cfg.Adoption.Mode
-	}
 	checker := &pin.Checker{Key: k.PIN, Store: db, MaxFailures: cfg.Limits.PINAttempts}
 	identityMiddleware := ids.Middleware
 	if o := cfg.OIDC; o.Enabled() {
@@ -119,14 +115,23 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	for _, m := range modules {
 		info := m.Info()
 		if cfg.Plugins.Enabled(info.Name) {
-			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: db.DB(), Logger: logger, Admin: b.admin})
+			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: db.DB(), Logger: logger, Admin: b.admin,
+				Settings: cfg.Modules[info.Name]})
 			b.tabs = append(b.tabs, admin.Tab{Name: info.Name, Description: info.Description, UI: info.AdminUI})
 		}
 	}
+	for i := range mounts {
+		mounts[i].Peers = mounts
+	}
+	offers, err := api.SetupOffers(mounts)
+	if err != nil {
+		return nil, err
+	}
+	sessions.SetupOffers = offers
 	// Accounts and profiles are always on; everything else is a plugin the
 	// operator enables.
 	plugins := []plugin.Plugin{
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim, Mounts: mounts,
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Mounts: mounts,
 			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images, PINs: checker},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
@@ -168,9 +173,28 @@ func effective(ctx context.Context, cfg *config.Config, db *store.Store, logger 
 		if err := json.Unmarshal(raw, &f); err != nil {
 			return nil, fmt.Errorf("feature settings in the database: %w", err)
 		}
+		// Settings saved before bringing accounts over became the
+		// migration module's are carried over to it, once.
+		var former struct {
+			Adoption *config.Adoption `json:"adoption"`
+		}
+		if err := json.Unmarshal(raw, &former); err == nil && former.Adoption != nil {
+			f.ImportAdoption(*former.Adoption)
+			n, err := cfg.WithFeatures(f)
+			if err != nil {
+				return nil, err
+			}
+			if raw, err = json.Marshal(n.Features()); err != nil {
+				return nil, err
+			}
+			if err := db.SetFeatures(ctx, raw); err != nil {
+				return nil, err
+			}
+			logger.Info("bringing existing accounts over is the migration module's now; its settings were carried over")
+		}
 		if cfg.FeaturesInFile {
 			logger.Warn("the configuration file's feature settings are ignored: the control panel holds them; " +
-				"remove [limits], [adoption], [privacy], [plugins] and [accounts] from the file")
+				"remove [limits], [adoption], [privacy], [plugins], [accounts] and [modules] from the file")
 		}
 	} else {
 		if raw, err = json.Marshal(f); err != nil {

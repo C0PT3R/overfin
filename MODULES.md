@@ -1,7 +1,8 @@
 # Writing a module
 
 Overfin is a small core, the gateway, with modules grafted onto it. The
-watchlist is one; invites, a catalog and requests will be others. If the
+watchlist and migration are two; invites, a catalog and requests will be
+others. If the
 official modules don't do what you need, you can write your own and build
 Overfin with it.
 
@@ -22,6 +23,16 @@ Through the `Host`, the core gives it:
   Before `fn` runs, the core has checked the login and found the account and
   the active profile (PIN, account expiry, required group…), and answered
   the caller itself if anything was missing. Catch-all patterns are refused.
+- **Routes for visitors**, people signed in who have no account yet:
+  `h.HandleVisitor("POST /api/v1/…", fn)`. The core has checked the login,
+  that they may have an account, and that they have none. The module learns
+  nothing about them; its `module.Visitor` can only have the core set their
+  account up (`v.Adopt`, bringing an existing account of the media server
+  over), and the core answers them itself.
+- **A say in how accounts are set up**, by implementing
+  `module.SetupOffer`: while a module offers another way than a new account
+  (bringing an old one, say), a first visit asks instead of creating one,
+  and `account-setup-required` carries the offer (`"claim": "move"`).
 - **The calling profile**, in `fn`'s `*module.Caller`: account, profile, its
   kind (`standard` or `kids`), whether it's the owner.
 - **The media server as that profile, and only as it**: `c.Backend.Item` and
@@ -41,6 +52,14 @@ Through the `Host`, the core gives it:
   lock, so creations never race, and an error afterwards undoes the account
   entirely. An account always starts with its owner profile alone; its
   template only sets how many more the owner may create.
+- **Settings**, declared in `Info().Settings`: switches, or choices among
+  values. The panel shows them under the module's switch, the operator
+  changes them live, and `h.Setting("mode")` reads them; the module is set
+  up again when they change.
+- **The backend's adoption**, for its control panel routes:
+  `h.Adoption()` counts the accounts brought over that are still linked to
+  their old login, and moves them for good. It's nil when the backend can't
+  bring accounts over.
 - **Control panel routes**: `h.HandleAdmin("GET /stats", fn)`, filed under
   `/admin/api/modules/<name>/stats` on the panel's private listener, where
   only signed-in admins reach them.
@@ -55,8 +74,8 @@ Through the `Host`, the core gives it:
 calling profile, counts its visits in a table of its own, and shows the
 totals in its own control panel tab. It's compiled
 and tested with Overfin itself, so it's always current. The
-[watchlist](modules/watchlist) is a real module built the same way, only on
-this contract.
+[watchlist](modules/watchlist) and [migration](modules/migration) are real
+modules built the same way, only on this contract.
 
 ## Building Overfin with your module
 

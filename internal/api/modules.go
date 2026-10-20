@@ -3,15 +3,19 @@ package api
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/library"
 	"github.com/C0PT3R/overfin/internal/plugin"
+	"github.com/C0PT3R/overfin/internal/problem"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/store"
 	"github.com/C0PT3R/overfin/module"
@@ -28,6 +32,11 @@ type Mount struct {
 	// Admin collects the modules' control panel routes; nil when there's
 	// no panel.
 	Admin *http.ServeMux
+	// Settings are the module's settings, as the operator set them.
+	Settings map[string]string
+	// Peers are all the modules switched on, this one included: each has
+	// its say when this one sets a visitor's account up.
+	Peers []Mount
 }
 
 func (m Mount) Name() string { return m.Module.Info().Name }
@@ -43,6 +52,20 @@ type host struct {
 }
 
 func (h *host) DB() *sql.DB { return h.mount.DB }
+
+func (h *host) Setting(key string) string { return h.mount.Settings[key] }
+
+// Adoption is Jellyfin's: it can bring its existing users over.
+func (h *host) Adoption() module.Adoption { return adoption{h.mount.Library.Provisioner} }
+
+type adoption struct{ prov *provision.Provisioner }
+
+func (a adoption) Linked(ctx context.Context) (int, error) {
+	linked, err := a.prov.Store.LinkedProfiles(ctx)
+	return len(linked), err
+}
+
+func (a adoption) MoveLinked(ctx context.Context) (int, error) { return a.prov.MoveLinked(ctx) }
 
 func (h *host) Logger() *slog.Logger {
 	return h.mount.Logger.With("module", h.mount.Module.Info().Name)
@@ -74,6 +97,68 @@ func (h *host) Handle(pattern string, fn module.Handler) error {
 		}
 		fn(CallerFor(l, c), w, r)
 	})
+}
+
+func (h *host) HandleVisitor(pattern string, fn module.VisitorHandler) error {
+	l := h.mount.Library
+	return h.reg.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		id, _ := identity.FromContext(r.Context()) // the registrar guarantees one
+		_, _, err := l.Provisioner.Find(r.Context(), id)
+		switch {
+		case err == nil:
+			problem.Send(w, problem.AccountExists, "")
+		case !errors.Is(err, provision.ErrNoAccount):
+			accountResult(w, l.Sessions, l.Logger, nil, nil, err, 0)
+		default:
+			fn(visitor{mount: h.mount, r: r}, w, r)
+		}
+	})
+}
+
+// visitor is the core's side of module.Visitor.
+type visitor struct {
+	mount Mount
+	r     *http.Request
+}
+
+func (v visitor) Adopt(w http.ResponseWriter, username, password string, keepLogin bool) bool {
+	if username == "" || len(username) > 128 || password == "" || len(password) > 256 {
+		problem.Send(w, problem.InvalidRequest, "")
+		return false
+	}
+	l := v.mount.Library
+	id, _ := identity.FromContext(v.r.Context())
+	acct, prof, err := l.Provisioner.Claim(v.r.Context(), id, username, password, !keepLogin,
+		creationHooks(v.r, v.mount.Peers, l.Provisioner))
+	accountResult(w, l.Sessions, l.Logger, acct, prof, err, http.StatusCreated)
+	return err == nil
+}
+
+// offerName is a setup offer's member name in account-setup-required.
+var offerName = regexp.MustCompile(`^[a-z][A-Za-z0-9]{0,31}$`)
+
+// SetupOffers gathers what the modules offer visitors besides a new
+// account, as account-setup-required carries it.
+func SetupOffers(mounts []Mount) (map[string]string, error) {
+	offers := map[string]string{}
+	for _, m := range mounts {
+		so, ok := m.Module.(module.SetupOffer)
+		if !ok {
+			continue
+		}
+		name, value, ok := so.Offer(&host{mount: m})
+		if !ok {
+			continue
+		}
+		if !offerName.MatchString(name) || slices.Contains(problem.Members, name) {
+			return nil, fmt.Errorf("module %s: setup offer %q: not a usable name", m.Name(), name)
+		}
+		if _, taken := offers[name]; taken {
+			return nil, fmt.Errorf("module %s: setup offer %q: another module offers it", m.Name(), name)
+		}
+		offers[name] = value
+	}
+	return offers, nil
 }
 
 // CallerFor is the module's view of a caller.

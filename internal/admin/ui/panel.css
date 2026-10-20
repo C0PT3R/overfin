@@ -15,6 +15,7 @@ h2 { font-size: 1.05rem; margin: 0 0 .6rem; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .45rem 0; border-top: 1px solid var(--line); }
 .row:first-of-type { border-top: none; }
 .row .hint { font-size: .85rem; color: var(--muted); }
+.row.sub { padding-left: 1.5rem; }
 input, select, button { font: inherit; color: inherit; }
 input[type=number], select { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .3em .5em; width: 9rem; }
 input[type=checkbox] { width: 1.1rem; height: 1.1rem; }

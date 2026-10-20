@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/C0PT3R/overfin/internal/playback"
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin/module"
+	"github.com/C0PT3R/overfin/modules/migration"
 )
 
 const baseConfig = `
@@ -172,4 +175,42 @@ func must(b []byte, err error) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// registerMigration compiles the migration module in, as the official
+// build does, once for all tests.
+var registerMigration = sync.OnceValue(func() error {
+	modules = []module.Module{migration.Module{}}
+	return registerModules()
+})
+
+// Settings saved when bringing accounts over was the core's are carried over
+// to the migration module, once.
+func TestAdoptionMovesToTheMigrationModule(t *testing.T) {
+	if err := registerMigration(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "overfin.db")
+	cfgPath := filepath.Join(dir, "overfin.toml")
+	os.WriteFile(cfgPath, []byte(strings.ReplaceAll(baseConfig, "%DB%", dbPath)), 0o600)
+	cfg, err := config.Load(cfgPath, env("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := keys.Derive(cfg.Secrets.Key)
+	box, _ := seal.New(k.TokenEncryption)
+	db, _ := store.Open(context.Background(), dbPath, box)
+	defer db.Close()
+	ctx := context.Background()
+	db.SetFeatures(ctx, []byte(`{"limits":{"maxTranscodesTotal":4,"pinAttempts":5,"onLimit":"replace-oldest"},`+
+		`"adoption":{"claim":true,"mode":"link"},"plugins":{"enable":["library"]},"accounts":{"onDelete":"delete"}}`))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	got, err := effective(ctx, cfg, db, logger)
+	if err != nil || !got.Plugins.Enabled("migration") || !got.Plugins.Enabled("library") || got.Modules["migration"]["mode"] != "link" {
+		t.Fatalf("carried over: %v %v %v", got.Plugins, got.Modules, err)
+	}
+	if raw, _, _ := db.Features(ctx); bytes.Contains(raw, []byte("adoption")) || !bytes.Contains(raw, []byte(`"mode":"link"`)) {
+		t.Errorf("saved: %s", raw)
+	}
 }
