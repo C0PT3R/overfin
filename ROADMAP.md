@@ -99,9 +99,10 @@ off by default.
 
 1. ~~The admin listener and panel: sign-in, the admin group, and the
    feature settings.~~ Done.
-2. Users: every account with its profiles, under real names when a
-   connector provides them; disable, re-enable, delete (with their Jellyfin
-   users), account expiry, per-account limits, PIN-lock resets, sessions.
+2. ~~Users: every account with its profiles; disable, re-enable, delete
+   (with their Jellyfin users), account expiry, per-account limits,
+   PIN-lock resets, sessions.~~ Done, with labels; real names come with a
+   connector.
 3. Invites: created and managed in the panel (expiry, number of uses, a
    template: profiles, kids limits, stream limit, account expiry); redeemed
    on the public site, where they create the account. Optionally, accounts

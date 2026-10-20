@@ -98,6 +98,9 @@ func (s *Sessions) CurrentAccount(w http.ResponseWriter, r *http.Request) *Calle
 	case errors.Is(err, provision.ErrNotAllowed):
 		problem.Send(w, problem.AccountNotAllowed, "")
 		return nil
+	case errors.Is(err, provision.ErrExpired):
+		problem.Send(w, problem.AccountExpired, "")
+		return nil
 	case errors.Is(err, provision.ErrAnonymous):
 		problem.Send(w, problem.NotFound, "")
 		return nil

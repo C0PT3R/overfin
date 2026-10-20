@@ -387,14 +387,18 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	if device == "" {
 		device = "another device"
 	}
-	if pb.MaxStreams > 0 {
+	limit := pb.MaxStreams
+	if caller.Account.MaxStreams > 0 {
+		limit = caller.Account.MaxStreams // the operator's choice for this account
+	}
+	if limit > 0 {
 		active := pb.Tickets.ForAccount(p.AccountID)
-		if len(active) >= pb.MaxStreams {
+		if len(active) >= limit {
 			if pb.RefuseOverLimit {
 				problem.Send(w, problem.StreamLimitReached, "")
 				return
 			}
-			for _, old := range active[:len(active)-pb.MaxStreams+1] {
+			for _, old := range active[:len(active)-limit+1] {
 				pb.end(old, "taken-over", device)
 			}
 		}

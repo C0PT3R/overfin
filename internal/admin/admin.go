@@ -28,6 +28,8 @@ import (
 
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/oidc"
+	"github.com/C0PT3R/overfin/internal/provision"
+	"github.com/C0PT3R/overfin/internal/store"
 )
 
 //go:embed ui
@@ -41,7 +43,9 @@ type Features interface {
 
 // Panel serves the control panel.
 type Panel struct {
-	Features Features
+	Features    Features
+	Store       *store.Store
+	Provisioner *provision.Provisioner
 	// Provider signs admins in; its redirect URL is the panel's callback and
 	// its groups claim is set.
 	Provider *oidc.Provider
@@ -103,6 +107,11 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/api/features", p.signedIn(p.features))
 	mux.HandleFunc("PUT /admin/api/features", p.signedIn(p.setFeatures))
 	mux.HandleFunc("POST /admin/api/logout", p.logout)
+	mux.HandleFunc("GET /admin/api/accounts", p.signedIn(p.accounts))
+	mux.HandleFunc("PATCH /admin/api/accounts/{id}", p.signedIn(p.changeAccount))
+	mux.HandleFunc("DELETE /admin/api/accounts/{id}", p.signedIn(p.deleteAccount))
+	mux.HandleFunc("DELETE /admin/api/accounts/{id}/sessions/{session}", p.signedIn(p.endSession))
+	mux.HandleFunc("POST /admin/api/profiles/{id}/unlock-pin", p.signedIn(p.unlockPIN))
 	return privateOnly(sameOrigin(headers(mux)))
 }
 
@@ -164,7 +173,10 @@ func sameOrigin(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		// Requests with a body must be JSON, which HTML forms can't send.
+		// DELETE has no body, and browsers never send it cross-site
+		// without the server's consent.
+		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
 			if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
 				http.Error(w, "Requests must be JSON", http.StatusUnsupportedMediaType)
 				return
@@ -303,7 +315,7 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 	}
 	if !slices.Contains(login.Groups, p.Group) {
 		if login.Groups == nil {
-			p.Logger.Warn("admin sign-in refused: the login token carries no groups; " +
+			p.Logger.Warn("admin sign-in refused: the login token carries no groups; "+
 				"have the identity provider include them (with Authentik: the 'profile' scope mapping)",
 				"claim", p.Provider.GroupsClaim)
 		} else {

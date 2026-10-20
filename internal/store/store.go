@@ -118,6 +118,40 @@ type Account struct {
 	Subject  string
 	Created  time.Time
 	Disabled bool
+	// Set by the operator: a label, when access ends (zero: never), and a
+	// stream limit overriding the instance's (0: the instance's).
+	Label      string
+	Expires    time.Time
+	MaxStreams int
+}
+
+// Expired reports whether the account's access has ended.
+func (a *Account) Expired(now time.Time) bool {
+	return !a.Expires.IsZero() && !now.Before(a.Expires)
+}
+
+const accountSelect = `SELECT id, subject, created_at, disabled_at, label, expires_at, max_streams FROM accounts`
+
+func scanAccount(sc scanner) (*Account, error) {
+	var a Account
+	var created int64
+	var disabled, expires, maxStreams sql.NullInt64
+	var label sql.NullString
+	err := sc.Scan(&a.ID, &a.Subject, &created, &disabled, &label, &expires, &maxStreams)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.Created = time.Unix(created, 0).UTC()
+	a.Disabled = disabled.Valid
+	a.Label = label.String
+	if expires.Valid {
+		a.Expires = time.Unix(expires.Int64, 0).UTC()
+	}
+	a.MaxStreams = int(maxStreams.Int64)
+	return &a, nil
 }
 
 // Profile is one profile of an account. JellyfinToken is the plain token,
@@ -200,21 +234,7 @@ func (s *Store) JellyfinUserLinked(ctx context.Context, jellyfinUserID string) (
 
 // AccountBySubject finds the account of an identity provider user.
 func (s *Store) AccountBySubject(ctx context.Context, subject string) (*Account, error) {
-	var a Account
-	var created int64
-	var disabled sql.NullInt64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, subject, created_at, disabled_at FROM accounts WHERE subject = ?`, subject,
-	).Scan(&a.ID, &a.Subject, &created, &disabled)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	a.Created = time.Unix(created, 0).UTC()
-	a.Disabled = disabled.Valid
-	return &a, nil
+	return scanAccount(s.db.QueryRowContext(ctx, accountSelect+` WHERE subject = ?`, subject))
 }
 
 // Profile returns one profile, only if it belongs to accountID (SECURITY.md
@@ -929,4 +949,92 @@ func (s *Store) SetFeatures(ctx context.Context, v []byte) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('features', ?)
 		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, v)
 	return err
+}
+
+// ---- Control panel: accounts --------------------------------------------------------
+
+// AccountByID finds an account by its ID.
+func (s *Store) AccountByID(ctx context.Context, id string) (*Account, error) {
+	return scanAccount(s.db.QueryRowContext(ctx, accountSelect+` WHERE id = ?`, id))
+}
+
+// Accounts lists every account, newest first.
+func (s *Store) Accounts(ctx context.Context) ([]*Account, error) {
+	rows, err := s.db.QueryContext(ctx, accountSelect+` ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Account
+	for rows.Next() {
+		a, err := scanAccount(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// SetAccountLabel sets an account's label; empty removes it.
+func (s *Store) SetAccountLabel(ctx context.Context, id, label string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET label = ? WHERE id = ?`, nullable(label), id)
+	return oneRow(res, err)
+}
+
+// SetAccountDisabled disables an account, or enables it again.
+func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool) error {
+	var at any
+	if disabled {
+		at = s.now().Unix()
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET disabled_at = ? WHERE id = ?`, at, id)
+	return oneRow(res, err)
+}
+
+// SetAccountExpiry sets when an account's access ends; zero: never.
+func (s *Store) SetAccountExpiry(ctx context.Context, id string, at time.Time) error {
+	var v any
+	if !at.IsZero() {
+		v = at.Unix()
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET expires_at = ? WHERE id = ?`, v, id)
+	return oneRow(res, err)
+}
+
+// SetAccountMaxStreams sets an account's own stream limit; 0: the
+// instance's.
+func (s *Store) SetAccountMaxStreams(ctx context.Context, id string, n int) error {
+	var v any
+	if n > 0 {
+		v = n
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET max_streams = ? WHERE id = ?`, v, id)
+	return oneRow(res, err)
+}
+
+// PINLocks lists the profiles of an account whose PIN is locked now.
+func (s *Store) PINLocks(ctx context.Context, accountID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM profiles WHERE account_id = ? AND pin_locked_until > ?`,
+		accountID, s.now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// UnlockPIN lifts one profile's PIN lock and forgets its wrong attempts.
+func (s *Store) UnlockPIN(ctx context.Context, profileID string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET pin_failures = 0, pin_failed_at = NULL, pin_locked_until = NULL
+		WHERE id = ?`, profileID)
+	return oneRow(res, err)
 }

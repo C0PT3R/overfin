@@ -29,28 +29,8 @@ func (a Account) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	if !a.Sessions.RequireFresh(w, c) {
 		return
 	}
-	ctx := r.Context()
-	profiles, err := a.Sessions.Store.Profiles(ctx, c.Account.ID)
+	profiles, err := a.Provisioner.DeleteAccount(r.Context(), c.Account.ID, a.KeepOnDelete)
 	if err != nil {
-		a.Logger.Error("listing profiles for deletion failed", "err", err)
-		problem.Send(w, problem.Internal, "")
-		return
-	}
-	// Jellyfin first: if that fails, nothing is deleted here, and trying
-	// again picks up where it stopped (users already gone count as done).
-	for _, p := range profiles {
-		if a.KeepOnDelete {
-			err = a.Provisioner.DisableJellyfinUser(ctx, p.JellyfinUserID)
-		} else {
-			err = a.Provisioner.DeleteJellyfinUser(ctx, p.JellyfinUserID)
-		}
-		if err != nil {
-			a.Logger.Error("removing a deleted account's Jellyfin user failed", "err", err)
-			problem.Send(w, problem.Internal, "")
-			return
-		}
-	}
-	if err := a.Sessions.Store.DeleteAccount(ctx, c.Account.ID); err != nil {
 		a.Logger.Error("deleting an account failed", "err", err)
 		problem.Send(w, problem.Internal, "")
 		return
@@ -68,7 +48,6 @@ func (a Account) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	if auth := a.Sessions.Auth; auth != nil && auth.Login {
 		auth.Logout(w, r)
 	}
-	a.Logger.Info("account deleted", "account", c.Account.ID)
 	writeOK(w, out)
 }
 

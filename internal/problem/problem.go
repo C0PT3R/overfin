@@ -24,7 +24,9 @@ const (
 	// AccountSetupRequired: no account yet; the site offers to start fresh
 	// or to claim an existing media server account.
 	AccountSetupRequired Type = "account-setup-required"
-	AccountExists        Type = "account-exists"
+	// AccountExpired: the operator set an end to this account's access.
+	AccountExpired Type = "account-expired"
+	AccountExists  Type = "account-exists"
 	// ClaimFailed: wrong username or password, deliberately not saying
 	// which. ClaimNotAllowed: the credentials were right, but that account
 	// can't be adopted (an administrator, or already adopted).
@@ -73,6 +75,7 @@ var registry = map[Type]info{
 	AccountNotAllowed:    {http.StatusForbidden, "This account may not use this service"},
 	AccountSetupRequired: {http.StatusNotFound, "No account yet"},
 	AccountExists:        {http.StatusConflict, "This account already exists"},
+	AccountExpired:       {http.StatusForbidden, "Access to this account has ended"},
 	ClaimFailed:          {http.StatusForbidden, "Wrong username or password"},
 	ClaimNotAllowed:      {http.StatusForbidden, "This account can't be brought over"},
 	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},

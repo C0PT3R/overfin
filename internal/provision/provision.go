@@ -35,6 +35,9 @@ var (
 	// ErrNotAllowed: the identity isn't in the required group, or its
 	// account is disabled.
 	ErrNotAllowed = errors.New("provision: not allowed")
+	// ErrExpired: the operator set an end to the account's access, and it
+	// has passed.
+	ErrExpired = errors.New("provision: account expired")
 	// ErrRateLimited: too many new accounts in a short time.
 	ErrRateLimited = errors.New("provision: rate limited")
 	// ErrAnonymous: anonymous visitors have no account.
@@ -244,6 +247,9 @@ func (p *Provisioner) existing(ctx context.Context, subject string) (*store.Acco
 	}
 	if acct.Disabled {
 		return nil, nil, ErrNotAllowed
+	}
+	if acct.Expired(time.Now()) {
+		return nil, nil, ErrExpired
 	}
 	profiles, err := p.Store.Profiles(ctx, acct.ID)
 	if err != nil {
@@ -456,6 +462,32 @@ func (p *Provisioner) Relogin(ctx context.Context, jellyfinUserID, username stri
 	// Same device ID as before: Jellyfin replaces the old session.
 	token, _, err := p.Jellyfin.Authenticate(ctx, DeviceID(jellyfinUserID), username, password)
 	return token, err
+}
+
+// DeleteAccount deletes an account and everything Overfin holds about it.
+// Its Jellyfin users go first, deleted with their history or disabled
+// (keepHistory), so a failure deletes nothing here and a retry picks up where
+// it stopped. It returns the account's profiles, as they were.
+func (p *Provisioner) DeleteAccount(ctx context.Context, accountID string, keepHistory bool) ([]*store.Profile, error) {
+	profiles, err := p.Store.Profiles(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	for _, pr := range profiles {
+		if keepHistory {
+			err = p.DisableJellyfinUser(ctx, pr.JellyfinUserID)
+		} else {
+			err = p.DeleteJellyfinUser(ctx, pr.JellyfinUserID)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := p.Store.DeleteAccount(ctx, accountID); err != nil {
+		return nil, err
+	}
+	p.Logger.Info("account deleted", "account", accountID)
+	return profiles, nil
 }
 
 // DisableJellyfinUser disables a profile's Jellyfin user, keeping its

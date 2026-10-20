@@ -128,6 +128,8 @@ func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store
 		problem.Send(w, problem.AccountExists, "")
 	case errors.Is(err, provision.ErrNotAllowed):
 		problem.Send(w, problem.AccountNotAllowed, "")
+	case errors.Is(err, provision.ErrExpired):
+		problem.Send(w, problem.AccountExpired, "")
 	case errors.Is(err, provision.ErrClaimFailed):
 		problem.Send(w, problem.ClaimFailed, "")
 	case errors.Is(err, provision.ErrClaimNotAllowed):

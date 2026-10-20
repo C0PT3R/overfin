@@ -381,3 +381,20 @@ func TestRemovedFromTheGroup(t *testing.T) {
 		t.Errorf("out of the group, still in: %v", err)
 	}
 }
+
+func TestExpiredAccount(t *testing.T) {
+	ctx := context.Background()
+	p := setup(t, &fakeJellyfin{}, "")
+	acct, _, err := p.Ensure(ctx, identity.Identity{Subject: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = p.Store.SetAccountExpiry(ctx, acct.ID, time.Now().Add(-time.Minute))
+	if _, _, err := p.Find(ctx, identity.Identity{Subject: "s"}); !errors.Is(err, ErrExpired) {
+		t.Errorf("expired account: %v", err)
+	}
+	_ = p.Store.SetAccountExpiry(ctx, acct.ID, time.Time{})
+	if _, _, err := p.Find(ctx, identity.Identity{Subject: "s"}); err != nil {
+		t.Errorf("after clearing the expiry: %v", err)
+	}
+}

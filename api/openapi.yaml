@@ -55,6 +55,8 @@ info:
     endpoint except the public ones (`/health`, `/info`) answers
     `not-authenticated` (401) without a valid session. Actions reserved for
     the account's owner profile answer `owner-only` (403) to other profiles.
+    An account the operator disabled answers `account-not-allowed` (403),
+    and one whose access has ended `account-expired` (403), to every request.
 
     **Language.** Metadata comes in the language of the `Accept-Language`
     header, unless the active profile sets its own.

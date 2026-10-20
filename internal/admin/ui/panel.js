@@ -141,17 +141,121 @@ function render(state, draft) {
     }
   } }, 'Save');
   const restored = draft && h('span', { class: 'muted' }, 'Your unsaved changes are back; save to apply them.');
-  $('#main').replaceChildren(...sections, h('div', { class: 'bar' }, save, restored, msg));
+  show(...sections, h('div', { class: 'bar' }, save, restored, msg));
+}
+
+// ---- Users -----------------------------------------------------------------
+
+const when = (iso) => (iso ? new Date(iso).toLocaleString() : '');
+
+// toLocalInput turns an RFC 3339 time into a datetime-local value.
+function toLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function users(filter = '') {
+  const { items } = await api('GET', '/admin/api/accounts');
+  const search = h('input', { type: 'search', placeholder: 'Search labels, profiles, IDs', value: filter, class: 'search' });
+  const list = h('div', {});
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const shown = items.filter((a) => !q || [a.label, a.subject, a.id, ...a.profiles.map((p) => p.name)]
+      .some((v) => (v || '').toLowerCase().includes(q)));
+    list.replaceChildren(...(shown.length ? shown.map(accountCard) : [h('p', { class: 'muted' }, 'No accounts.')]));
+  };
+  search.addEventListener('input', draw);
+  draw();
+  show(h('section', {}, h('h2', {}, `Accounts (${items.length})`), search), list);
+}
+
+function accountCard(a) {
+  const msg = h('span', {});
+  const run = async (action, done) => {
+    msg.className = '';
+    msg.textContent = '';
+    try {
+      await action();
+      if (done) done(); else users($('.search')?.value || '');
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    }
+  };
+  const patch = (change) => run(() => api('PATCH', `/admin/api/accounts/${a.id}`, change));
+
+  const label = h('input', { value: a.label || '', maxlength: '64', placeholder: 'Label (who is this?)' });
+  const expires = h('input', { type: 'datetime-local', value: toLocalInput(a.expiresAt) });
+  const streams = h('input', { type: 'number', min: '0', max: '100', value: String(a.maxStreams || 0) });
+  const save = h('button', { class: 'primary', onclick: () => patch({
+    label: label.value,
+    expiresAt: expires.value ? new Date(expires.value).toISOString() : '',
+    maxStreams: Number(streams.value),
+  }) }, 'Save');
+
+  const status = { active: 'Active', disabled: 'Disabled', expired: 'Expired' }[a.status] || a.status;
+  const toggle = h('button', { onclick: () => patch({ disabled: a.status !== 'disabled' }) },
+    a.status === 'disabled' ? 'Enable' : 'Disable');
+  const remove = h('button', { class: 'danger', onclick: () => {
+    if (!confirm(`Delete ${a.label || 'this account'}, its profiles and what they hold? This can't be undone.`)) return;
+    run(() => api('DELETE', `/admin/api/accounts/${a.id}`));
+  } }, 'Delete account');
+
+  const profiles = a.profiles.map((p) => h('div', { class: 'row' },
+    h('div', {}, p.name, p.owner ? ' (owner)' : '',
+      h('div', { class: 'hint' }, [
+        p.kind === 'kids' ? `Kids, up to ${p.ratingCeiling}` : 'Standard',
+        p.hasPin ? (p.pinLocked ? 'PIN locked' : 'PIN set') : 'No PIN',
+        p.linked ? 'Linked: its old login still works' : '',
+      ].filter(Boolean).join(' · '))),
+    p.pinLocked && h('button', { onclick: () => run(() => api('POST', `/admin/api/profiles/${p.id}/unlock-pin`, {})) }, 'Unlock PIN')));
+
+  const devices = a.sessions.map((s) => h('div', { class: 'row' },
+    h('div', {}, s.device || 'Unknown device', h('div', { class: 'hint' }, `${s.profile} · last active ${when(s.lastActiveAt)}`)),
+    h('button', { onclick: () => run(() => api('DELETE', `/admin/api/accounts/${a.id}/sessions/${s.id}`)) }, 'Sign out')));
+
+  return h('section', {},
+    h('div', { class: 'row' },
+      h('div', {}, h('strong', {}, a.label || 'No label'), ' ', h('span', { class: `pill ${a.status}` }, status),
+        h('div', { class: 'hint' }, `Since ${when(a.createdAt)} · ID ${a.subject}`))),
+    h('div', { class: 'row' }, h('div', {}, 'Label'), label),
+    h('div', { class: 'row' }, h('div', {}, 'Access ends', h('div', { class: 'hint' }, 'Empty: never')), expires),
+    h('div', { class: 'row' }, h('div', {}, 'Streams at once', h('div', { class: 'hint' }, "0: the server's limit")), streams),
+    h('div', { class: 'bar' }, save, toggle, msg),
+    h('h3', {}, 'Profiles'), ...profiles,
+    h('h3', {}, `Signed-in devices (${a.sessions.length})`), ...(devices.length ? devices : [h('p', { class: 'muted' }, 'None.')]),
+    h('div', { class: 'bar' }, remove));
+}
+
+// ---- Layout ----------------------------------------------------------------
+
+function show(...nodes) {
+  $('#main').replaceChildren(...nodes);
+}
+
+async function route() {
+  const tab = location.hash === '#/users' ? 'users' : 'settings';
+  for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === tab);
+  if (tab === 'users') return users();
+  const state = await api('GET', '/admin/api/features');
+  let draft = null;
+  try { draft = JSON.parse(sessionStorage.getItem(DRAFT) || 'null'); } catch { draft = null; }
+  render(state, draft);
 }
 
 async function start() {
   const who = await api('GET', '/admin/api/session');
   $('#who').textContent = who.name ? `Signed in as ${who.name}` : 'Signed in';
   $('#signout').hidden = false;
-  const state = await api('GET', '/admin/api/features');
-  let draft = null;
-  try { draft = JSON.parse(sessionStorage.getItem(DRAFT) || 'null'); } catch { draft = null; }
-  render(state, draft);
+  $('nav').hidden = false;
+  window.addEventListener('hashchange', () => route().catch(fail));
+  await route();
+}
+
+function fail(err) {
+  if (err.message !== 'signing in') show(h('p', { class: 'error' }, err.message));
 }
 
 $('#signout').addEventListener('click', async () => {
@@ -162,8 +266,4 @@ $('#signout').addEventListener('click', async () => {
   $('#who').textContent = '';
 });
 
-start().catch((err) => {
-  if (err.message !== 'signing in') {
-    $('#main').replaceChildren(h('p', { class: 'error' }, err.message));
-  }
-});
+start().catch(fail);
