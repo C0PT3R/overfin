@@ -283,12 +283,20 @@ gateway to gateway, each Jellyfin staying private:
   each chooses what it shares with the other (libraries, streams at once, a
   quality cap); either can end it at once;
 - people see the peer's libraries in their own site, under its brand
-  (`item_<peer>_<id>` IDs are ready for it); the peer sees pseudonymous
-  accounts, not who they are, though what they watch there stays in its
-  history;
+  (`item_<peer>_<id>` IDs are ready for it);
+- the peer keeps a pool of **peer sockets** for each pairing: Jellyfin users
+  of its own, one pool per rating level (so kids limits are enforced by the
+  peer's Jellyfin too), each lent to one playback and given back after.
+  The pool's size is how many streams the pairing allows at once. The peer
+  never knows who watches: a socket is no one in particular, and the next
+  playback may get another one;
+- everything personal stays home: favorites, the watchlist, watched marks
+  and resume points for the peer's titles live in the viewer's own Overfin
+  (Jellyfin can't hold them for titles it doesn't have), which tells the
+  peer where to start and ignores what the sockets' Jellyfin users record;
 - the video comes straight from the peer, not through two gateways (which
   would use twice the bandwidth): the peer hands out a short-lived, signed
-  stream ticket for the pseudonymous account, and the browser fetches with
+  stream ticket for the socket, and the browser fetches with
   that ticket only, no login, no cookie, no referrer. The peer still sees
   the viewer's address, which Overfin never stores; an operator who wants
   more can relay a peer's streams through their own gateway instead, at
