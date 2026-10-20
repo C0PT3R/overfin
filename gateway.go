@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/C0PT3R/overfin/internal/admin"
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/identity"
@@ -52,7 +53,15 @@ func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
 }
 
 // build makes the request handler for a configuration.
-func build(cfg *config.Config, sh *shared) (http.Handler, error) {
+// built is what build makes from a configuration: the public handler, and
+// the switched-on modules' control panel routes and tabs.
+type built struct {
+	handler http.Handler
+	admin   *http.ServeMux
+	tabs    []admin.Tab
+}
+
+func build(cfg *config.Config, sh *shared) (*built, error) {
 	logger, db, k := sh.logger, sh.db, sh.keys
 	var ids *identity.Resolver
 	switch cfg.Identity.Mode {
@@ -103,11 +112,15 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
 		MaxTranscodes:   cfg.Limits.MaxTranscodesTotal,
 		RefuseOverLimit: cfg.Limits.OnLimit == "refuse", Logger: logger}
-	// The modules the operator switched on.
+	// The modules the operator switched on, with their control panel routes
+	// and tabs.
+	b := &built{admin: http.NewServeMux()}
 	var mounts []api.Mount
 	for _, m := range modules {
-		if cfg.Plugins.Enabled(m.Info().Name) {
-			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: db.DB(), Logger: logger})
+		info := m.Info()
+		if cfg.Plugins.Enabled(info.Name) {
+			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: db.DB(), Logger: logger, Admin: b.admin})
+			b.tabs = append(b.tabs, admin.Tab{Name: info.Name, Description: info.Description, UI: info.AdminUI})
 		}
 	}
 	// Accounts and profiles are always on; everything else is a plugin the
@@ -132,7 +145,12 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 		plugins = append(plugins, m)
 	}
 	logger.Info("plugins", "enabled", cfg.Plugins.Enable)
-	return server.New(logger, identityMiddleware, plugins...)
+	h, err := server.New(logger, identityMiddleware, plugins...)
+	if err != nil {
+		return nil, err
+	}
+	b.handler = h
+	return b, nil
 }
 
 // effective completes a configuration read from the file with the feature
@@ -178,7 +196,7 @@ type gateway struct {
 
 	mu      sync.Mutex // one reload at a time
 	cfg     *config.Config
-	handler atomic.Pointer[http.Handler]
+	current atomic.Pointer[built]
 }
 
 func newGateway(path string, cfg *config.Config, sh *shared) (*gateway, error) {
@@ -186,17 +204,25 @@ func newGateway(path string, cfg *config.Config, sh *shared) (*gateway, error) {
 	if err != nil {
 		return nil, err
 	}
-	h, err := build(cfg, sh)
+	b, err := build(cfg, sh)
 	if err != nil {
 		return nil, err
 	}
 	g := &gateway{path: path, sh: sh, cfg: cfg}
-	g.handler.Store(&h)
+	g.current.Store(b)
 	return g, nil
 }
 
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	(*g.handler.Load()).ServeHTTP(w, r)
+	g.current.Load().handler.ServeHTTP(w, r)
+}
+
+// AdminRoutes serves the switched-on modules' control panel routes.
+func (g *gateway) AdminRoutes() http.Handler { return g.current.Load().admin }
+
+// Tabs lists the switched-on modules, for the control panel.
+func (g *gateway) Tabs() []admin.Tab {
+	return g.current.Load().tabs
 }
 
 // reload reads the configuration again and, if it's valid and needs no
@@ -214,11 +240,11 @@ func (g *gateway) reload(getenv func(string) string) error {
 	if changed := restartOnly(g.cfg, cfg); len(changed) > 0 {
 		return fmt.Errorf("these settings only change with a restart: %s", strings.Join(changed, ", "))
 	}
-	h, err := build(cfg, g.sh)
+	b, err := build(cfg, g.sh)
 	if err != nil {
 		return err
 	}
-	g.handler.Store(&h)
+	g.current.Store(b)
 	g.cfg = cfg
 	return nil
 }
@@ -239,7 +265,7 @@ func (g *gateway) SetFeatures(ctx context.Context, f config.Features) error {
 	if err != nil {
 		return err
 	}
-	h, err := build(cfg, g.sh)
+	b, err := build(cfg, g.sh)
 	if err != nil {
 		return err
 	}
@@ -250,7 +276,7 @@ func (g *gateway) SetFeatures(ctx context.Context, f config.Features) error {
 	if err := g.sh.db.SetFeatures(ctx, raw); err != nil {
 		return err
 	}
-	g.handler.Store(&h)
+	g.current.Store(b)
 	g.cfg = cfg
 	return nil
 }

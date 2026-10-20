@@ -333,9 +333,24 @@ function show(...nodes) {
   $('#main').replaceChildren(...nodes);
 }
 
+// moduleView opens a switched-on module's own tab: its panel.js renders into
+// the page, with helpers for its admin routes.
+async function moduleView(name) {
+  $('#main').classList.remove('wide');
+  const root = h('div', {});
+  show(root);
+  const tab = await import(`/admin/modules/${encodeURIComponent(name)}/panel.js`);
+  await tab.default(root, {
+    api: (method, path, body) => api(method, `/admin/api/modules/${encodeURIComponent(name)}${path}`, body),
+    h,
+  });
+}
+
 async function route() {
-  const tab = { '#/users': 'users', '#/templates': 'templates' }[location.hash] || 'settings';
+  const tab = location.hash.startsWith('#/m/') ? location.hash.slice(1)
+    : { '#/users': 'users', '#/templates': 'templates' }[location.hash] || 'settings';
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === tab);
+  if (tab.startsWith('/m/')) return moduleView(decodeURIComponent(tab.slice(3)));
   if (tab === 'users') return users();
   if (tab === 'templates') return templatesView();
   $('#main').classList.remove('wide');
@@ -350,6 +365,11 @@ async function start() {
   $('#who').textContent = who.name ? `Signed in as ${who.name}` : 'Signed in';
   $('#signout').hidden = false;
   $('nav').hidden = false;
+  // A tab for each switched-on module that has one.
+  const { items: mods } = await api('GET', '/admin/api/modules');
+  for (const m of mods.filter((x) => x.hasTab)) {
+    $('nav').append(h('a', { href: `#/m/${encodeURIComponent(m.name)}`, 'data-tab': `/m/${m.name}`, title: m.description || '' }, m.name));
+  }
   window.addEventListener('hashchange', () => route().catch(fail));
   await route();
 }

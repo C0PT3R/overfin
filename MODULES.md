@@ -33,11 +33,19 @@ Through the `Host`, the core gives it:
 - **Errors in the API's standard form**: `module.Problem(w, module.NotFound, "")`.
 - **A logger**: `h.Logger()`.
 - **A part of "Download my data"**, by also implementing `module.Exporter`.
+- **Control panel routes**: `h.HandleAdmin("GET /stats", fn)`, filed under
+  `/admin/api/modules/<name>/stats` on the panel's private listener, where
+  only signed-in admins reach them.
+- **A tab in the control panel**: put a `panel.js` in `Info().AdminUI`. Its
+  default export is `render(root, panel)`, where `panel.api(method, path,
+  body)` calls the module's own admin routes and `panel.h` builds elements.
+  The panel adds the tab while the module is switched on.
 
 ## A complete example
 
 [examples/custom-build/hello](examples/custom-build/hello) greets the
-calling profile and counts its visits in a table of its own. It's compiled
+calling profile, counts its visits in a table of its own, and shows the
+totals in its own control panel tab. It's compiled
 and tested with Overfin itself, so it's always current. The
 [watchlist](modules/watchlist) is a real module built the same way, only on
 this contract.

@@ -3,8 +3,11 @@ package api
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/library"
@@ -21,6 +24,9 @@ type Mount struct {
 	Library Library
 	DB      *sql.DB
 	Logger  *slog.Logger
+	// Admin collects the modules' control panel routes; nil when there's
+	// no panel.
+	Admin *http.ServeMux
 }
 
 func (m Mount) Name() string { return m.Module.Info().Name }
@@ -39,6 +45,23 @@ func (h *host) DB() *sql.DB { return h.mount.DB }
 
 func (h *host) Logger() *slog.Logger {
 	return h.mount.Logger.With("module", h.mount.Module.Info().Name)
+}
+
+// adminPattern checks a module's admin route and files it under the
+// module's own prefix.
+var adminPattern = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE) (/[A-Za-z0-9_./{}-]*)$`)
+
+func (h *host) HandleAdmin(pattern string, fn http.HandlerFunc) error {
+	m := adminPattern.FindStringSubmatch(pattern)
+	name := h.mount.Module.Info().Name
+	if m == nil || strings.Contains(m[2], "...}") || strings.HasSuffix(m[2], "/") {
+		return fmt.Errorf("module %s: admin route %q: must be \"METHOD /path\", without catch-alls", name, pattern)
+	}
+	if h.mount.Admin == nil {
+		return nil // no control panel on this instance
+	}
+	h.mount.Admin.HandleFunc(m[1]+" /admin/api/modules/"+name+m[2], fn)
+	return nil
 }
 
 func (h *host) Handle(pattern string, fn module.Handler) error {

@@ -47,6 +47,12 @@ type Info struct {
 	Needs []string
 	// Description is shown in the control panel.
 	Description string
+	// AdminUI, when set, is the module's tab in the control panel: a
+	// panel.js whose default export is render(root, panel), called with
+	// the tab's element and helpers (panel.api(method, path, body) for the
+	// module's admin routes, panel.h for building elements). It's served
+	// on the panel's private listener only, beside any files it needs.
+	AdminUI fs.FS
 	// Migrations holds the module's own SQL migrations, named 001_….sql,
 	// 002_….sql and so on, applied in order and only once. Tables should
 	// start with the module's name, and rows belonging to a profile should
@@ -62,6 +68,11 @@ type Host interface {
 	// found the account and the active profile (PIN, expiry, group…), and
 	// answered the caller itself if anything was missing.
 	Handle(pattern string, h Handler) error
+	// HandleAdmin registers a control panel route, for the module's tab.
+	// The pattern is "METHOD /path"; the core files it under
+	// /admin/api/modules/<name>/path, on the panel's private listener, where
+	// only signed-in admins reach it.
+	HandleAdmin(pattern string, h http.HandlerFunc) error
 	// DB is the database, for the module's own tables.
 	DB() *sql.DB
 	// Logger is the module's logger. Never log tokens, passwords, PINs or

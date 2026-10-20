@@ -75,6 +75,21 @@ func (p *Panel) directory(ctx context.Context) (map[string]connector.Person, err
 	return people, nil
 }
 
+// Tab is a switched-on module, as the control panel shows it.
+type Tab struct {
+	Name        string
+	Description string
+	// UI is the module's tab (panel.js and what it needs); nil if none.
+	UI fs.FS
+}
+
+// Modules is where the panel finds the switched-on modules: their tabs and
+// their control panel routes. It changes as modules are switched.
+type Modules interface {
+	Tabs() []Tab
+	AdminRoutes() http.Handler
+}
+
 // Panel serves the control panel.
 type Panel struct {
 	Features    Features
@@ -82,6 +97,8 @@ type Panel struct {
 	Provisioner *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are.
 	Directory Directory
+	// Modules, when set, lists the switched-on modules for their tabs.
+	Modules Modules
 	// Provider signs admins in; its redirect URL is the panel's callback and
 	// its groups claim is set.
 	Provider *oidc.Provider
@@ -150,6 +167,19 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}", p.signedIn(p.deleteAccount))
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}/sessions/{session}", p.signedIn(p.endSession))
 	mux.HandleFunc("POST /admin/api/profiles/{id}/unlock-pin", p.signedIn(p.unlockPIN))
+	mux.HandleFunc("GET /admin/api/modules", p.signedIn(p.moduleTabs))
+	// Modules' own control panel routes, as currently switched on.
+	modulesAPI := p.signedIn(func(w http.ResponseWriter, r *http.Request, _ *session) {
+		if p.Modules == nil {
+			http.NotFound(w, r)
+			return
+		}
+		p.Modules.AdminRoutes().ServeHTTP(w, r)
+	})
+	for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE"} {
+		mux.Handle(method+" /admin/api/modules/", modulesAPI)
+	}
+	mux.HandleFunc("GET /admin/modules/{name}/{file...}", p.signedIn(p.moduleFile))
 	mux.HandleFunc("GET /admin/api/templates", p.signedIn(p.templates))
 	mux.HandleFunc("POST /admin/api/templates", p.signedIn(p.createTemplate))
 	mux.HandleFunc("PUT /admin/api/templates/{id}", p.signedIn(p.updateTemplate))
@@ -451,4 +481,37 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// ---- Modules' tabs ------------------------------------------------------------
+
+func (p *Panel) tabs() []Tab {
+	if p.Modules == nil {
+		return nil
+	}
+	return p.Modules.Tabs()
+}
+
+func (p *Panel) moduleTabs(w http.ResponseWriter, r *http.Request, _ *session) {
+	type tabJSON struct {
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+		HasTab      bool   `json:"hasTab"`
+	}
+	out := []tabJSON{}
+	for _, t := range p.tabs() {
+		out = append(out, tabJSON{Name: t.Name, Description: t.Description, HasTab: t.UI != nil})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+}
+
+// moduleFile serves a file of a switched-on module's tab.
+func (p *Panel) moduleFile(w http.ResponseWriter, r *http.Request, _ *session) {
+	for _, t := range p.tabs() {
+		if t.Name == r.PathValue("name") && t.UI != nil {
+			http.StripPrefix("/admin/modules/"+t.Name+"/", http.FileServerFS(t.UI)).ServeHTTP(w, r)
+			return
+		}
+	}
+	http.NotFound(w, r)
 }

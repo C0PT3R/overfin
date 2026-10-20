@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/C0PT3R/overfin/internal/config"
@@ -229,5 +230,48 @@ func TestPanelPage(t *testing.T) {
 	}
 	if rec := b.do("GET", "/admin/panel.js", "", nil); rec.Code != 200 {
 		t.Errorf("script: %d", rec.Code)
+	}
+}
+
+type fakeModules struct{ mux *http.ServeMux }
+
+func (f fakeModules) Tabs() []Tab {
+	return []Tab{
+		{Name: "hello", Description: "greets", UI: fstest.MapFS{"panel.js": {Data: []byte("export default () => {}")}}},
+		{Name: "plain"}, // no tab
+	}
+}
+func (f fakeModules) AdminRoutes() http.Handler { return f.mux }
+
+func TestModuleTabs(t *testing.T) {
+	p, idp, _ := newPanel(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/api/modules/hello/stats", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]int{"visits": 3})
+	})
+	p.Modules = fakeModules{mux: mux}
+	b := &browser{h: p.Handler(), cookies: map[string]string{}}
+
+	// Nothing for strangers.
+	for _, path := range []string{"/admin/api/modules", "/admin/api/modules/hello/stats", "/admin/modules/hello/panel.js"} {
+		if rec := b.do("GET", path, "", nil); rec.Code != 401 {
+			t.Errorf("%s before signing in: %d", path, rec.Code)
+		}
+	}
+	signIn(t, b, idp, []string{"overfin-admins"})
+	if body := b.do("GET", "/admin/api/modules", "", nil).Body.String(); !strings.Contains(body, `{"name":"hello","description":"greets","hasTab":true}`) ||
+		!strings.Contains(body, `{"name":"plain","hasTab":false}`) {
+		t.Errorf("modules: %s", body)
+	}
+	if rec := b.do("GET", "/admin/api/modules/hello/stats", "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"visits":3`) {
+		t.Errorf("module admin route: %d %s", rec.Code, rec.Body)
+	}
+	if rec := b.do("GET", "/admin/modules/hello/panel.js", "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "export default") {
+		t.Errorf("module tab: %d", rec.Code)
+	}
+	for _, path := range []string{"/admin/modules/plain/panel.js", "/admin/modules/nope/panel.js", "/admin/api/modules/nope/x"} {
+		if rec := b.do("GET", path, "", nil); rec.Code != 404 {
+			t.Errorf("%s: %d", path, rec.Code)
+		}
 	}
 }

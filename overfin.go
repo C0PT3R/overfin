@@ -159,7 +159,7 @@ func run(logger *slog.Logger) error {
 	var adminSrv *http.Server
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
-		panel := &admin.Panel{Features: gw, Group: a.Group, Logger: logger,
+		panel := &admin.Panel{Features: gw, Modules: gw, Group: a.Group, Logger: logger,
 			Store: db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
