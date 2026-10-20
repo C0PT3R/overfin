@@ -294,8 +294,12 @@ content** (a hash computed in the background), so servers know for certain
 they hold the same file; **several sources at once**, first for downloads;
 and, much later, **servers as a swarm**, each streaming pieces of the same
 file to the gateway that serves the viewer, like a torrent network made of
-servers only, so viewers never connect to anyone but their own site. That
-last part only pays off with many servers holding identical files.
+servers only, so viewers never connect to anyone but their own site. It
+works with a single copy (one source, like a torrent with one seeder) and
+gets faster with each server holding the same file, including servers that
+kept the pieces they recently fetched for their own viewers: a cache, if
+their operator allows it, through which popular titles spread by
+themselves.
 
 ## Designed, to implement later
 
