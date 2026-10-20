@@ -150,6 +150,10 @@ off by default.
    (with their Jellyfin users), account expiry, per-account limits,
    PIN-lock resets, sessions.~~ Done, with labels; real names come with a
    connector.
+2c. ~~Account templates~~ Done: what an account may do (streams,
+   profiles; later, which modules), followed live, so editing a template
+   changes every account on it. The built-in Default is minimal; operators
+   make their own. Access length stays individual.
 3. Invites: created and managed in the panel (expiry, number of uses, a
    template: profiles, kids limits, stream limit, account expiry); redeemed
    on the public site, where they create the account. Optionally, accounts

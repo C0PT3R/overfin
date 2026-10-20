@@ -93,9 +93,13 @@ It's both a starting point and a reference for using the API.
   picks direct play, repackaging or transcoding. Stream URLs carry no Jellyfin
   token. Subtitles come as clean WebVTT, "skip intro" markers are included,
   and idle transcodes are stopped.
-- **Gentle limits.** Streams per account (a new stream takes over the
-  account's oldest by default), a server-wide transcode cap, a bitrate cap.
-  Another account's stream is never cut off.
+- **Account templates.** Every account follows a template saying what it
+  may do (streams at once, profiles), and editing a template changes every
+  account on it at once. The built-in Default is minimal (one profile, one
+  stream); operators make the templates their users need.
+- **Gentle limits.** A new stream takes over the account's oldest by default,
+  with a server-wide transcode cap and a bitrate cap. Another account's
+  stream is never cut off.
 
 ## Coming next
 

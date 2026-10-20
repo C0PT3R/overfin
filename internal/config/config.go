@@ -245,9 +245,7 @@ type Storage struct {
 }
 
 type Limits struct {
-	MaxProfilesPerAccount int `toml:"max_profiles_per_account" json:"maxProfilesPerAccount"`
-	MaxStreamsPerAccount  int `toml:"max_streams_per_account" json:"maxStreamsPerAccount"`
-	MaxTranscodesTotal    int `toml:"max_transcodes_total" json:"maxTranscodesTotal"`
+	MaxTranscodesTotal int `toml:"max_transcodes_total" json:"maxTranscodesTotal"`
 	// MaxBitrateKbps caps every stream; 0 means no cap.
 	MaxBitrateKbps int `toml:"max_bitrate_kbps" json:"maxBitrateKbps"`
 	// PINAttempts is how many wrong PINs in a row lock a profile.
@@ -292,11 +290,9 @@ func defaults() Config {
 		// them explicitly avoids trusting the wrong one by accident.
 		Identity: Identity{Mode: "forwardauth", GroupsSeparator: "|"},
 		Limits: Limits{
-			MaxProfilesPerAccount: 5,
-			MaxStreamsPerAccount:  2,
-			MaxTranscodesTotal:    4,
-			PINAttempts:           5,
-			OnLimit:               "replace-oldest",
+			MaxTranscodesTotal: 4,
+			PINAttempts:        5,
+			OnLimit:            "replace-oldest",
 		},
 		OIDC:     OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
 		Adoption: Adoption{Mode: "move"},
@@ -546,17 +542,11 @@ func (c *Config) validate() error {
 		add("storage.path must not be empty")
 	}
 
-	if c.Limits.MaxProfilesPerAccount < 1 {
-		add("limits.max_profiles_per_account must be at least 1")
-	}
 	if u := c.Identity.LogoutURL; u != "" && !strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "https://") {
 		add("identity.logout_url must be a path or an https:// URL")
 	}
 	if c.Limits.PINAttempts < 3 || c.Limits.PINAttempts > 10 {
 		add("limits.pin_attempts must be between 3 and 10")
-	}
-	if c.Limits.MaxStreamsPerAccount < 1 {
-		add("limits.max_streams_per_account must be at least 1")
 	}
 	if c.Limits.MaxTranscodesTotal < 0 {
 		add("limits.max_transcodes_total must not be negative")

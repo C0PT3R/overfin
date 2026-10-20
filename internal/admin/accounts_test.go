@@ -70,13 +70,14 @@ func TestAccounts(t *testing.T) {
 		t.Errorf("a token in the list: %s", body)
 	}
 
-	change := `{"label":"Bob","maxStreams":3,"expiresAt":"2020-01-01T00:00:00Z"}`
+	family, _ := db.CreateTemplate(ctx, "Family", 3, 5)
+	change := `{"label":"Bob","templateId":"` + family.ID + `","expiresAt":"2020-01-01T00:00:00Z"}`
 	rec = b.do("PATCH", "/admin/api/accounts/"+acct.ID, change, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"label":"Bob"`) || !strings.Contains(rec.Body.String(), `"status":"expired"`) ||
-		!strings.Contains(rec.Body.String(), `"maxStreams":3`) {
+		!strings.Contains(rec.Body.String(), `"name":"Family"`) {
 		t.Fatalf("change: %d %s", rec.Code, rec.Body)
 	}
-	for _, bad := range []string{`{"label":"<b>x</b>"}`, `{"maxStreams":-1}`, `{"expiresAt":"tomorrow"}`, `{"owner":true}`} {
+	for _, bad := range []string{`{"label":"<b>x</b>"}`, `{"templateId":"tmpl_nope"}`, `{"expiresAt":"tomorrow"}`, `{"owner":true}`} {
 		if rec := b.do("PATCH", "/admin/api/accounts/"+acct.ID, bad, nil); rec.Code != 400 {
 			t.Errorf("%s: %d", bad, rec.Code)
 		}
@@ -158,4 +159,49 @@ func TestAccountsWithNames(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"directory":"unreachable"`) || strings.Contains(rec.Body.String(), "alice") {
 		t.Errorf("failing connector: %d %s", rec.Code, rec.Body)
 	}
+}
+
+func TestTemplates(t *testing.T) {
+	ctx := context.Background()
+	_, b, db, _ := signedInPanel(t)
+	acct, _, _ := db.CreateAccount(ctx, "person-1", store.NewOwner{Name: "Main", JellyfinUserID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", JellyfinUsername: "of-1", JellyfinToken: "t"})
+
+	body := b.do("GET", "/admin/api/templates", "", nil).Body.String()
+	if !strings.Contains(body, `"name":"Default","maxStreams":1,"maxProfiles":1,"accounts":1,"default":true`) {
+		t.Fatalf("templates: %s", body)
+	}
+	rec := b.do("POST", "/admin/api/templates", `{"name":"Family","maxStreams":3,"maxProfiles":5}`, nil)
+	if rec.Code != 201 {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	id := between(rec.Body.String(), `"id":"`, `"`)
+	for _, bad := range []string{`{"name":"","maxStreams":1,"maxProfiles":1}`, `{"name":"X","maxStreams":0,"maxProfiles":1}`,
+		`{"name":"X","maxStreams":1,"maxProfiles":21}`, `{"name":"Family","maxStreams":1,"maxProfiles":1}`} {
+		if rec := b.do("POST", "/admin/api/templates", bad, nil); rec.Code != 400 {
+			t.Errorf("%s: %d", bad, rec.Code)
+		}
+	}
+	b.do("PATCH", "/admin/api/accounts/"+acct.ID, `{"templateId":"`+id+`"}`, nil)
+	// Editing the template changes the account at once.
+	if rec := b.do("PUT", "/admin/api/templates/"+id, `{"name":"Family","maxStreams":4,"maxProfiles":5}`, nil); rec.Code != 204 {
+		t.Fatalf("update: %d %s", rec.Code, rec.Body)
+	}
+	if a, _ := db.AccountByID(ctx, acct.ID); a.Template.MaxStreams != 4 {
+		t.Errorf("account after the edit: %+v", a.Template)
+	}
+	if rec := b.do("DELETE", "/admin/api/templates/"+id, "", nil); rec.Code != 400 {
+		t.Errorf("deleting a template in use: %d", rec.Code)
+	}
+	if rec := b.do("DELETE", "/admin/api/templates/tmpl_default", "", nil); rec.Code != 400 {
+		t.Errorf("deleting Default: %d", rec.Code)
+	}
+}
+
+func between(s, start, end string) string {
+	_, after, ok := strings.Cut(s, start)
+	if !ok {
+		return ""
+	}
+	v, _, _ := strings.Cut(after, end)
+	return v
 }

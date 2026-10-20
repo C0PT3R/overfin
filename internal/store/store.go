@@ -119,26 +119,43 @@ type Account struct {
 	Subject  string
 	Created  time.Time
 	Disabled bool
-	// Set by the operator: a label, when access ends (zero: never), and a
-	// stream limit overriding the instance's (0: the instance's).
-	Label      string
-	Expires    time.Time
-	MaxStreams int
+	// Set by the operator: a label, and when access ends (zero: never).
+	Label   string
+	Expires time.Time
+	// Template is the account template it follows: what it may do.
+	Template Template
 }
+
+// Template is an account template: what accounts on it may do.
+type Template struct {
+	ID          string
+	Name        string
+	MaxStreams  int
+	MaxProfiles int
+	// Accounts is how many accounts follow it (filled by Templates only).
+	Accounts int
+}
+
+// DefaultTemplate is the built-in template, minimal: one profile, one
+// stream. Every account without another template is on it.
+const DefaultTemplate = "tmpl_default"
 
 // Expired reports whether the account's access has ended.
 func (a *Account) Expired(now time.Time) bool {
 	return !a.Expires.IsZero() && !now.Before(a.Expires)
 }
 
-const accountSelect = `SELECT id, subject, created_at, disabled_at, label, expires_at, max_streams FROM accounts`
+const accountSelect = `SELECT a.id, a.subject, a.created_at, a.disabled_at, a.label, a.expires_at,
+		t.id, t.name, t.max_streams, t.max_profiles
+	FROM accounts a JOIN account_templates t ON t.id = COALESCE(a.template_id, 'tmpl_default')`
 
 func scanAccount(sc scanner) (*Account, error) {
 	var a Account
 	var created int64
-	var disabled, expires, maxStreams sql.NullInt64
+	var disabled, expires sql.NullInt64
 	var label sql.NullString
-	err := sc.Scan(&a.ID, &a.Subject, &created, &disabled, &label, &expires, &maxStreams)
+	err := sc.Scan(&a.ID, &a.Subject, &created, &disabled, &label, &expires,
+		&a.Template.ID, &a.Template.Name, &a.Template.MaxStreams, &a.Template.MaxProfiles)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -151,7 +168,6 @@ func scanAccount(sc scanner) (*Account, error) {
 	if expires.Valid {
 		a.Expires = time.Unix(expires.Int64, 0).UTC()
 	}
-	a.MaxStreams = int(maxStreams.Int64)
 	return &a, nil
 }
 
@@ -235,7 +251,7 @@ func (s *Store) JellyfinUserLinked(ctx context.Context, jellyfinUserID string) (
 
 // AccountBySubject finds the account of an identity provider user.
 func (s *Store) AccountBySubject(ctx context.Context, subject string) (*Account, error) {
-	return scanAccount(s.db.QueryRowContext(ctx, accountSelect+` WHERE subject = ?`, subject))
+	return scanAccount(s.db.QueryRowContext(ctx, accountSelect+` WHERE a.subject = ?`, subject))
 }
 
 // Profile returns one profile, only if it belongs to accountID (SECURITY.md
@@ -956,12 +972,12 @@ func (s *Store) SetFeatures(ctx context.Context, v []byte) error {
 
 // AccountByID finds an account by its ID.
 func (s *Store) AccountByID(ctx context.Context, id string) (*Account, error) {
-	return scanAccount(s.db.QueryRowContext(ctx, accountSelect+` WHERE id = ?`, id))
+	return scanAccount(s.db.QueryRowContext(ctx, accountSelect+` WHERE a.id = ?`, id))
 }
 
 // Accounts lists every account, newest first.
 func (s *Store) Accounts(ctx context.Context) ([]*Account, error) {
-	rows, err := s.db.QueryContext(ctx, accountSelect+` ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, accountSelect+` ORDER BY a.created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1000,17 +1016,6 @@ func (s *Store) SetAccountExpiry(ctx context.Context, id string, at time.Time) e
 		v = at.Unix()
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET expires_at = ? WHERE id = ?`, v, id)
-	return oneRow(res, err)
-}
-
-// SetAccountMaxStreams sets an account's own stream limit; 0: the
-// instance's.
-func (s *Store) SetAccountMaxStreams(ctx context.Context, id string, n int) error {
-	var v any
-	if n > 0 {
-		v = n
-	}
-	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET max_streams = ? WHERE id = ?`, v, id)
 	return oneRow(res, err)
 }
 
@@ -1100,4 +1105,93 @@ func (s *Store) MigrateModule(ctx context.Context, module string, migrations fs.
 		}
 	}
 	return nil
+}
+
+// ---- Account templates ----------------------------------------------------------
+
+// ErrTemplateInUse: a template accounts still follow can't be deleted.
+var ErrTemplateInUse = errors.New("store: template in use")
+
+// ErrTemplateNameTaken: another template has that name.
+var ErrTemplateNameTaken = errors.New("store: template name already used")
+
+func (s *Store) templateNameTaken(ctx context.Context, name, exceptID string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM account_templates WHERE name = ? AND id != ?`, name, exceptID).Scan(&n)
+	return n > 0, err
+}
+
+// Templates lists the account templates, Default first, with how many
+// accounts follow each.
+func (s *Store) Templates(ctx context.Context) ([]*Template, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.name, t.max_streams, t.max_profiles,
+			(SELECT count(*) FROM accounts a WHERE COALESCE(a.template_id, 'tmpl_default') = t.id)
+		FROM account_templates t ORDER BY t.id != 'tmpl_default', t.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Template
+	for rows.Next() {
+		var t Template
+		if err := rows.Scan(&t.ID, &t.Name, &t.MaxStreams, &t.MaxProfiles, &t.Accounts); err != nil {
+			return nil, err
+		}
+		out = append(out, &t)
+	}
+	return out, rows.Err()
+}
+
+// CreateTemplate adds an account template.
+func (s *Store) CreateTemplate(ctx context.Context, name string, maxStreams, maxProfiles int) (*Template, error) {
+	if taken, err := s.templateNameTaken(ctx, name, ""); err != nil {
+		return nil, err
+	} else if taken {
+		return nil, ErrTemplateNameTaken
+	}
+	t := &Template{ID: ids.New(ids.Template), Name: name, MaxStreams: maxStreams, MaxProfiles: maxProfiles}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO account_templates (id, name, max_streams, max_profiles, created_at)
+		VALUES (?, ?, ?, ?, ?)`, t.ID, name, maxStreams, maxProfiles, s.now().Unix())
+	return t, err
+}
+
+// UpdateTemplate changes a template; every account on it follows at once.
+func (s *Store) UpdateTemplate(ctx context.Context, id, name string, maxStreams, maxProfiles int) error {
+	if taken, err := s.templateNameTaken(ctx, name, id); err != nil {
+		return err
+	} else if taken {
+		return ErrTemplateNameTaken
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE account_templates SET name = ?, max_streams = ?, max_profiles = ? WHERE id = ?`,
+		name, maxStreams, maxProfiles, id)
+	return oneRow(res, err)
+}
+
+// DeleteTemplate deletes a template no account follows. Default can't be
+// deleted.
+func (s *Store) DeleteTemplate(ctx context.Context, id string) error {
+	if id == DefaultTemplate {
+		return ErrTemplateInUse
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM accounts WHERE template_id = ?`, id).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrTemplateInUse
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM account_templates WHERE id = ?`, id)
+	return oneRow(res, err)
+}
+
+// SetAccountTemplate puts an account on a template.
+func (s *Store) SetAccountTemplate(ctx context.Context, accountID, templateID string) error {
+	var v any = templateID
+	if templateID == DefaultTemplate {
+		v = nil
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET template_id = ?
+		WHERE id = ? AND EXISTS (SELECT 1 FROM account_templates WHERE id = ?)`, v, accountID, templateID)
+	return oneRow(res, err)
 }

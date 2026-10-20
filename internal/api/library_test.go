@@ -219,9 +219,23 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	if _, _, err := st.CreateAccount(context.Background(), subject, store.NewOwner{
+	acct, _, err := st.CreateAccount(context.Background(), subject, store.NewOwner{
 		Name: "Main", JellyfinUserID: userJF, JellyfinUsername: "of-test", JellyfinToken: token,
-	}); err != nil {
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The test account's template: 3 profiles, and the stream limit asked
+	// for (none means plenty).
+	streams := maxStreams
+	if streams == 0 {
+		streams = 100
+	}
+	tmpl, err := st.CreateTemplate(context.Background(), "Test", streams, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccountTemplate(context.Background(), acct.ID, tmpl.ID); err != nil {
 		t.Fatal(err)
 	}
 	// A second account, to check tickets don't work across accounts. Its
@@ -249,7 +263,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		}
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
-	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
+	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger}
 	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
 	// The watchlist module, mounted as the real program mounts it.
 	if err := st.MigrateModule(context.Background(), "watchlist", watchlist.Module{}.Info().Migrations); err != nil {
@@ -264,7 +278,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}
 	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb}, wl,
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker, Mounts: []api.Mount{wl}},
-		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,
+		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},
 	}, extra...)
 	h, err := server.New(logger, identify, plugins...)

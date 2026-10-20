@@ -23,8 +23,8 @@ type Playback struct {
 	Library        Library // for the active profile and Jellyfin access
 	Tickets        *playback.Tickets
 	MaxBitrateKbps int // the operator's cap; 0 means none
-	// MaxStreams per account and MaxTranscodes in total; 0 means no limit.
-	MaxStreams    int
+	// MaxTranscodes in total; 0 means no limit. Streams per account come
+	// from the account's template.
 	MaxTranscodes int
 	// RefuseOverLimit refuses a stream over the account's limit instead of
 	// replacing its oldest.
@@ -387,10 +387,7 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	if device == "" {
 		device = "another device"
 	}
-	limit := pb.MaxStreams
-	if caller.Account.MaxStreams > 0 {
-		limit = caller.Account.MaxStreams // the operator's choice for this account
-	}
+	limit := caller.Account.Template.MaxStreams
 	if limit > 0 {
 		active := pb.Tickets.ForAccount(p.AccountID)
 		if len(active) >= limit {

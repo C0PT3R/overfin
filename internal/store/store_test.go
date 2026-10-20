@@ -334,3 +334,48 @@ func TestModuleMigrations(t *testing.T) {
 		t.Error("an out-of-sequence migration was accepted")
 	}
 }
+
+func TestAccountTemplates(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	a, _, _ := s.CreateAccount(ctx, "subject", owner("1"))
+
+	// Every account starts on the minimal Default.
+	got, _ := s.AccountByID(ctx, a.ID)
+	if got.Template.ID != DefaultTemplate || got.Template.MaxProfiles != 1 || got.Template.MaxStreams != 1 {
+		t.Fatalf("new account's template: %+v", got.Template)
+	}
+
+	family, err := s.CreateTemplate(ctx, "Family", 3, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTemplate(ctx, "Family", 1, 1); !errors.Is(err, ErrTemplateNameTaken) {
+		t.Errorf("same name twice: %v", err)
+	}
+	if err := s.SetAccountTemplate(ctx, a.ID, family.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Accounts follow their template live.
+	_ = s.UpdateTemplate(ctx, family.ID, "Family", 4, 5)
+	if got, _ := s.AccountByID(ctx, a.ID); got.Template.MaxStreams != 4 {
+		t.Errorf("after editing the template: %+v", got.Template)
+	}
+	if err := s.DeleteTemplate(ctx, family.ID); !errors.Is(err, ErrTemplateInUse) {
+		t.Errorf("deleting a template in use: %v", err)
+	}
+	if err := s.DeleteTemplate(ctx, DefaultTemplate); !errors.Is(err, ErrTemplateInUse) {
+		t.Errorf("deleting Default: %v", err)
+	}
+	if err := s.SetAccountTemplate(ctx, a.ID, "tmpl_nope"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("an unknown template: %v", err)
+	}
+	all, _ := s.Templates(ctx)
+	if len(all) != 2 || all[0].ID != DefaultTemplate || all[1].Accounts != 1 {
+		t.Errorf("templates: %+v %+v", all[0], all[1])
+	}
+	_ = s.SetAccountTemplate(ctx, a.ID, DefaultTemplate)
+	if err := s.DeleteTemplate(ctx, family.ID); err != nil {
+		t.Errorf("deleting an unused template: %v", err)
+	}
+}

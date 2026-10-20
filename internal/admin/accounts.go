@@ -19,12 +19,12 @@ type accountJSON struct {
 	ID string `json:"id"`
 	// Subject is the identity provider's ID for the person, to look them up
 	// there until a connector shows names.
-	Subject    string `json:"subject"`
-	Label      string `json:"label,omitempty"`
-	CreatedAt  string `json:"createdAt"`
-	Status     string `json:"status"` // active, disabled, expired
-	ExpiresAt  string `json:"expiresAt,omitempty"`
-	MaxStreams int    `json:"maxStreams,omitempty"`
+	Subject   string      `json:"subject"`
+	Label     string      `json:"label,omitempty"`
+	CreatedAt string      `json:"createdAt"`
+	Status    string      `json:"status"` // active, disabled, expired
+	ExpiresAt string      `json:"expiresAt,omitempty"`
+	Template  templateRef `json:"template"`
 	// Person is who the identity provider says this is, live from the
 	// connector; absent without one, or when the provider doesn't know.
 	Person   *connector.Person `json:"person,omitempty"`
@@ -55,7 +55,8 @@ type adminSession struct {
 func (p *Panel) accountJSON(r *http.Request, a *store.Account) (accountJSON, error) {
 	ctx := r.Context()
 	out := accountJSON{ID: a.ID, Subject: a.Subject, Label: a.Label, CreatedAt: a.Created.Format(time.RFC3339),
-		Status: "active", MaxStreams: a.MaxStreams, Profiles: []adminProfile{}, Sessions: []adminSession{}}
+		Status: "active", Template: templateRef{ID: a.Template.ID, Name: a.Template.Name},
+		Profiles: []adminProfile{}, Sessions: []adminSession{}}
 	switch {
 	case a.Disabled:
 		out.Status = "disabled"
@@ -137,8 +138,8 @@ type accountChange struct {
 	Disabled *bool   `json:"disabled"`
 	// ExpiresAt is an RFC 3339 time, or "" for never.
 	ExpiresAt *string `json:"expiresAt"`
-	// MaxStreams is the account's own limit; 0 for the instance's.
-	MaxStreams *int `json:"maxStreams"`
+	// TemplateID puts the account on another account template.
+	TemplateID *string `json:"templateId"`
 }
 
 func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, _ *session) {
@@ -159,10 +160,6 @@ func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, _ *session
 		}
 		expires = t
 	}
-	if c.MaxStreams != nil && (*c.MaxStreams < 0 || *c.MaxStreams > 100) {
-		invalid(w, "maxStreams must be between 0 (the instance's limit) and 100")
-		return
-	}
 	if c.Label != nil && textclean.Plain(*c.Label, 64) != *c.Label {
 		invalid(w, "a label is plain text, 64 characters at most")
 		return
@@ -182,8 +179,13 @@ func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, _ *session
 	if c.ExpiresAt != nil {
 		err = errors.Join(err, p.Store.SetAccountExpiry(ctx, a.ID, expires))
 	}
-	if c.MaxStreams != nil {
-		err = errors.Join(err, p.Store.SetAccountMaxStreams(ctx, a.ID, *c.MaxStreams))
+	if c.TemplateID != nil {
+		if terr := p.Store.SetAccountTemplate(ctx, a.ID, *c.TemplateID); errors.Is(terr, store.ErrNotFound) {
+			invalid(w, "no such template")
+			return
+		} else {
+			err = errors.Join(err, terr)
+		}
 	}
 	if err != nil {
 		p.fail(w, "changing an account", err)
@@ -250,4 +252,9 @@ func (p *Panel) fail(w http.ResponseWriter, what string, err error) {
 
 func invalid(w http.ResponseWriter, detail string) {
 	writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": detail})
+}
+
+type templateRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }

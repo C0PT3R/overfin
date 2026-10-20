@@ -150,6 +150,10 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}", p.signedIn(p.deleteAccount))
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}/sessions/{session}", p.signedIn(p.endSession))
 	mux.HandleFunc("POST /admin/api/profiles/{id}/unlock-pin", p.signedIn(p.unlockPIN))
+	mux.HandleFunc("GET /admin/api/templates", p.signedIn(p.templates))
+	mux.HandleFunc("POST /admin/api/templates", p.signedIn(p.createTemplate))
+	mux.HandleFunc("PUT /admin/api/templates/{id}", p.signedIn(p.updateTemplate))
+	mux.HandleFunc("DELETE /admin/api/templates/{id}", p.signedIn(p.deleteTemplate))
 	return privateOnly(sameOrigin(headers(mux)))
 }
 

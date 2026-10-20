@@ -27,8 +27,7 @@ type Profiles struct {
 	PINs        *pin.Checker
 	// Images, when set, forgets a profile's image access when its limits
 	// change.
-	Images      *images.Pipeline
-	MaxProfiles int
+	Images *images.Pipeline
 	// LogoutURL is where the site sends a user to also leave the identity
 	// provider; empty when there is none.
 	LogoutURL string
@@ -192,7 +191,7 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 		}
 		np.RatingCeiling = ceiling.Name
 	}
-	prof, err := p.Provisioner.AddProfile(r.Context(), c.Account.ID, np, ceiling, p.MaxProfiles)
+	prof, err := p.Provisioner.AddProfile(r.Context(), c.Account.ID, np, ceiling, c.Account.Template.MaxProfiles)
 	switch {
 	case errors.Is(err, store.ErrNameTaken):
 		problem.Send(w, problem.NameTaken, "")

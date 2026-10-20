@@ -10,10 +10,11 @@ import (
 
 // Prefixes of the ID types Overfin issues.
 const (
-	Account = "acct"
-	Profile = "prof"
-	Session = "sess"
-	Login   = "login"
+	Account  = "acct"
+	Profile  = "prof"
+	Session  = "sess"
+	Login    = "login"
+	Template = "tmpl"
 )
 
 // Lowercase base32 without padding: URL-safe and easy to read aloud.

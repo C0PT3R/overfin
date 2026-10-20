@@ -110,8 +110,6 @@ dial = ""                       # optional "host:port", as in [oidc]
 # it; after that they're ignored (the log says so) and can be removed.
 
 [limits]
-max_profiles_per_account = 5
-max_streams_per_account = 2
 max_transcodes_total = 4
 # 0 means no cap.
 max_bitrate_kbps = 0

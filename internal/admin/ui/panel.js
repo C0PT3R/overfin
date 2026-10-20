@@ -86,10 +86,8 @@ function render(state, draft) {
       toggle('Bring existing accounts', 'People bring their Jellyfin account and history with its username and password', 'adoption.claim'),
       choice('When an account is brought', null, 'adoption.mode', [['move', 'Move it (old login stops working)'], ['link', 'Link it (old login keeps working)']]),
       choice('When an account is deleted', null, 'accounts.onDelete', [['delete', 'Delete its history too'], ['disable', 'Keep its history, unusable']]),
-      num('Profiles per account', null, 'limits.maxProfilesPerAccount', 1),
       num('Wrong PINs before a lock', '3 to 10', 'limits.pinAttempts', 3)),
     h('section', {}, h('h2', {}, 'Streams'),
-      num('Streams per account', null, 'limits.maxStreamsPerAccount', 1),
       choice('One stream too many', null, 'limits.onLimit', [['replace-oldest', 'Replace the oldest'], ['refuse', 'Refuse the new one']]),
       num('Transcodes on the server', '0 means no limit', 'limits.maxTranscodesTotal', 0),
       num('Bitrate cap (kbps)', '0 means no cap', 'limits.maxBitrateKbps', 0)),
@@ -176,7 +174,8 @@ const subline = (a) => [a.person?.username && a.person.name ? a.person.username 
 
 // The users view: a table of accounts, and the selected one's details.
 async function users(selected = '') {
-  const { items, directory } = await api('GET', '/admin/api/accounts');
+  const [{ items, directory }, { items: templates }] = await Promise.all([
+    api('GET', '/admin/api/accounts'), api('GET', '/admin/api/templates')]);
   $('#main').classList.add('wide');
   const search = h('input', { type: 'search', placeholder: 'Search', class: 'search' });
   const filter = h('select', {}, h('option', { value: '' }, 'All'),
@@ -187,7 +186,7 @@ async function users(selected = '') {
   const select = (a) => {
     selected = a.id;
     for (const tr of tbody.children) tr.classList.toggle('selected', tr.dataset.id === a.id);
-    detail.replaceChildren(...accountDetail(a, () => users(a.id)));
+    detail.replaceChildren(...accountDetail(a, templates, () => users(a.id)));
   };
   const draw = () => {
     const q = search.value.trim().toLowerCase();
@@ -199,13 +198,14 @@ async function users(selected = '') {
         h('td', {}, h('div', { class: 'name' }, nameOf(a)), h('div', { class: 'hint' }, subline(a) || (a.person ? '' : 'name unknown'))),
         h('td', {}, h('span', { class: `pill ${a.status}` }, statusText[a.status] || a.status),
           a.person && !a.person.active ? h('div', {}, h('span', { class: 'pill disabled' }, 'off in identity provider')) : null),
+        h('td', {}, a.template.name),
         h('td', {}, String(a.profiles.length), kids ? h('span', { class: 'hint' }, ` (${kids} kids)`) : null),
         h('td', {}, String(a.sessions.length)),
         h('td', { class: 'hint' }, ago(lastActive(a)) || '—'),
         h('td', { class: 'hint' }, day(a.createdAt)));
       return tr;
     }));
-    if (!shown.length) tbody.append(h('tr', {}, h('td', { colspan: '6', class: 'muted' }, 'No accounts match.')));
+    if (!shown.length) tbody.append(h('tr', {}, h('td', { colspan: '7', class: 'muted' }, 'No accounts match.')));
     const current = items.find((a) => a.id === selected);
     if (current) select(current);
   };
@@ -213,7 +213,7 @@ async function users(selected = '') {
   filter.addEventListener('change', draw);
 
   const table = h('table', {},
-    h('thead', {}, h('tr', {}, ...['Account', 'Status', 'Profiles', 'Devices', 'Last active', 'Since'].map((t) => h('th', {}, t)))),
+    h('thead', {}, h('tr', {}, ...['Account', 'Status', 'Template', 'Profiles', 'Devices', 'Last active', 'Since'].map((t) => h('th', {}, t)))),
     tbody);
   const notice = {
     none: "Names come from the identity provider through a connector (see [connector] in the configuration); until then, labels tell accounts apart.",
@@ -228,7 +228,7 @@ async function users(selected = '') {
 
 // accountDetail is the selected account's panel: access, profiles, devices,
 // and the destructive actions, set apart.
-function accountDetail(a, reload) {
+function accountDetail(a, templates, reload) {
   const msg = h('p', {});
   const run = async (action) => {
     msg.className = '';
@@ -245,7 +245,8 @@ function accountDetail(a, reload) {
 
   const label = h('input', { value: a.label || '', maxlength: '64', placeholder: 'e.g. Bob, or "the cabin"' });
   const expires = h('input', { type: 'datetime-local', value: toLocalInput(a.expiresAt) });
-  const streams = h('input', { type: 'number', min: '0', max: '100', value: String(a.maxStreams || 0) });
+  const template = h('select', {}, templates.map((t) => h('option', { value: t.id, selected: t.id === a.template.id },
+    `${t.name} (${t.maxStreams} stream${t.maxStreams > 1 ? 's' : ''}, ${t.maxProfiles} profile${t.maxProfiles > 1 ? 's' : ''})`)));
 
   const field = (text, hint, input) => h('label', { class: 'field' }, h('span', {}, text, hint && h('span', { class: 'hint' }, ` ${hint}`)), input);
   const profiles = a.profiles.map((p) => h('li', {},
@@ -271,11 +272,11 @@ function accountDetail(a, reload) {
     h('h3', {}, 'Access'),
     field('Label', '(your note)', label),
     field('Access ends', '(empty: never)', expires),
-    field('Streams at once', "(0: the server's limit)", streams),
+    field('Template', '(what the account may do)', template),
     h('div', { class: 'toolbar' }, h('button', { class: 'primary', onclick: () => patch({
       label: label.value,
       expiresAt: expires.value ? new Date(expires.value).toISOString() : '',
-      maxStreams: Number(streams.value),
+      templateId: template.value,
     }) }, 'Save'), msg),
     h('h3', {}, `Profiles (${a.profiles.length})`), h('ul', { class: 'items' }, ...profiles),
     h('h3', {}, `Signed-in devices (${a.sessions.length})`),
@@ -290,6 +291,42 @@ function accountDetail(a, reload) {
   ];
 }
 
+// ---- Templates -------------------------------------------------------------
+
+// templatesView lists the account templates, each editable in place.
+// Accounts follow theirs live: saving changes every account on it at once.
+async function templatesView() {
+  $('#main').classList.remove('wide');
+  const { items } = await api('GET', '/admin/api/templates');
+  const card = (t) => {
+    const msg = h('span', {});
+    const name = h('input', { value: t?.name || '', maxlength: '40', placeholder: 'e.g. Family, Friends' });
+    const streams = h('input', { type: 'number', min: '1', max: '100', value: String(t?.maxStreams ?? 1) });
+    const profiles = h('input', { type: 'number', min: '1', max: '20', value: String(t?.maxProfiles ?? 1) });
+    const body = () => ({ name: name.value, maxStreams: Number(streams.value), maxProfiles: Number(profiles.value) });
+    const run = async (action) => {
+      msg.className = '';
+      msg.textContent = '';
+      try { await action(); templatesView(); } catch (err) { msg.className = 'error'; msg.textContent = err.message; }
+    };
+    const save = t
+      ? h('button', { class: 'primary', onclick: () => run(() => api('PUT', `/admin/api/templates/${t.id}`, body())) }, 'Save')
+      : h('button', { class: 'primary', onclick: () => run(() => api('POST', '/admin/api/templates', body())) }, 'Create');
+    const remove = t && !t.default && h('button', { class: 'danger', onclick: () => {
+      if (confirm(`Delete the template "${t.name}"?`)) run(() => api('DELETE', `/admin/api/templates/${t.id}`));
+    } }, 'Delete');
+    return h('section', {},
+      h('h2', {}, t ? t.name : 'New template', t?.default ? h('span', { class: 'pill' }, ' built in') : null),
+      t && h('p', { class: 'hint' }, `${t.accounts} account${t.accounts === 1 ? '' : 's'} on it${t.accounts ? '; changes apply to them at once' : ''}.`),
+      h('div', { class: 'row' }, h('div', {}, 'Name'), name),
+      h('div', { class: 'row' }, h('div', {}, 'Streams at once'), streams),
+      h('div', { class: 'row' }, h('div', {}, 'Profiles', h('div', { class: 'hint' }, "the owner's included")), profiles),
+      h('div', { class: 'bar' }, save, remove, msg));
+  };
+  show(h('p', { class: 'notice' }, 'Templates say what accounts may do. Every account follows one: Default, unless you choose another for it in Users.'),
+    ...items.map(card), card(null));
+}
+
 // ---- Layout ----------------------------------------------------------------
 
 function show(...nodes) {
@@ -297,9 +334,10 @@ function show(...nodes) {
 }
 
 async function route() {
-  const tab = location.hash === '#/users' ? 'users' : 'settings';
+  const tab = { '#/users': 'users', '#/templates': 'templates' }[location.hash] || 'settings';
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === tab);
   if (tab === 'users') return users();
+  if (tab === 'templates') return templatesView();
   $('#main').classList.remove('wide');
   const state = await api('GET', '/admin/api/features');
   let draft = null;
