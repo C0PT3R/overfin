@@ -286,20 +286,16 @@ gateway to gateway, each Jellyfin staying private:
   (`item_<peer>_<id>` IDs are ready for it); the peer sees pseudonymous
   accounts, not who they are, though what they watch there stays in its
   history;
-- one stream, one peer, switching to another peer holding the same file if
-  it fails.
+- the video comes straight from the peer, not through two gateways (which
+  would use twice the bandwidth): the peer hands out a short-lived, signed
+  stream ticket for the pseudonymous account, and the browser fetches with
+  that ticket only, no login, no cookie, no referrer. The peer still sees
+  the viewer's address, which Overfin never stores; an operator who wants
+  more can relay a peer's streams through their own gateway instead, at
+  the bandwidth cost. The site's CSP allows media from paired peers only.
 
-Further out, if Overfin networks grew large: **files identified by their
-content** (a hash computed in the background), so servers know for certain
-they hold the same file; **several sources at once**, first for downloads;
-and, much later, **servers as a swarm**, each streaming pieces of the same
-file to the gateway that serves the viewer, like a torrent network made of
-servers only, so viewers never connect to anyone but their own site. It
-works with a single copy (one source, like a torrent with one seeder) and
-gets faster with each server holding the same file, including servers that
-kept the pieces they recently fetched for their own viewers: a cache, if
-their operator allows it, through which popular titles spread by
-themselves.
+Basic federation only: swarms of servers or of browsers (as PeerTube does)
+are out of scope.
 
 ## Designed, to implement later
 
