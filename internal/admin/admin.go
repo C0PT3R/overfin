@@ -3,9 +3,9 @@
 //
 // Nothing here is reachable from the public API: the panel has its own
 // listener, its own routes and its own sign-in. It answers only private
-// addresses, refuses requests relayed for public ones, lets in only members
-// of the admin group, and every change needs a login made in the last few
-// minutes.
+// addresses, refuses requests relayed for public ones, and lets in only
+// members of the admin group, after a fresh login. A session ends after
+// half an hour without activity, and after twelve hours at most.
 package admin
 
 import (
@@ -46,10 +46,8 @@ type Panel struct {
 	// its groups claim is set.
 	Provider *oidc.Provider
 	// Group is the identity provider group whose members are admins.
-	Group string
-	// FreshFor is how long a sign-in allows changes.
-	FreshFor time.Duration
-	Logger   *slog.Logger
+	Group  string
+	Logger *slog.Logger
 
 	mu       sync.Mutex
 	sessions map[string]*session // by token hash
@@ -61,7 +59,7 @@ type Panel struct {
 // admins out.
 type session struct {
 	name     string
-	signedIn time.Time
+	lastSeen time.Time
 	expires  time.Time
 }
 
@@ -76,8 +74,10 @@ type pending struct {
 const (
 	cookieName    = "__Host-overfin-admin"
 	pendingCookie = "__Host-overfin-admin-auth"
-	// sessionFor is how long an admin stays signed in.
+	// sessionFor is how long an admin stays signed in at most; idleFor,
+	// without any activity.
 	sessionFor = 12 * time.Hour
+	idleFor    = 30 * time.Minute
 	pendingFor = 10 * time.Minute
 )
 
@@ -101,7 +101,7 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/auth/finish", p.finish)
 	mux.HandleFunc("GET /admin/api/session", p.signedIn(p.whoami))
 	mux.HandleFunc("GET /admin/api/features", p.signedIn(p.features))
-	mux.HandleFunc("PUT /admin/api/features", p.signedIn(p.fresh(p.setFeatures)))
+	mux.HandleFunc("PUT /admin/api/features", p.signedIn(p.setFeatures))
 	mux.HandleFunc("POST /admin/api/logout", p.logout)
 	return privateOnly(sameOrigin(headers(mux)))
 }
@@ -200,10 +200,14 @@ func (p *Panel) current(r *http.Request) *session {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	s, ok := p.sessions[hashToken(c.Value)]
-	if !ok || !p.clock().Before(s.expires) {
+	key := hashToken(c.Value)
+	s, ok := p.sessions[key]
+	now := p.clock()
+	if !ok || !now.Before(s.expires) || now.Sub(s.lastSeen) > idleFor {
+		delete(p.sessions, key)
 		return nil
 	}
+	s.lastSeen = now
 	return s
 }
 
@@ -213,17 +217,6 @@ func (p *Panel) signedIn(h func(http.ResponseWriter, *http.Request, *session)) h
 		s := p.current(r)
 		if s == nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"type": "not-authenticated", "loginUrl": "/admin/login"})
-			return
-		}
-		h(w, r, s)
-	}
-}
-
-// fresh lets a change through only shortly after signing in.
-func (p *Panel) fresh(h func(http.ResponseWriter, *http.Request, *session)) func(http.ResponseWriter, *http.Request, *session) {
-	return func(w http.ResponseWriter, r *http.Request, s *session) {
-		if p.clock().Sub(s.signedIn) > p.FreshFor {
-			writeJSON(w, http.StatusForbidden, map[string]string{"type": "step-up-required", "stepUpUrl": "/admin/login"})
 			return
 		}
 		h(w, r, s)
@@ -330,7 +323,7 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 			delete(p.sessions, k)
 		}
 	}
-	p.sessions[hashToken(token)] = &session{name: login.Name, signedIn: now, expires: now.Add(sessionFor)}
+	p.sessions[hashToken(token)] = &session{name: login.Name, lastSeen: now, expires: now.Add(sessionFor)}
 	p.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", MaxAge: int(sessionFor.Seconds()),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
@@ -352,11 +345,7 @@ func (p *Panel) logout(w http.ResponseWriter, r *http.Request) {
 // ---- API --------------------------------------------------------------------
 
 func (p *Panel) whoami(w http.ResponseWriter, r *http.Request, s *session) {
-	fresh := p.FreshFor - p.clock().Sub(s.signedIn)
-	if fresh < 0 {
-		fresh = 0
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": s.name, "changesAllowedFor": int(fresh.Seconds())})
+	writeJSON(w, http.StatusOK, map[string]any{"name": s.name})
 }
 
 // pluginInfo describes a plugin for the panel.

@@ -246,8 +246,8 @@ the roadmap.
 Overfin has its own control panel, built in: every feature is switched on and
 off there, and applies at once. It's served on a separate listener that
 answers only private addresses, so it's never on the internet; admins sign in
-through the identity provider, must belong to the admin group, and every
-change needs a fresh login.
+through the identity provider with a fresh login, must belong to the admin
+group, and stay signed in while they're active (30 idle minutes end it).
 
 ```toml
 [admin]

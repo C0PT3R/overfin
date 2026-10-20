@@ -216,12 +216,12 @@ comes from the internet, and media files can be written by anyone.
     to the internet. It exists only on its own listener, off by default; no
     admin route can be registered on the public API. That listener answers
     only clients with private addresses (loopback, private ranges,
-    unique-local IPv6), and
-    refuses any request a proxy relays for a public address, so routing it
-    through a public reverse proxy fails closed. How admins reach it (LAN,
-    VPN, SSH tunnel) is the operator's choice. Admins log in through the
-    identity provider, must belong to the configured admin group, and every
-    change needs a fresh login.
+    unique-local IPv6), and refuses any request a proxy relays for a public
+    address, so routing it through a public reverse proxy fails closed. How
+    admins reach it (LAN, VPN, SSH tunnel) is the operator's choice. Admins
+    sign in through the identity provider with a fresh login every time,
+    and must belong to the configured admin group; a session ends after 30
+    minutes without activity, and after 12 hours at most.
 
 ### Code supply
 59. No code copied or ported from other projects. Dependencies are few, chosen

@@ -132,7 +132,6 @@ func run(logger *slog.Logger) error {
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
 		panel := &admin.Panel{Features: gw, Group: a.Group, Logger: logger,
-			FreshFor: time.Duration(o.FreshForMinutes) * time.Minute,
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
 		adminSrv = &http.Server{Addr: a.Listen, Handler: panel.Handler(),

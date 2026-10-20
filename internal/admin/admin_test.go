@@ -77,7 +77,7 @@ func newPanel(t *testing.T) (*Panel, *fakeIdP, *memFeatures) {
 	c := idp.srv.Client()
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	feats := &memFeatures{f: config.DefaultFeatures()}
-	p := &Panel{Features: feats, Group: "overfin-admins", FreshFor: 5 * time.Minute,
+	p := &Panel{Features: feats, Group: "overfin-admins",
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Provider: &oidc.Provider{Issuer: idp.srv.URL, ClientID: "overfin", ClientSecret: "s",
 			RedirectURL: "http://localhost:8081/admin/auth/callback", GroupsClaim: "groups", HTTP: c}}
@@ -193,14 +193,19 @@ func TestSignInAndChange(t *testing.T) {
 	if rec := b.do("PUT", "/admin/api/features", string(body), map[string]string{"Sec-Fetch-Site": "cross-site"}); rec.Code != 403 {
 		t.Errorf("cross-site change: %d", rec.Code)
 	}
-	// Later, a change needs a new sign-in.
-	p.now = func() time.Time { return time.Now().Add(10 * time.Minute) }
-	if rec := b.do("PUT", "/admin/api/features", string(body), nil); rec.Code != 403 || !strings.Contains(rec.Body.String(), "step-up-required") {
-		t.Errorf("stale change: %d %s", rec.Code, rec.Body)
+	// Activity keeps the session going: changes 20 minutes apart, for an
+	// hour, need no new sign-in.
+	start := time.Now()
+	for m := 20; m <= 60; m += 20 {
+		p.now = func() time.Time { return start.Add(time.Duration(m) * time.Minute) }
+		if rec := b.do("PUT", "/admin/api/features", string(body), nil); rec.Code != 200 {
+			t.Fatalf("change after %d minutes of activity: %d %s", m, rec.Code, rec.Body)
+		}
 	}
-	// Reading still works.
-	if rec := b.do("GET", "/admin/api/features", "", nil); rec.Code != 200 {
-		t.Errorf("reading after a while: %d", rec.Code)
+	// Half an hour without activity ends it.
+	p.now = func() time.Time { return start.Add(95 * time.Minute) }
+	if rec := b.do("GET", "/admin/api/features", "", nil); rec.Code != 401 {
+		t.Errorf("after 35 idle minutes: %d", rec.Code)
 	}
 }
 

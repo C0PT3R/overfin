@@ -85,8 +85,8 @@ users only appear under pseudonyms. It's served on its own listener, never on
 the internet (SECURITY.md rule 58), and only answers private addresses.
 Browsers keep its login cookie only over HTTPS or on `localhost`, so without
 a certificate it's reached through an SSH tunnel (`http://localhost:…`);
-with one, straight from the operator's LAN or VPN. Admins sign in through the identity provider, must be in the admin
-group, and every change needs a fresh login.
+with one, straight from the operator's LAN or VPN. Admins sign in through the identity provider with a fresh login, must be in
+the admin group, and stay signed in while active (30 idle minutes end it).
 
 **Settings move to the panel.** The configuration file keeps only what
 Overfin needs to start (listen addresses, Jellyfin, the database, the
@@ -96,8 +96,8 @@ PIN attempts, and later invites, catalog, requests) lives in the database,
 is switched on and off from the panel, and applies at once. Everything is
 off by default.
 
-1. ~~The admin listener and panel: sign-in, the admin group, step-up for
-   changes, and the feature settings.~~ Done.
+1. ~~The admin listener and panel: sign-in, the admin group, and the
+   feature settings.~~ Done.
 2. Users: every account with its profiles, under real names when a
    connector provides them; disable, re-enable, delete (with their Jellyfin
    users), account expiry, per-account limits, PIN-lock resets, sessions.
