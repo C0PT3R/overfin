@@ -85,8 +85,9 @@ users only appear under pseudonyms. It's served on its own listener, never on
 the internet (SECURITY.md rule 58), and only answers private addresses.
 Browsers keep its login cookie only over HTTPS or on `localhost`, so without
 a certificate it's reached through an SSH tunnel (`http://localhost:…`);
-with one, straight from the operator's LAN or VPN. Admins sign in through the identity provider with a fresh login, must be in
-the admin group, and stay signed in while active (30 idle minutes end it).
+with one, straight from the operator's LAN or VPN. Admins sign in through
+the identity provider with a fresh login, must be in the admin group, and
+stay signed in while active (30 idle minutes end it).
 
 **Settings move to the panel.** The configuration file keeps only what
 Overfin needs to start (listen addresses, Jellyfin, the database, the
