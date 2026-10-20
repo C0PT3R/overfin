@@ -15,7 +15,7 @@ import (
 // gate is a module with a say in creating accounts: it wants an
 // "invitation" header, shapes the account, and can fail afterwards.
 type gate struct {
-	template  string // the plan's template: one with room for a starter profile
+	template  string // the plan's template
 	mu        sync.Mutex
 	created   []string
 	failAfter bool
@@ -28,8 +28,7 @@ func (g *gate) NewAccount(_ context.Context, _ module.Host, r *http.Request) (*m
 	if r.Header.Get("X-Invitation") != "yes" {
 		return nil, &module.Refusal{Type: module.InvitationRequired}
 	}
-	return &module.AccountPlan{Label: "Bob", Ref: "inv-1", Template: g.template,
-		Profiles: []module.StarterProfile{{Name: "Kids", Kind: "kids", RatingCeiling: "G"}}}, nil
+	return &module.AccountPlan{Label: "Bob", Ref: "inv-1", Template: g.template}, nil
 }
 
 func (g *gate) AccountCreated(_ context.Context, _ module.Host, _ *http.Request, id string, plan *module.AccountPlan) error {
@@ -83,8 +82,8 @@ func TestAccountGate(t *testing.T) {
 	if len(g.created) != 1 || g.created[0] != "inv-1" {
 		t.Errorf("the module wasn't told: %v", g.created)
 	}
-	// The plan shaped the account: a starter kids profile.
-	if code, body := ask("GET", "/api/v1/profiles", false); code != 200 || !strings.Contains(body, `"name":"Kids","kind":"kids"`) {
-		t.Errorf("starter profile: %d %s", code, body)
+	// Whatever the plan, the account starts with its owner profile alone.
+	if code, body := ask("GET", "/api/v1/profiles", false); code != 200 || strings.Count(body, `"id"`) != 1 || !strings.Contains(body, `"owner":true`) {
+		t.Errorf("profiles: %d %s", code, body)
 	}
 }

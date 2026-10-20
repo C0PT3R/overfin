@@ -153,7 +153,9 @@ off by default.
 2c. ~~Account templates~~ Done: what an account may do (streams,
    profiles; later, which modules), followed live, so editing a template
    changes every account on it. The built-in Default is minimal; operators
-   make their own. Access length stays individual.
+   make their own. Access length stays individual. A template only sets
+   how many profiles an account may have: every account starts with its
+   owner profile alone, never a kids one, and its owner creates the rest.
 2d. **Migration as a module** (`migration`): bringing old accounts and
    their history over, the same on every backend. Claiming an old account
    with its username and password (move or link), and moving linked
@@ -162,17 +164,17 @@ off by default.
    it makes the module say so instead of offering it. A new server, or one
    done migrating, simply doesn't use it. An old account is one person and
    one history: migrating it creates the account with its owner profile
-   only (Jellyfin and Emby have no profiles to bring), never starter
-   profiles. A backend with profiles of its own (Plex's managed users,
-   perhaps) could declare it can list them, and each would come over as a
-   profile; until one does, migration brings one. Later:
+   only (Jellyfin and Emby have no profiles to bring). A backend with
+   profiles of its own (Plex's managed users, perhaps) could declare it can
+   list them, and each would come over as a profile; until one does,
+   migration brings one. Later:
    **personal invites from a list** of usernames and emails (a plain CSV,
    exported from whatever tool the operator used): one single-use invite
    per old account, tied to it, so receiving the email is the proof and no
    old password is needed. Overfin integrates with no user manager.
 3. Invites: created and managed in the panel (expiry, number of uses, a
-   template: profiles, kids limits, stream limit, account expiry); redeemed
-   on the public site, where they create the account. Optionally, accounts
+   template: account template, access length); redeemed on the public
+   site, where they create the account. Optionally, accounts
    only by invite. Invites are access control, so they belong in Overfin
    (unlike social features, which are users' data).
 4. Identity provider connectors, optional: Authentik first. Users' real

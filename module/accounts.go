@@ -23,7 +23,9 @@ type AccountGate interface {
 	AccountCreated(ctx context.Context, h Host, r *http.Request, accountID string, plan *AccountPlan) error
 }
 
-// AccountPlan shapes a new account. Zero fields leave the defaults.
+// AccountPlan shapes a new account. Zero fields leave the defaults. An
+// account always starts with its owner profile alone: the template sets how
+// many more its owner may create, and the owner creates them.
 type AccountPlan struct {
 	// Template is the account template's ID; empty for Default.
 	Template string
@@ -31,20 +33,9 @@ type AccountPlan struct {
 	Expires time.Time
 	// Label is the operator's label for it, shown in the control panel.
 	Label string
-	// Profiles are created with the account, besides the owner's.
-	Profiles []StarterProfile
 	// Ref is the module's own reference (an invitation's ID, say), given
 	// back to AccountCreated.
 	Ref string
-}
-
-// StarterProfile is a profile created with an account.
-type StarterProfile struct {
-	Name string
-	// Kind is "standard" or "kids"; a kids profile needs RatingCeiling, one
-	// of the server's rating names.
-	Kind          string
-	RatingCeiling string
 }
 
 // Refusal refuses an account; the visitor is answered with Type.

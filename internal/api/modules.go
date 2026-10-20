@@ -171,7 +171,7 @@ func creationHooks(r *http.Request, mounts []Mount, prov *provision.Provisioner)
 		After: func(ctx context.Context, acct *store.Account, owner *store.Profile) error {
 			for _, s := range said {
 				if s.plan != nil {
-					if err := applyPlan(ctx, prov, acct.ID, s.plan); err != nil {
+					if err := applyPlan(ctx, prov.Store, acct.ID, s.plan); err != nil {
 						return err
 					}
 					break
@@ -187,10 +187,9 @@ func creationHooks(r *http.Request, mounts []Mount, prov *provision.Provisioner)
 	}
 }
 
-// applyPlan shapes a new account: its template, when its access ends, its
-// label, and its starter profiles.
-func applyPlan(ctx context.Context, prov *provision.Provisioner, accountID string, plan *module.AccountPlan) error {
-	db := prov.Store
+// applyPlan shapes a new account: its template, when its access ends, and
+// its label.
+func applyPlan(ctx context.Context, db *store.Store, accountID string, plan *module.AccountPlan) error {
 	if plan.Template != "" {
 		if err := db.SetAccountTemplate(ctx, accountID, plan.Template); err != nil {
 			return fmt.Errorf("plan: template %q: %w", plan.Template, err)
@@ -204,36 +203,6 @@ func applyPlan(ctx context.Context, prov *provision.Provisioner, accountID strin
 	if plan.Label != "" {
 		if err := db.SetAccountLabel(ctx, accountID, plan.Label); err != nil {
 			return err
-		}
-	}
-	if len(plan.Profiles) == 0 {
-		return nil
-	}
-	acct, err := db.AccountByID(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	for _, sp := range plan.Profiles {
-		np := store.NewProfile{Name: sp.Name, Kind: "standard"}
-		var ceiling *jellyfin.Rating
-		if sp.Kind == "kids" {
-			ratings, err := prov.Ratings(ctx)
-			if err != nil {
-				return err
-			}
-			for _, rt := range ratings {
-				if rt.Name == sp.RatingCeiling {
-					ceiling = &rt
-					break
-				}
-			}
-			if ceiling == nil {
-				return fmt.Errorf("plan: unknown rating %q", sp.RatingCeiling)
-			}
-			np.Kind, np.RatingCeiling = "kids", ceiling.Name
-		}
-		if _, err := prov.AddProfile(ctx, accountID, np, ceiling, acct.Template.MaxProfiles); err != nil {
-			return fmt.Errorf("plan: profile %q: %w", sp.Name, err)
 		}
 	}
 	return nil

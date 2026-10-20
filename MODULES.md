@@ -36,11 +36,11 @@ Through the `Host`, the core gives it:
 - **A say in creating accounts**, by implementing `module.AccountGate`:
   before an account is created, refuse it (`&module.Refusal{Type:
   module.InvitationRequired}`) or shape it with an `AccountPlan` (its
-  template, when its access ends, a label, starter profiles); once it
-  exists, `AccountCreated` is called. Both run under the core's
-  account-creation lock, so creations never race, and an error afterwards
-  undoes the account entirely. Starter profiles need a template with room
-  for them.
+  template, when its access ends, a label); once it exists,
+  `AccountCreated` is called. Both run under the core's account-creation
+  lock, so creations never race, and an error afterwards undoes the account
+  entirely. An account always starts with its owner profile alone; its
+  template only sets how many more the owner may create.
 - **Control panel routes**: `h.HandleAdmin("GET /stats", fn)`, filed under
   `/admin/api/modules/<name>/stats` on the panel's private listener, where
   only signed-in admins reach them.

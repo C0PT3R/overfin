@@ -133,6 +133,10 @@ func TestKidsProfiles(t *testing.T) {
 			t.Errorf("%s: %d", bad, code)
 		}
 	}
+	// The owner profile is never a kids profile.
+	if code, _ := put(t, srv, "PATCH", "/api/v1/profiles/"+ownerID(t, srv), `{"kind":"kids","ratingCeiling":"PG"}`); code != http.StatusBadRequest {
+		t.Errorf("owner as kids: %d", code)
+	}
 	code, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","ratingCeiling":"PG"}`)
 	if code != http.StatusCreated || !strings.Contains(body, `"ratingCeiling":"PG"`) {
 		t.Fatalf("create: %d %s", code, body)
