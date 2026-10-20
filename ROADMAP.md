@@ -279,14 +279,21 @@ with workarounds (a reverse proxy presenting several servers as one, a
 plugin, or mounting each other's libraries over a VPN). Overfin could do it
 gateway to gateway, each Jellyfin staying private:
 
-- two operators pair their gateways with an invitation, like a user's, and
-  each chooses what it shares with the other (libraries, streams at once, a
-  quality cap); either can end it at once;
-- people see the peer's libraries in their own site, under its brand
-  (`item_<peer>_<id>` IDs are ready for it);
+- two operators pair their gateways with an invitation, like a user's;
+  either can end it at once. Each says what it offers (libraries, streams
+  at once, a quality cap) and what it asks for: only what matches on both
+  sides is shared;
+- people see the peer's titles in their own site, under its brand, mixed
+  with their own (`item_<peer>_<id>` IDs are ready for it), with filters of
+  their choosing: this server only, a peer only, everything, or only titles
+  on no server at all (requestable, with the TMDB catalog and requests). A
+  title on both servers plays from the viewer's own by default, with the
+  peer offered as another source;
 - the peer keeps a pool of **peer sockets** for each pairing: plain Jellyfin
-  users of its own, each lent to one playback and given back after. The
-  pool's size is how many streams the pairing allows at once. The peer
+  users of its own, named so they stand apart in Jellyfin's dashboard
+  (`ext_…`), each lent to one playback and given back after. The pool's
+  size, the operator's choice, is how many streams the pairing allows at
+  once; what the sockets' Jellyfin users record is left as is. The peer
   never knows who watches: a socket is no one in particular, and the next
   playback may get another one;
 - everything personal stays home, and so do the rules: favorites, the
@@ -307,7 +314,10 @@ gateway to gateway, each Jellyfin staying private:
   the bandwidth cost. The site's CSP allows media from paired peers only.
 
 Basic federation only: swarms of servers or of browsers (as PeerTube does)
-are out of scope.
+are out of scope. Open questions: how operators find each other (invitations
+only, or a directory someday); whether a pairing can share one way only; how
+keys are renewed, and what a compromised peer means; what viewers see while
+a peer is offline; whether a peer may refuse to transcode for its peers.
 
 ## Designed, to implement later
 
