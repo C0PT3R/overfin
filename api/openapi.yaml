@@ -28,7 +28,9 @@ info:
 
     **IDs.** IDs are opaque strings with a type prefix, such as `item_…`,
     `prof_…` or `play_…`. Clients must not parse them or build them, and an
-    ID of the wrong type is rejected.
+    ID of the wrong type is rejected. Item IDs are stable for as long as the
+    media server keeps the item, so clients may store them; they stay valid
+    if Overfin later serves several media servers at once.
 
     **Missing values.** Optional fields that have no value are left out
     instead of being `null`. Lists are `[]` when empty, never `null`.

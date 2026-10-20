@@ -77,6 +77,46 @@ Jellyfin server, using only the public API.
 5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done:
    [examples/demo-site](examples/demo-site).
 
+## Next: the core and its modules
+
+Overfin is becoming more than a gateway, so it splits in two: a small
+**gateway core** that stays the security boundary (the server and its
+guards, identity, sessions and step-up, accounts and profiles, access to the
+media backend as a profile, the module system), and **modules** grafted onto
+it (library, playback, watchlist, invites, catalog, requests, lists…). The
+core never imports a module.
+
+Modules are compiled in, the way Caddy's are: the official build includes
+the official modules; an operator who wants their own builds Overfin with a
+few-line `main.go` that adds it. Nothing is ever loaded while running. The
+module API becomes a public, versioned promise. Official modules carry
+Overfin's guarantees; a third-party module is its developer's
+responsibility, as with any program, and the operator's for running it.
+
+1. The module contract: routes behind the core's guards, the calling
+   profile, the backend as that profile only (never the admin key), the
+   module's own tables and migrations (deleted with profiles), problems,
+   logging, and hooks for the data export and, later, the control panel.
+2. The watchlist moved onto it, as the pilot; then library and playback.
+3. Invites, the first module written against the contract.
+4. A "Writing a module" guide with a small example.
+
+**Media backends as modules.** The backend becomes an interface written in
+terms of what Overfin needs, with each backend declaring what it can do;
+Overfin fails closed (a backend that can't enforce a rating ceiling offers
+no kids profiles). Jellyfin 12 is extracted as the first implementation, the
+Jellyfin 10.11 adapter proves the interface isn't shaped like one backend,
+and others (Emby, perhaps Plex) follow on demand. Later, **several backends
+at once**: each profile with its own user on each, merged listings (the same
+title recognized across servers by its TMDB or IMDb ID), limits counted
+across all. Item IDs are ready for it: `item_<id>` means the default
+backend, and any other backend's IDs will name it (`item_<backend>_<id>`), so
+nothing stored today ever breaks.
+
+**Connectors to sibling tools**, later: for example Stewarr (storage
+intelligence for the *arr stack), which could read what Overfin knows
+(watchlist counts per title, never who) and tell Overfin what's leaving soon.
+
 ## Milestone 2: administration
 
 **Overfin's own control panel**, built in and the same for every operator:
