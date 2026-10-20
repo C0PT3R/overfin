@@ -267,61 +267,61 @@ Overfin keeps holding as little as it can.
   item, so they come with the TMDB catalog and Seerr requests plugins (Seerr
   keeps watchlists of its own).
 - **Federation**, an important one. What Jellyfin users ask for under that
-  name is what Plex calls shared servers: a friend's libraries appear next to yours, in the same
-site and apps, with one login. Jellyfin has no plans for it; people make do
-with workarounds (a reverse proxy presenting several servers as one, a
-plugin, or mounting each other's libraries over a VPN). Overfin could do it
-gateway to gateway, each Jellyfin staying private:
+    name is what Plex calls shared servers: a friend's libraries appear next to yours, in the same
+  site and apps, with one login. Jellyfin has no plans for it; people make do
+  with workarounds (a reverse proxy presenting several servers as one, a
+  plugin, or mounting each other's libraries over a VPN). Overfin could do it
+  gateway to gateway, each Jellyfin staying private:
 
-- **pairing, by people, never by announcement**: each gateway has a key
-  pair and a short fingerprint. An operator creates a pairing invitation in
-  the panel (a one-time code with the gateway's address, fingerprint and a
-  single-use secret, valid a day) and sends it however they like; the other
-  operator pastes it in theirs, their gateway proves it has the secret and
-  presents its own key, and the first operator accepts it, fingerprints
-  compared to rule out impostors. Then the two gateways talk with signed
-  requests. No directory, no broadcast: the federation API answers paired
-  keys only, a plain 404 for anyone else, on the site's address (the panel
-  stays private). Every pairing is between two servers, deliberate on both
-  sides; trust is never passed along (A paired with B, and B with C, gives
-  A nothing of C). Later, perhaps, introductions: B passes A's invitation
-  to C, both still accepting. Either side can end a pairing at once. Each says what it offers (libraries, streams
-  at once, a quality cap) and what it asks for: only what matches on both
-  sides is shared;
-- people see the peer's titles in their own site, under its brand, mixed
-  with their own (`item_<peer>_<id>` IDs are ready for it), with filters of
-  their choosing: this server only, a peer only, everything, or only titles
-  on no server at all (requestable, with the TMDB catalog and requests). A
-  title on both servers plays from the viewer's own by default, with the
-  peer offered as another source;
-- the peer keeps a pool of **peer sockets** for each pairing: plain Jellyfin
-  users of its own, named so they stand apart in Jellyfin's dashboard
-  (`ext_…`), each lent to one playback and given back after. The pool's
-  size, the operator's choice, is how many streams the pairing allows at
-  once; what the sockets' Jellyfin users record is left as is. The peer
-  never knows who watches: a socket is no one in particular, and the next
-  playback may get another one;
-- everything personal stays home, and so do the rules: favorites, the
-  watchlist, watched marks and resume points for the peer's titles live in
-  the viewer's own Overfin (Jellyfin can't hold them for titles it doesn't
-  have), which also applies its own kids limits to them. Every listing and
-  playback request goes through the viewer's gateway, which checks it
-  before asking the peer for anything. Both need **Overfin's own catalog**
-  of titles (stable IDs from TMDB or IMDb, metadata, ratings normalized
-  through TMDB's certifications for the operator's country, unrated titles
-  hidden from kids), the same layer the TMDB catalog module needs;
-- the video comes straight from the peer, not through two gateways (which
-  would use twice the bandwidth): the peer hands out a short-lived, signed
-  stream ticket for the socket, and the browser fetches with
-  that ticket only, no login, no cookie, no referrer. The peer still sees
-  the viewer's address, which Overfin never stores; an operator who wants
-  more can relay a peer's streams through their own gateway instead, at
-  the bandwidth cost. The site's CSP allows media from paired peers only.
+  - **pairing, by people, never by announcement**: each gateway has a key
+    pair and a short fingerprint. An operator creates a pairing invitation in
+    the panel (a one-time code with the gateway's address, fingerprint and a
+    single-use secret, valid a day) and sends it however they like; the other
+    operator pastes it in theirs, their gateway proves it has the secret and
+    presents its own key, and the first operator accepts it, fingerprints
+    compared to rule out impostors. Then the two gateways talk with signed
+    requests. No directory, no broadcast: the federation API answers paired
+    keys only, a plain 404 for anyone else, on the site's address (the panel
+    stays private). Every pairing is between two servers, deliberate on both
+    sides; trust is never passed along (A paired with B, and B with C, gives
+    A nothing of C). Later, perhaps, introductions: B passes A's invitation
+    to C, both still accepting. Either side can end a pairing at once. Each says what it offers (libraries, streams
+    at once, a quality cap) and what it asks for: only what matches on both
+    sides is shared;
+  - people see the peer's titles in their own site, under its brand, mixed
+    with their own (`item_<peer>_<id>` IDs are ready for it), with filters of
+    their choosing: this server only, a peer only, everything, or only titles
+    on no server at all (requestable, with the TMDB catalog and requests). A
+    title on both servers plays from the viewer's own by default, with the
+    peer offered as another source;
+  - the peer keeps a pool of **peer sockets** for each pairing: plain Jellyfin
+    users of its own, named so they stand apart in Jellyfin's dashboard
+    (`ext_…`), each lent to one playback and given back after. The pool's
+    size, the operator's choice, is how many streams the pairing allows at
+    once; what the sockets' Jellyfin users record is left as is. The peer
+    never knows who watches: a socket is no one in particular, and the next
+    playback may get another one;
+  - everything personal stays home, and so do the rules: favorites, the
+    watchlist, watched marks and resume points for the peer's titles live in
+    the viewer's own Overfin (Jellyfin can't hold them for titles it doesn't
+    have), which also applies its own kids limits to them. Every listing and
+    playback request goes through the viewer's gateway, which checks it
+    before asking the peer for anything. Both need **Overfin's own catalog**
+    of titles (stable IDs from TMDB or IMDb, metadata, ratings normalized
+    through TMDB's certifications for the operator's country, unrated titles
+    hidden from kids), the same layer the TMDB catalog module needs;
+  - the video comes straight from the peer, not through two gateways (which
+    would use twice the bandwidth): the peer hands out a short-lived, signed
+    stream ticket for the socket, and the browser fetches with
+    that ticket only, no login, no cookie, no referrer. The peer still sees
+    the viewer's address, which Overfin never stores; an operator who wants
+    more can relay a peer's streams through their own gateway instead, at
+    the bandwidth cost. The site's CSP allows media from paired peers only.
 
-Basic federation only: swarms of servers or of browsers (as PeerTube does)
-are out of scope. Open questions: whether a pairing can share one way only; how
-keys are renewed, and what a compromised peer means; what viewers see while
-a peer is offline; whether a peer may refuse to transcode for its peers.
+  Basic federation only: swarms of servers or of browsers (as PeerTube does)
+  are out of scope. Open questions: whether a pairing can share one way only; how
+  keys are renewed, and what a compromised peer means; what viewers see while
+  a peer is offline; whether a peer may refuse to transcode for its peers.
 
 ## Designed, to implement later
 
