@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/C0PT3R/overfin/internal/connector"
 	"github.com/C0PT3R/overfin/internal/store"
 	"github.com/C0PT3R/overfin/internal/textclean"
 )
@@ -18,14 +19,17 @@ type accountJSON struct {
 	ID string `json:"id"`
 	// Subject is the identity provider's ID for the person, to look them up
 	// there until a connector shows names.
-	Subject    string         `json:"subject"`
-	Label      string         `json:"label,omitempty"`
-	CreatedAt  string         `json:"createdAt"`
-	Status     string         `json:"status"` // active, disabled, expired
-	ExpiresAt  string         `json:"expiresAt,omitempty"`
-	MaxStreams int            `json:"maxStreams,omitempty"`
-	Profiles   []adminProfile `json:"profiles"`
-	Sessions   []adminSession `json:"sessions"`
+	Subject    string `json:"subject"`
+	Label      string `json:"label,omitempty"`
+	CreatedAt  string `json:"createdAt"`
+	Status     string `json:"status"` // active, disabled, expired
+	ExpiresAt  string `json:"expiresAt,omitempty"`
+	MaxStreams int    `json:"maxStreams,omitempty"`
+	// Person is who the identity provider says this is, live from the
+	// connector; absent without one, or when the provider doesn't know.
+	Person   *connector.Person `json:"person,omitempty"`
+	Profiles []adminProfile    `json:"profiles"`
+	Sessions []adminSession    `json:"sessions"`
 }
 
 type adminProfile struct {
@@ -101,6 +105,18 @@ func (p *Panel) accounts(w http.ResponseWriter, r *http.Request, _ *session) {
 		p.fail(w, "listing accounts", err)
 		return
 	}
+	// Who's who, from the connector. Without it, or if it fails, the list
+	// still works, and says why names are missing.
+	directory := "none"
+	people, err := p.directory(r.Context())
+	switch {
+	case p.Directory == nil:
+	case err != nil:
+		directory = "unreachable"
+		p.Logger.Warn("control panel: the connector failed", "err", err)
+	default:
+		directory = "ok"
+	}
 	out := []accountJSON{}
 	for _, a := range all {
 		aj, err := p.accountJSON(r, a)
@@ -108,9 +124,12 @@ func (p *Panel) accounts(w http.ResponseWriter, r *http.Request, _ *session) {
 			p.fail(w, "listing accounts", err)
 			return
 		}
+		if person, ok := people[a.Subject]; ok {
+			aj.Person = &person
+		}
 		out = append(out, aj)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+	writeJSON(w, http.StatusOK, map[string]any{"items": out, "directory": directory})
 }
 
 type accountChange struct {

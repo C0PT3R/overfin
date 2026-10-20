@@ -55,3 +55,5 @@ ul.items li { display: grid; grid-template-columns: 1fr auto; gap: .1rem .6rem; 
 ul.items li:first-child { border-top: none; }
 ul.items li > button { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
 .danger-zone { display: flex; gap: .6rem; margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+p.notice { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: .5rem .8rem; font-size: .9rem; }
+.person { background: var(--bg); border-radius: 8px; padding: .6rem .8rem; margin-bottom: .6rem; }

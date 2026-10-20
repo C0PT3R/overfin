@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/C0PT3R/overfin/internal/connector"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
@@ -119,5 +120,42 @@ func TestAccountsNeedSignIn(t *testing.T) {
 		if rec := stranger.do(r[0], r[1], body, nil); rec.Code != 401 {
 			t.Errorf("%s %s: %d", r[0], r[1], rec.Code)
 		}
+	}
+}
+
+type fakeDirectory struct {
+	people map[string]connector.Person
+	err    error
+	calls  int
+}
+
+func (f *fakeDirectory) People(context.Context) (map[string]connector.Person, error) {
+	f.calls++
+	return f.people, f.err
+}
+
+func TestAccountsWithNames(t *testing.T) {
+	ctx := context.Background()
+	p, b, db, _ := signedInPanel(t)
+	db.CreateAccount(ctx, "person-1", store.NewOwner{Name: "Main", JellyfinUserID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", JellyfinUsername: "of-1", JellyfinToken: "t"})
+	dir := &fakeDirectory{people: map[string]connector.Person{"person-1": {Username: "alice", Name: "Alice", Active: true}}}
+	p.Directory = dir
+
+	body := b.do("GET", "/admin/api/accounts", "", nil).Body.String()
+	if !strings.Contains(body, `"username":"alice"`) || !strings.Contains(body, `"directory":"ok"`) {
+		t.Errorf("with a connector: %s", body)
+	}
+	// Kept briefly in memory: a second look doesn't ask again.
+	b.do("GET", "/admin/api/accounts", "", nil)
+	if dir.calls != 1 {
+		t.Errorf("asked the directory %d times", dir.calls)
+	}
+
+	// A failing connector doesn't break the list.
+	p.Directory = &fakeDirectory{err: io.ErrUnexpectedEOF}
+	p.people = nil
+	rec := b.do("GET", "/admin/api/accounts", "", nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"directory":"unreachable"`) || strings.Contains(rec.Body.String(), "alice") {
+		t.Errorf("failing connector: %d %s", rec.Code, rec.Body)
 	}
 }

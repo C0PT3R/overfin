@@ -10,6 +10,8 @@
 #                                  openssl rand -base64 32
 #   OVERFIN_OIDC_CLIENT_SECRET   with [oidc]: the client secret at the
 #                                identity provider
+#   OVERFIN_CONNECTOR_TOKEN      with [connector]: the identity provider API
+#                                token
 
 # Address Overfin listens on.
 listen = ":8080"
@@ -91,6 +93,15 @@ group = ""                      # e.g. "overfin-admins"
 redirect_url = ""               # e.g. "http://localhost:8081/admin/auth/callback"
 tls_cert = ""
 tls_key = ""
+
+[connector]
+# Optional: the identity provider's own API, so the control panel shows who's
+# behind each account (live, never stored), and later sends invitations.
+# Set OVERFIN_CONNECTOR_TOKEN. With Authentik: a service account whose role
+# can only view users, and an API token for it.
+kind = ""                       # "authentik"
+url = ""                        # e.g. "https://auth.example.org"
+dial = ""                       # optional "host:port", as in [oidc]
 
 # ---- Feature settings --------------------------------------------------------
 # Everything below is switched on and off in the control panel, and lives in

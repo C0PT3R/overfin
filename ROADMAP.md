@@ -109,7 +109,7 @@ off by default.
    only by invite. Invites are access control, so they belong in Overfin
    (unlike social features, which are users' data).
 4. Identity provider connectors, optional: Authentik first. Users' real
-   names in the panel, and invites that come with an Authentik invitation:
+   names in the panel (done), and invites that come with an Authentik invitation:
    one link, the person picks their username and password on Authentik's
    own pages, comes back, and their account is set up. Passwords never pass
    through Overfin. Connector tokens are used only by the admin side.

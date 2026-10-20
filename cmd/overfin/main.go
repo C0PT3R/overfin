@@ -16,6 +16,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/admin"
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/config"
+	"github.com/C0PT3R/overfin/internal/connector"
 	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
@@ -135,6 +136,9 @@ func run(logger *slog.Logger) error {
 			Store: db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
+		if cn := cfg.Connector; cn.Enabled() {
+			panel.Directory = &connector.Authentik{BaseURL: cn.URL, Token: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
+		}
 		adminSrv = &http.Server{Addr: a.Listen, Handler: panel.Handler(),
 			ReadHeaderTimeout: 10 * time.Second, WriteTimeout: time.Minute, IdleTimeout: 2 * time.Minute}
 		go func() {

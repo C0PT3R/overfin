@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/C0PT3R/overfin/internal/config"
+	"github.com/C0PT3R/overfin/internal/connector"
 	"github.com/C0PT3R/overfin/internal/oidc"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/store"
@@ -41,11 +42,46 @@ type Features interface {
 	SetFeatures(ctx context.Context, f config.Features) error
 }
 
+// Directory is an identity provider connector's view of people, by the
+// user ID logins carry.
+type Directory interface {
+	People(ctx context.Context) (map[string]connector.Person, error)
+}
+
+// peopleFor is how long the panel keeps what the directory said, in memory
+// only (rule 40).
+const peopleFor = 2 * time.Minute
+
+// directory returns the people the connector knows, fetched again when
+// what's kept is older than peopleFor.
+func (p *Panel) directory(ctx context.Context) (map[string]connector.Person, error) {
+	if p.Directory == nil {
+		return nil, nil
+	}
+	p.mu.Lock()
+	if p.people != nil && p.clock().Sub(p.peopleAt) < peopleFor {
+		people := p.people
+		p.mu.Unlock()
+		return people, nil
+	}
+	p.mu.Unlock()
+	people, err := p.Directory.People(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	p.people, p.peopleAt = people, p.clock()
+	p.mu.Unlock()
+	return people, nil
+}
+
 // Panel serves the control panel.
 type Panel struct {
 	Features    Features
 	Store       *store.Store
 	Provisioner *provision.Provisioner
+	// Directory, when set, tells who the people behind accounts are.
+	Directory Directory
 	// Provider signs admins in; its redirect URL is the panel's callback and
 	// its groups claim is set.
 	Provider *oidc.Provider
@@ -55,7 +91,9 @@ type Panel struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session // by token hash
-	pending  map[string]pending  // by state
+	people   map[string]connector.Person
+	peopleAt time.Time
+	pending  map[string]pending // by state
 	now      func() time.Time
 }
 

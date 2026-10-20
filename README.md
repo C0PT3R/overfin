@@ -173,6 +173,7 @@ for Docker secrets). They never go in the file:
 | `OVERFIN_JELLYFIN_ADMIN_KEY` | The Jellyfin API key from step 1 |
 | `OVERFIN_SECRET_KEY` | Base64, at least 32 random bytes: `openssl rand -base64 32` |
 | `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
+| `OVERFIN_CONNECTOR_TOKEN` | Only with `[connector]`: the identity provider API token |
 
 **5. Run it:**
 
@@ -266,6 +267,19 @@ provider, and reach the panel through an SSH tunnel:
 ssh -L 8081:localhost:8081 your-server
 # then open http://localhost:8081
 ```
+
+With Authentik, the optional connector shows who's behind each account
+(username, name, email, whether they're still active there), read live and
+never stored. Give it a token that can only view users:
+
+```toml
+[connector]
+kind = "authentik"
+url = "https://auth.example.org"
+```
+
+with `OVERFIN_CONNECTOR_TOKEN` set to an API token of an Authentik service
+account whose role only allows viewing users.
 
 To reach it from your LAN or VPN instead, give it an `https://` redirect URL
 and a certificate (`tls_cert`, `tls_key`). The configuration file then only

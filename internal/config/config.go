@@ -23,17 +23,18 @@ import (
 
 // Config is the whole configuration. Field tags give the TOML key names.
 type Config struct {
-	Listen   string   `toml:"listen"`
-	Jellyfin Jellyfin `toml:"jellyfin"`
-	Identity Identity `toml:"identity"`
-	Storage  Storage  `toml:"storage"`
-	Limits   Limits   `toml:"limits"`
-	Adoption Adoption `toml:"adoption"`
-	Privacy  Privacy  `toml:"privacy"`
-	Plugins  Plugins  `toml:"plugins"`
-	Accounts Accounts `toml:"accounts"`
-	OIDC     OIDC     `toml:"oidc"`
-	Admin    Admin    `toml:"admin"`
+	Listen    string    `toml:"listen"`
+	Jellyfin  Jellyfin  `toml:"jellyfin"`
+	Identity  Identity  `toml:"identity"`
+	Storage   Storage   `toml:"storage"`
+	Limits    Limits    `toml:"limits"`
+	Adoption  Adoption  `toml:"adoption"`
+	Privacy   Privacy   `toml:"privacy"`
+	Plugins   Plugins   `toml:"plugins"`
+	Accounts  Accounts  `toml:"accounts"`
+	OIDC      OIDC      `toml:"oidc"`
+	Admin     Admin     `toml:"admin"`
+	Connector Connector `toml:"connector"`
 
 	// FeaturesInFile reports whether the file held feature settings
 	// (limits, adoption, privacy, plugins, accounts). Those live in the
@@ -207,6 +208,21 @@ type Admin struct {
 	TLSKey  string `toml:"tls_key"`
 }
 
+// Connector reads people from the identity provider's own API, for the
+// control panel: their names, and later invitations. Off unless Kind is set.
+type Connector struct {
+	// Kind is the provider: "authentik".
+	Kind string `toml:"kind"`
+	// URL is the provider's address, e.g. "https://auth.example.org".
+	URL string `toml:"url"`
+	// Dial, when set, is the "host:port" to connect to instead of what DNS
+	// says (TLS is still checked against the URL's name).
+	Dial string `toml:"dial"`
+}
+
+// Enabled reports whether a connector is configured.
+func (c Connector) Enabled() bool { return c.Kind != "" }
+
 // Enabled reports whether the control panel is on.
 func (a Admin) Enabled() bool { return a.Listen != "" }
 
@@ -236,6 +252,9 @@ type Secrets struct {
 	// OIDCClientSecret is the client secret at the identity provider,
 	// required only with [oidc].
 	OIDCClientSecret string
+	// ConnectorToken is the identity provider API token, required only
+	// with [connector].
+	ConnectorToken string
 }
 
 // PrivateAddr reports whether ip is private: loopback, link-local, the
@@ -299,6 +318,13 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 
 	if err := loadSecrets(&cfg.Secrets, getenv); err != nil {
 		return nil, err
+	}
+	if cfg.Connector.Enabled() {
+		s, err := secret("OVERFIN_CONNECTOR_TOKEN", getenv)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Secrets.ConnectorToken = s
 	}
 	if cfg.OIDC.Enabled() {
 		s, err := secret("OVERFIN_OIDC_CLIENT_SECRET", getenv)
@@ -483,6 +509,23 @@ func (c *Config) validate() error {
 		}
 		if (a.TLSCert == "") != (a.TLSKey == "") {
 			add("admin.tls_cert and admin.tls_key go together")
+		}
+	}
+
+	if cn := c.Connector; cn.Enabled() {
+		if cn.Kind != "authentik" {
+			add("connector.kind must be \"authentik\" (the only one so far), got %q", cn.Kind)
+		}
+		if u, err := url.Parse(cn.URL); err != nil || u.Scheme != "https" || u.Host == "" {
+			add("connector.url must be the provider's https:// address")
+		}
+		if cn.Dial != "" {
+			if _, _, err := net.SplitHostPort(cn.Dial); err != nil {
+				add("connector.dial must be host:port")
+			}
+		}
+		if !c.Admin.Enabled() {
+			add("the connector is used by the control panel: set up [admin] too")
 		}
 	}
 

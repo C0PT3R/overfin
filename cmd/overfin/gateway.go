@@ -261,6 +261,9 @@ func restartOnly(old, new *config.Config) []string {
 	if old.Admin != new.Admin {
 		changed = append(changed, "admin")
 	}
+	if old.Connector != new.Connector || old.Secrets.ConnectorToken != new.Secrets.ConnectorToken {
+		changed = append(changed, "connector")
+	}
 	if !bytes.Equal(old.Secrets.Key, new.Secrets.Key) {
 		changed = append(changed, "OVERFIN_SECRET_KEY")
 	}

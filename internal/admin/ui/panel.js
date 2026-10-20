@@ -168,11 +168,15 @@ function toLocalInput(iso) {
 
 const statusText = { active: 'Active', disabled: 'Disabled', expired: 'Expired' };
 const lastActive = (a) => a.sessions.map((s) => s.lastActiveAt).sort().at(-1) || '';
-const nameOf = (a) => a.label || a.profiles.find((p) => p.owner)?.name || 'Unnamed';
+// nameOf is the best name for an account: the identity provider's, then the
+// operator's label, then the owner profile's name.
+const nameOf = (a) => a.person?.name || a.person?.username || a.label || a.profiles.find((p) => p.owner)?.name || 'Unnamed';
+const subline = (a) => [a.person?.username && a.person.name ? a.person.username : '', a.person?.email || '',
+  a.label && (a.person?.name || a.person?.username) ? `"${a.label}"` : ''].filter(Boolean).join(' · ');
 
 // The users view: a table of accounts, and the selected one's details.
 async function users(selected = '') {
-  const { items } = await api('GET', '/admin/api/accounts');
+  const { items, directory } = await api('GET', '/admin/api/accounts');
   $('#main').classList.add('wide');
   const search = h('input', { type: 'search', placeholder: 'Search', class: 'search' });
   const filter = h('select', {}, h('option', { value: '' }, 'All'),
@@ -192,8 +196,9 @@ async function users(selected = '') {
     tbody.replaceChildren(...shown.map((a) => {
       const kids = a.profiles.filter((p) => p.kind === 'kids').length;
       const tr = h('tr', { 'data-id': a.id, onclick: () => select(a) },
-        h('td', {}, h('div', { class: 'name' }, nameOf(a)), a.label ? null : h('div', { class: 'hint' }, 'no label')),
-        h('td', {}, h('span', { class: `pill ${a.status}` }, statusText[a.status] || a.status)),
+        h('td', {}, h('div', { class: 'name' }, nameOf(a)), h('div', { class: 'hint' }, subline(a) || (a.person ? '' : 'name unknown'))),
+        h('td', {}, h('span', { class: `pill ${a.status}` }, statusText[a.status] || a.status),
+          a.person && !a.person.active ? h('div', {}, h('span', { class: 'pill disabled' }, 'off in identity provider')) : null),
         h('td', {}, String(a.profiles.length), kids ? h('span', { class: 'hint' }, ` (${kids} kids)`) : null),
         h('td', {}, String(a.sessions.length)),
         h('td', { class: 'hint' }, ago(lastActive(a)) || '—'),
@@ -210,8 +215,13 @@ async function users(selected = '') {
   const table = h('table', {},
     h('thead', {}, h('tr', {}, ...['Account', 'Status', 'Profiles', 'Devices', 'Last active', 'Since'].map((t) => h('th', {}, t)))),
     tbody);
+  const notice = {
+    none: "Names come from the identity provider through a connector (see [connector] in the configuration); until then, labels tell accounts apart.",
+    unreachable: "The identity provider's connector didn't answer, so names are missing for now. The log says why.",
+  }[directory];
   show(h('div', { class: 'users' },
-    h('div', {}, h('div', { class: 'toolbar' }, h('h2', {}, `Accounts (${items.length})`), search, filter), table),
+    h('div', {}, h('div', { class: 'toolbar' }, h('h2', {}, `Accounts (${items.length})`), search, filter),
+      notice && h('p', { class: 'notice' }, notice), table),
     detail));
   draw();
 }
@@ -253,6 +263,10 @@ function accountDetail(a, reload) {
 
   return [
     h('h2', {}, nameOf(a), ' ', h('span', { class: `pill ${a.status}` }, statusText[a.status] || a.status)),
+    a.person && h('div', { class: 'person' },
+      h('div', {}, a.person.name || a.person.username),
+      h('div', { class: 'hint' }, [a.person.username, a.person.email].filter(Boolean).join(' · ')),
+      !a.person.active && h('div', { class: 'error' }, 'Turned off in the identity provider')),
     h('p', { class: 'hint' }, `Since ${when(a.createdAt)}`, h('br'), `Identity provider ID: ${a.subject}`),
     h('h3', {}, 'Access'),
     field('Label', '(your note)', label),
