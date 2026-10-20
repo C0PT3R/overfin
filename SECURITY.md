@@ -197,7 +197,7 @@ comes from the internet, and media files can be written by anyone.
     PIN hashes and keys are never exported. The owner profile's export covers
     the account; any other profile's export covers only that profile.
 53. Sites built for Overfin should load nothing from third parties (fonts,
-    scripts, icons); the demo site does exactly that.
+    scripts, icons); overfin-web does exactly that.
 54. Logs identify users only by a keyed hash (HMAC) of their ID and never
     contain query strings.
 55. Privacy-sensitive fields are off by default, and operators turn on each one
@@ -265,6 +265,16 @@ comes from the internet, and media files can be written by anyone.
     single-use invitation is used once. Uses stay counted when the account
     is deleted. An invitation decides what an account gets, never who may
     log in: the identity provider and the required group still do.
+
+### The site
+64. The site Overfin serves (overfin-web, or the operator's folder) goes to
+    logged-in, allowed visitors only, the same check as the gate. Only GET
+    and HEAD; never a directory listing, never a name starting with a dot,
+    never anything outside the folder (it's opened with `os.Root`, which
+    symbolic links can't escape). Its files get their own
+    Content-Security-Policy (strict by default: everything from the site
+    itself), while the API keeps its own, stricter one. Other sites may
+    link to its pages, which change nothing; the API still refuses them.
 
 ## Deployment
 

@@ -19,7 +19,6 @@ services:
       AUTH_DOMAIN: ${AUTH_DOMAIN:?run ./setup.sh first}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
-      - ./site:/srv/site:ro,z
       - caddy-data:/data
       - caddy-config:/config
     networks:

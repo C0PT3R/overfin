@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/C0PT3R/overfin/internal/api"
+	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/oidc"
@@ -29,10 +30,12 @@ import (
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
+	"github.com/C0PT3R/overfin/internal/site"
 	"github.com/C0PT3R/overfin/internal/store"
 	"github.com/C0PT3R/overfin/module"
 	"github.com/C0PT3R/overfin/modules/migration"
 	"github.com/C0PT3R/overfin/modules/watchlist"
+	"github.com/C0PT3R/overfin/web"
 )
 
 const (
@@ -229,6 +232,8 @@ type options struct {
 	settings map[string]map[string]string
 	// admin, when set, receives the modules' control panel routes.
 	admin *http.ServeMux
+	// site serves overfin-web beside the API, as Overfin does by default.
+	site bool
 	// template, when set, receives the ID of the test account's template
 	// (3 profiles).
 	template *string
@@ -325,7 +330,13 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},
 	}, extra...)
-	h, err := server.New(logger, identify, plugins...)
+	var siteHandler http.Handler
+	if o.site {
+		if siteHandler, err = site.Embedded(web.Files, config.DefaultCSP, false, api.SiteGate(sessions.Auth, prov)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := server.New(logger, identify, siteHandler, plugins...)
 	if err != nil {
 		t.Fatal(err)
 	}

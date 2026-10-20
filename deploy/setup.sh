@@ -109,15 +109,6 @@ url = "https://$auth"
 enable = ["library", "playback"]
 EOF
 
-if [ ! -d site ]; then
-	if [ -d ../examples/demo-site ]; then
-		cp -R ../examples/demo-site site
-	else
-		mkdir site
-		echo "Put your site in ./site (the demo site is in the repository's examples/demo-site)." >&2
-	fi
-fi
-
 cat >&2 <<EOF
 
 Done. Next:

@@ -18,8 +18,8 @@ browser ──▶ your site (any stack, even static HTML)
 Overfin is young. It started in October 2026, has no release yet, and is
 developed by one person with AI assistance. In practice:
 
-- **It runs one real server**, every day, with the demo site in this
-  repository, against Jellyfin 12. That is the extent of its real-world use.
+- **It runs one real server**, every day, with its own web client
+  (overfin-web), against Jellyfin 12. That is the extent of its real-world use.
 - **There are no releases or prebuilt images.** You build it from source.
   The API, the settings and the database can still change between commits;
   the database migrates itself.
@@ -47,7 +47,7 @@ yet.
   itself, so titles above it are hidden everywhere, even from direct links.
 - People can download what's held about them and delete their account.
 
-**Watching** (through the API, the SDK and the demo site)
+**Watching** (through the API, the SDK and overfin-web)
 
 - Browsing: libraries, filters, sorting, shuffle, continue watching, next
   up, recently added, series → seasons → episodes, people.
@@ -146,26 +146,24 @@ docker run -d --name overfin --network proxy \
   overfin
 ```
 
-**6. The reverse proxy** sends `/api/*` to Overfin and asks Overfin's gate
-before serving the site, so its pages are private too. With Caddy:
+**6. The reverse proxy** handles HTTPS and passes everything to Overfin,
+which serves the API and the site. With Caddy:
 
 ```caddyfile
 example.org {
-	handle /api/* {
-		reverse_proxy overfin:8080
-	}
-	handle {
-		forward_auth overfin:8080 {
-			uri /api/v1/gate
-		}
-		root * /srv/site
-		file_server
-	}
+	reverse_proxy overfin:8080
 }
 ```
 
-Put the [demo site](examples/demo-site) in `/srv/site`, open your domain and
-log in.
+Open your domain and log in: you're on [overfin-web](web), Overfin's own
+web client, served to logged-in visitors only.
+
+**Your own client instead?** Set `[site] serve` to its folder: Overfin
+serves it the same way, with the Content-Security-Policy you give it
+(`csp`), and `spa_fallback = true` for single-page apps. With
+`serve = "none"`, Overfin only answers `/api/`, and your proxy serves the
+site, asking Overfin's gate first (`forward_auth` to `/api/v1/gate`) to keep
+its pages private.
 
 Anyone who can log in at your identity provider gets an account, unless you
 set `identity.required_group`, or switch invitations on and make them
@@ -229,9 +227,9 @@ module you add is your responsibility, as with any code you run.
 - **The JavaScript SDK**, [sdk/js](sdk/js): one ES module, no dependencies,
   TypeScript types, and a player that handles progress, recovery and
   takeovers.
-- **The demo site**, [examples/demo-site](examples/demo-site): plain HTML,
-  CSS and JavaScript on the SDK, no build step. It's what the real server
-  runs, and the reference for using the API.
+- **overfin-web**, [web](web): Overfin's own client, plain HTML, CSS and
+  JavaScript on the SDK, no build step, served by Overfin by default. It's
+  what the real server runs. Examples of other clients will come later.
 
 ## Security
 
@@ -273,7 +271,7 @@ authorization) are read line by line.
 
 ## License
 
-[MIT](LICENSE). The demo site includes [hls.js](https://github.com/video-dev/hls.js),
+[MIT](LICENSE). overfin-web includes [hls.js](https://github.com/video-dev/hls.js),
 unmodified, under the Apache License 2.0.
 
 Overfin is an independent project, not affiliated with or endorsed by the

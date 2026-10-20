@@ -74,8 +74,8 @@ Jellyfin server, using only the public API.
 4. ~~Step-up for destructive actions.~~ Done, over OpenID Connect: changing
    and removing PINs, deleting profiles and accounts, downloading your data,
    and lifting PIN locks; the PIN lock threshold is a setting.
-5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done:
-   [examples/demo-site](examples/demo-site).
+5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done; it has
+   since become overfin-web ([web](web)).
 
 ## Next: the core and its modules
 
@@ -232,8 +232,13 @@ provider.
    tested before it's saved. It opens only with a one-time code printed in
    the log, so nobody else can claim a fresh install. The configuration
    file shrinks to almost nothing.
-4. **Overfin serves the site itself**, gate included, so the reverse proxy
-   only needs to pass everything on (`reverse_proxy overfin:8080`).
+4. ~~**Overfin serves the site itself**~~ Done: overfin-web (the former
+   demo site, [web](web)) is compiled in and served by default, to
+   logged-in visitors only, so the reverse proxy only passes everything on
+   (`reverse_proxy overfin:8080`). `[site] serve` takes a folder with your
+   own client instead (served live, never outside the folder, with your
+   CSP, optionally as a single-page app), or `"none"` to serve it
+   elsewhere.
 5. **`overfin -check`**: tests the configuration, reaches Jellyfin, fetches
    the provider's discovery document, checks the proxy is trusted, and says
    in plain words what's wrong.
@@ -290,7 +295,8 @@ Overfin keeps holding as little as it can.
 - **Casting** to Chromecast and similar devices, using stream tickets.
 - **Downloads** for offline viewing in apps.
 - **Jellyfin companion plugin**, only where the Jellyfin API falls short.
-- **A full reference website**, possibly growing out of the demo site.
+- **Example clients**, beside overfin-web: small sites in common
+  frameworks, showing how to build on the API and the SDK.
 
 ## Companion projects
 

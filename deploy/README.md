@@ -22,8 +22,10 @@ docker compose up -d
 
 `setup.sh` asks for the two names, your site's name, Jellyfin's address and
 API key, and your email. It generates every secret into `.env` (readable by
-you only: keep a copy somewhere safe) and writes `overfin.toml`. It also
-copies the demo site into `./site`, unless you've put your own there.
+you only: keep a copy somewhere safe) and writes `overfin.toml`. The site
+people use is overfin-web, Overfin's own web client, served by Overfin
+itself; to serve your own client instead, see `[site]` in Overfin's
+README.
 
 Until Overfin's first release, build its image from this repository first:
 `docker compose build overfin`.
@@ -54,10 +56,9 @@ else in, add them to the `overfin-admins` group in Authentik.
 | | |
 | --- | --- |
 | `compose.yaml` | The five containers and their networks |
-| `Caddyfile` | The site (with Overfin's API and gate) and the sign-in |
+| `Caddyfile` | HTTPS for the site (served by Overfin) and the sign-in |
 | `authentik/overfin.yaml` | The blueprint: Overfin's login client, a login page with username and password together, the `overfin-admins` group, and the connector's user, allowed only to view users |
 | `.env`, `overfin.toml` | Written by `setup.sh`; private to this install |
-| `site/` | The website people use |
 
 Each container receives only the secrets it needs. Authentik's database is
 on a network only Authentik reaches. Nothing gets the Docker socket.
@@ -68,7 +69,7 @@ Versions are set in `.env` (`OVERFIN_IMAGE`, `AUTHENTIK_TAG`, `CADDY_TAG`).
 Change one, then `docker compose up -d`. Read Authentik's release notes
 before a major upgrade.
 
-Back up `.env`, `overfin.toml`, `site/` and the Docker volumes
+Back up `.env`, `overfin.toml` and the Docker volumes
 (`overfin-data`, `database`, `authentik-data`).
 
 ## If something's off

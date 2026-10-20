@@ -318,3 +318,26 @@ func TestAdoptionCarriedOver(t *testing.T) {
 		t.Errorf("default mode: %v", g.Modules)
 	}
 }
+
+func TestSite(t *testing.T) {
+	cfg, err := Load(writeFile(t, goodFile), env(goodEnv()))
+	if err != nil || cfg.Site.Serve != "builtin" || cfg.Site.CSP != DefaultCSP {
+		t.Fatalf("defaults: %+v %v", cfg.Site, err)
+	}
+	dir := t.TempDir()
+	for file, ok := range map[string]bool{
+		`serve = "none"`:                 true,
+		`serve = "` + dir + `"`:          true,
+		`serve = "site"`:                 false,
+		`serve = "/does/not/exist"`:      false,
+		`csp = "default-src 'self'"`:     true,
+		`csp = ""`:                       false,
+		"csp = \"default-src\\n'self'\"": false,
+		`spa_fallback = true`:            true,
+	} {
+		_, err := Load(writeFile(t, goodFile+"\n[site]\n"+file+"\n"), env(goodEnv()))
+		if (err == nil) != ok {
+			t.Errorf("%s: err = %v", file, err)
+		}
+	}
+}

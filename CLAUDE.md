@@ -22,7 +22,7 @@ website someone else builds. MIT, public.
   is code that can be reviewed, and review is part of security.
 - `gofmt`, `go vet ./...` and `go test ./...` must pass, and
   `node --test sdk/js/overfin.test.js` for the JavaScript SDK.
-- `examples/demo-site/overfin.js` is a copy of `sdk/js/overfin.js`; a test
+- `web/overfin.js` (overfin-web) is a copy of `sdk/js/overfin.js`; a test
   keeps them identical, so copy it over after changing the SDK.
 - After editing `api/openapi.yaml`, check it still parses:
   `python3 -c "import yaml; yaml.safe_load(open('api/openapi.yaml'))"`.

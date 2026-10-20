@@ -1,21 +1,21 @@
-# Overfin demo site
+# overfin-web
 
-A small but complete website on Overfin's [JavaScript SDK](../../sdk/js), in
-plain HTML, CSS and JavaScript: no framework, no build step. It's meant to be
-read: every screen shows how a client uses one part of the API, and
-`app.js` is only screens; the SDK does the rest. `overfin.js` here is a copy
-of the SDK, kept identical by a test.
+Overfin's own web client, served by Overfin by default: plain HTML, CSS and
+JavaScript on the [JavaScript SDK](../sdk/js), with no framework and no build
+step. `app.js` is only screens; the SDK does the rest. `overfin.js` here is
+a copy of the SDK, kept identical by a test.
 
-- **Account setup**: start fresh, or bring an existing media server account.
-- **Who's watching?**: profiles, PINs, adding a profile (kids profiles with a
-  rating ceiling).
+- **Account setup**: start fresh, arrive with an invitation, or bring a
+  previous account over.
+- **Who's watching?**: profiles, PINs, adding a profile (kids profiles with
+  a rating ceiling).
 - **Profiles and devices**: renaming, kids limits, setting, changing and
   removing PINs, deleting profiles, signed-in devices; the page asks for a
   PIN or a fresh login when the server wants one.
 - **Account**: downloading your data, deleting your account.
 - **Home**: continue watching, next up, latest per library.
 - **Libraries**: sorting, a repeatable shuffle, infinite scroll with cursors.
-- **Item pages**: series, seasons, episodes, cast.
+- **Item pages**: series, seasons, episodes, cast, the watchlist.
 - **Player**: Overfin picks direct play, repackaging or transcoding from what
   the browser declares; audio and subtitle choice, "Skip intro", progress
   reporting, resume, and a clear message when another device takes over.
@@ -24,27 +24,16 @@ Every screen lives in the address (`#/item/…`, `#/play/…`), so a reload
 comes back to it; playback resumes from the position the player last
 reported. Text from the server is only ever set with `textContent`.
 
-## Running it
+## How it's served
 
-Serve the folder as static files on the same site as Overfin, with `/api/*`
-going to Overfin. With Caddy and Overfin's own login (see the main README):
+The files are compiled into Overfin (`web.go`) and served at the site's
+root, to logged-in visitors only, with a strict Content-Security-Policy:
+everything comes from the site itself. It needs the `library` and
+`playback` plugins.
 
-```caddyfile
-example.org {
-	handle /api/* {
-		reverse_proxy overfin:8080
-	}
-	handle {
-		forward_auth overfin:8080 {
-			uri /api/v1/gate
-		}
-		root * /srv/demo-site
-		file_server
-	}
-}
-```
-
-It needs the `library` and `playback` plugins.
+To serve your own client instead, point `[site] serve` at its folder in
+Overfin's configuration; to serve the site some other way, set it to
+`"none"`.
 
 ## Third-party code
 

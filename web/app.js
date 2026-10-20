@@ -1,5 +1,5 @@
-// Overfin demo site: a small, complete website on the Overfin JavaScript
-// SDK. The SDK does the talking to /api/v1 (and the login, errors, and
+// overfin-web, Overfin's web client: a complete website on the Overfin
+// JavaScript SDK, served by Overfin by default. The SDK does the talking to /api/v1 (and the login, errors, and
 // keeping playback going); this file is only screens. Text from the server
 // is only ever set with textContent, never parsed as HTML.
 import { Overfin, OverfinError } from './overfin.js';
@@ -467,7 +467,7 @@ async function profilesPage() {
     msg.textContent = '';
     try {
       await overfin.activateProfile(p.id, pin);
-      sessionStorage.setItem('overfin-demo-picked', '1');
+      sessionStorage.setItem('overfin-web-picked', '1');
       state.me = await overfin.me();
       // Each profile sees its own libraries (kids limits included).
       state.libraries = await overfin.libraries().catch(() => []);
@@ -640,7 +640,7 @@ async function start() {
   const [libraries, profiles] = await Promise.all([overfin.libraries().catch(() => []), overfin.profiles()]);
   state.libraries = libraries;
   // "Who's watching?" once per tab, when there's a choice.
-  if ((!state.me.activeProfile || (profiles.length > 1 && !sessionStorage.getItem('overfin-demo-picked'))) &&
+  if ((!state.me.activeProfile || (profiles.length > 1 && !sessionStorage.getItem('overfin-web-picked'))) &&
       !location.hash.startsWith('#/play/') && location.hash !== '#/profiles') {
     location.hash = '#/profiles'; // the hashchange shows it
     return;
@@ -651,7 +651,7 @@ async function start() {
 $('#who').addEventListener('click', () => { location.hash = '#/profiles'; });
 $('#logout').addEventListener('click', async () => {
   await closePlayer();
-  sessionStorage.removeItem('overfin-demo-picked');
+  sessionStorage.removeItem('overfin-web-picked');
   const out = await overfin.logout().catch(() => ({}));
   location.href = out.logoutUrl || '/';
 });

@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -40,6 +41,7 @@ type Config struct {
 	OIDC      OIDC      `toml:"oidc"`
 	Admin     Admin     `toml:"admin"`
 	Connector Connector `toml:"connector"`
+	Site      Site      `toml:"site"`
 
 	// FeaturesInFile reports whether the file held feature settings
 	// (limits, privacy, plugins, accounts, modules). Those live in the
@@ -301,6 +303,27 @@ func (c Connector) Enabled() bool { return c.Kind != "" }
 // Enabled reports whether the control panel is on.
 func (a Admin) Enabled() bool { return a.Listen != "" }
 
+// Site is what Overfin serves besides the API, at the site's root, to
+// logged-in visitors only.
+type Site struct {
+	// Serve is "builtin" (overfin-web, Overfin's own client: the default),
+	// the absolute path of a folder holding your own client, or "none" (the
+	// site is served elsewhere; Overfin only answers /api/).
+	Serve string `toml:"serve"`
+	// CSP is the Content-Security-Policy of the site's files. The default
+	// fits overfin-web; your own client may need more sources.
+	CSP string `toml:"csp"`
+	// SPAFallback serves index.html for paths that aren't files, as
+	// single-page apps with their own routing need.
+	SPAFallback bool `toml:"spa_fallback"`
+}
+
+// DefaultCSP is the site's Content-Security-Policy unless the operator sets
+// one: everything from the site itself, nothing embedded elsewhere.
+const DefaultCSP = "default-src 'self'; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; " +
+	"connect-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; " +
+	"form-action 'self'; frame-ancestors 'none'"
+
 type Storage struct {
 	// Path is the database file.
 	Path string `toml:"path"`
@@ -358,6 +381,7 @@ func defaults() Config {
 		},
 		OIDC:     OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
 		Accounts: Accounts{OnDelete: "delete"},
+		Site:     Site{Serve: "builtin", CSP: DefaultCSP},
 	}
 }
 
@@ -578,6 +602,19 @@ func (c *Config) validate() error {
 		if (a.TLSCert == "") != (a.TLSKey == "") {
 			add("admin.tls_cert and admin.tls_key go together")
 		}
+	}
+
+	switch s := c.Site; {
+	case s.Serve == "builtin" || s.Serve == "none":
+	case !filepath.IsAbs(s.Serve):
+		add("site.serve must be \"builtin\", \"none\" or a folder's absolute path, got %q", s.Serve)
+	default:
+		if fi, err := os.Stat(s.Serve); err != nil || !fi.IsDir() {
+			add("site.serve: %q isn't a folder Overfin can read", s.Serve)
+		}
+	}
+	if s := c.Site.CSP; s == "" || len(s) > 2048 || strings.ContainsAny(s, "\r\n\x00") {
+		add("site.csp must be a single line, 1 to 2048 characters")
 	}
 
 	if cn := c.Connector; cn.Enabled() {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strings"
 
 	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/plugin"
@@ -18,8 +19,9 @@ const maxBodyBytes = 64 << 10 // 64 KiB
 
 // New returns the gateway handler with the given plugins loaded. identify
 // puts the caller's identity in the request context; every route except the
-// public ones requires one.
-func New(logger *slog.Logger, identify func(http.Handler) http.Handler, plugins ...plugin.Plugin) (http.Handler, error) {
+// public ones requires one. site, when not nil, serves everything outside
+// /api/: the website.
+func New(logger *slog.Logger, identify func(http.Handler) http.Handler, site http.Handler, plugins ...plugin.Plugin) (http.Handler, error) {
 	mux := http.NewServeMux()
 	reg := plugin.NewRegistrar(mux, requireIdentity)
 
@@ -33,8 +35,13 @@ func New(logger *slog.Logger, identify func(http.Handler) http.Handler, plugins 
 		logger.Info("route", "pattern", pattern, "plugin", owner, "public", reg.IsPublic(pattern))
 	}
 
-	// Anything no route matched gets the same plain 404.
+	// Anything no route matched gets the same plain 404, in the API; the
+	// rest is the site's, when there is one.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if site != nil && !isAPI(r.URL.Path) {
+			site.ServeHTTP(w, r)
+			return
+		}
 		problem.Send(w, problem.NotFound, "")
 	})
 
@@ -51,6 +58,11 @@ func requireIdentity(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isAPI reports whether a path is the API's, never the site's.
+func isAPI(p string) bool {
+	return p == "/api" || strings.HasPrefix(p, "/api/")
 }
 
 func health(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +99,11 @@ func sameOrigin(reg *plugin.Registrar, next http.Handler) http.Handler {
 				break
 			}
 			if r.Method == http.MethodGet && reg.IsCrossSite(r.URL.Path) {
+				break
+			}
+			// The site's files change nothing, and people arrive at its
+			// pages from elsewhere (a link in an email).
+			if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !isAPI(r.URL.Path) {
 				break
 			}
 			problem.Send(w, problem.CrossSiteRequest, "")

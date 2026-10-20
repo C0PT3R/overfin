@@ -104,6 +104,19 @@ kind = ""                       # "authentik"
 url = ""                        # e.g. "https://auth.example.org"
 dial = ""                       # optional "host:port", as in [oidc]
 
+[site]
+# What Overfin serves at the site's root, to logged-in visitors only:
+#   "builtin"         overfin-web, Overfin's own web client (the default)
+#   "/path/to/folder" your own client's files, read live (no restart needed)
+#   "none"            nothing: your proxy serves the site, asking Overfin's
+#                     gate (/api/v1/gate) before serving its pages
+serve = "builtin"
+# The site's Content-Security-Policy. The default fits overfin-web
+# (everything from the site itself); your own client may need more sources.
+# csp = "default-src 'self'; ..."
+# For single-page apps: paths that aren't files get index.html.
+spa_fallback = false
+
 # ---- Feature settings --------------------------------------------------------
 # Everything below is switched on and off in the control panel, and lives in
 # the database. These sections are only read on the very first start, to fill

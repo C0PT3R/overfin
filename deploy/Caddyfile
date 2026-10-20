@@ -1,26 +1,10 @@
-# The site, with Overfin's API, and the sign-in. Caddy gets the HTTPS
-# certificates by itself: both names must point to this machine, with ports
-# 80 and 443 open.
+# The site and the sign-in. Caddy gets the HTTPS certificates by itself:
+# both names must point to this machine, with ports 80 and 443 open.
 
+# Overfin serves the API and the site (overfin-web, or your own client), to
+# logged-in visitors only, with its own security headers.
 {$OVERFIN_DOMAIN} {
-	handle /api/* {
-		reverse_proxy overfin:8080
-	}
-	# The site's pages are private too: Overfin's gate sends visitors who
-	# aren't logged in to the login, and back. The headers fit the demo site:
-	# everything from this site only, nothing embedded elsewhere.
-	handle {
-		forward_auth overfin:8080 {
-			uri /api/v1/gate
-		}
-		header {
-			Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
-			X-Content-Type-Options nosniff
-			Referrer-Policy no-referrer
-		}
-		root * /srv/site
-		file_server
-	}
+	reverse_proxy overfin:8080
 }
 
 {$AUTH_DOMAIN} {

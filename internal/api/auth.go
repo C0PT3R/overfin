@@ -183,21 +183,55 @@ func (a *Auth) current(ctx context.Context, token string) *store.Login {
 // anyone logged in and allowed, a redirect to the login for a page
 // visited by someone who isn't, and no to anything else.
 func (a *Auth) gate(w http.ResponseWriter, r *http.Request) {
+	if a.admit(w, r, r.Header.Get("X-Forwarded-Uri")) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// Admit lets a request for the site's pages through when the visitor is
+// logged in and allowed. Otherwise it answers itself, sending a page visit
+// to the login and back, and reports false.
+func (a *Auth) Admit(w http.ResponseWriter, r *http.Request) bool {
+	return a.admit(w, r, r.URL.RequestURI())
+}
+
+func (a *Auth) admit(w http.ResponseWriter, r *http.Request, ret string) bool {
 	if id, ok := identity.FromContext(r.Context()); ok {
 		if a.Provisioner.Allowed(id) != nil {
 			problem.Send(w, problem.AccountNotAllowed, "")
-			return
+			return false
 		}
-		w.WriteHeader(http.StatusNoContent)
-		return
+		return true
 	}
 	dest := r.Header.Get("Sec-Fetch-Dest")
 	if dest == "document" || (dest == "" && strings.Contains(r.Header.Get("Accept"), "text/html")) {
-		target := loginPath + "?" + url.Values{"return": {safeReturn(r.Header.Get("X-Forwarded-Uri"))}}.Encode()
+		target := loginPath + "?" + url.Values{"return": {safeReturn(ret)}}.Encode()
 		http.Redirect(w, r, target, http.StatusFound)
-		return
+		return false
 	}
 	problem.Send(w, problem.NotAuthenticated, "")
+	return false
+}
+
+// SiteGate is who may get the site's pages: with Overfin's own login, the
+// logged-in and allowed (Auth.Admit); otherwise (forward auth, anonymous)
+// whoever has an identity the reverse proxy vouched for, if allowed.
+func SiteGate(a *Auth, prov *provision.Provisioner) func(http.ResponseWriter, *http.Request) bool {
+	if a != nil && a.Login {
+		return a.Admit
+	}
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		id, ok := identity.FromContext(r.Context())
+		switch {
+		case !ok:
+			problem.Send(w, problem.NotAuthenticated, "")
+			return false
+		case prov.Allowed(id) != nil:
+			problem.Send(w, problem.AccountNotAllowed, "")
+			return false
+		}
+		return true
+	}
 }
 
 func (a *Auth) startLogin(w http.ResponseWriter, r *http.Request) {

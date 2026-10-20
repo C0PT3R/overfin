@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/C0PT3R/overfin/internal/config"
 )
 
 // newBrowser is a fresh browser: its own cookies, no redirects followed,
@@ -171,5 +173,41 @@ func TestLoginWithoutRefreshTokens(t *testing.T) {
 	}
 	if idp.refreshes != 0 {
 		t.Errorf("%d refreshes without a refresh token", idp.refreshes)
+	}
+}
+
+// Overfin serves overfin-web beside the API, to logged-in visitors only.
+func TestSite(t *testing.T) {
+	idp := newFakeIdP(t)
+	srv, _ := newServerWith(t, options{provider: idp.provider(), login: true, site: true})
+	b := newBrowser(srv)
+	page := map[string]string{"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate"}
+
+	// Not logged in: a page visit goes to the login and back, even arriving
+	// from another site (a link in an email); other requests are refused.
+	fromMail := map[string]string{"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "cross-site"}
+	if res, _ := visit(t, b, srv, "/", fromMail); res.StatusCode != 302 || res.Header.Get("Location") != "/api/v1/login?return=%2F" {
+		t.Errorf("page, logged out: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	if res, body := visit(t, b, srv, "/app.js", nil); res.StatusCode != 401 || strings.Contains(body, "import") {
+		t.Errorf("file, logged out: %d", res.StatusCode)
+	}
+
+	logIn(t, b, srv, idp, subject, "/")
+	res, body := visit(t, b, srv, "/", page)
+	if res.StatusCode != 200 || !strings.Contains(body, "<title>Overfin</title>") ||
+		res.Header.Get("Content-Security-Policy") != config.DefaultCSP {
+		t.Errorf("page, logged in: %d %v", res.StatusCode, res.Header)
+	}
+	// The API is still the API.
+	if res, body := visit(t, b, srv, "/api/v1/nothing-here", nil); res.StatusCode != 404 || !strings.Contains(body, "not-found") {
+		t.Errorf("unknown API route: %d %s", res.StatusCode, body)
+	}
+	// Other sites may link to pages, never change anything.
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader("{}"))
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Content-Type", "application/json")
+	if res, err := b.Do(req); err != nil || res.StatusCode != 403 {
+		t.Errorf("cross-site POST: %v %v", res.StatusCode, err)
 	}
 }
