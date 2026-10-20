@@ -103,10 +103,17 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
 		MaxStreams: cfg.Limits.MaxStreamsPerAccount, MaxTranscodes: cfg.Limits.MaxTranscodesTotal,
 		RefuseOverLimit: cfg.Limits.OnLimit == "refuse", Logger: logger}
+	// The modules the operator switched on.
+	var mounts []api.Mount
+	for _, m := range modules {
+		if cfg.Plugins.Enabled(m.Info().Name) {
+			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: db.DB(), Logger: logger})
+		}
+	}
 	// Accounts and profiles are always on; everything else is a plugin the
 	// operator enables.
 	plugins := []plugin.Plugin{
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim,
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: cfg.Adoption.Claim, Mounts: mounts,
 			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images, PINs: checker},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, MaxProfiles: cfg.Limits.MaxProfilesPerAccount,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
@@ -120,8 +127,9 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 	if cfg.Plugins.Enabled("playback") {
 		plugins = append(plugins, pb, api.Stream{Playback: pb})
 	}
-	if cfg.Plugins.Enabled("watchlist") {
-		plugins = append(plugins, api.Watchlist{Library: lib})
+	// Modules go behind the same guards as the core's own routes.
+	for _, m := range mounts {
+		plugins = append(plugins, m)
 	}
 	logger.Info("plugins", "enabled", cfg.Plugins.Enable)
 	return server.New(logger, identityMiddleware, plugins...)

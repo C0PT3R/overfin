@@ -31,6 +31,9 @@ type Account struct {
 	Images *images.Pipeline
 	// PINs checks a profile's PIN before it downloads its own data.
 	PINs *pin.Checker
+	// Mounts are the modules switched on, for their part of "Download my
+	// data".
+	Mounts []Mount
 }
 
 func (Account) Name() string { return "account" }

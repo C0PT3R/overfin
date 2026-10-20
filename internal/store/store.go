@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -1039,66 +1040,64 @@ func (s *Store) UnlockPIN(ctx context.Context, profileID string) error {
 	return oneRow(res, err)
 }
 
-// ---- Watchlist ------------------------------------------------------------------
+// ---- Modules -------------------------------------------------------------------------
 
-// MaxWatchlist caps one profile's watchlist.
-const MaxWatchlist = 1000
+// DB is the database, for modules' own tables.
+func (s *Store) DB() *sql.DB { return s.db }
 
-// ErrWatchlistFull: the profile's watchlist has MaxWatchlist titles.
-var ErrWatchlistFull = errors.New("store: watchlist full")
+var moduleMigrationName = regexp.MustCompile(`^(\d{3})_[a-z0-9_]+\.sql$`)
 
-// WatchlistAdd puts a title on a profile's watchlist; one already there
-// stays where it was.
-func (s *Store) WatchlistAdd(ctx context.Context, profileID, itemID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+// MigrateModule applies a module's own migrations (001_….sql, 002_….sql…)
+// that haven't run yet, each in its own transaction.
+func (s *Store) MigrateModule(ctx context.Context, module string, migrations fs.FS) error {
+	if migrations == nil {
+		return nil
+	}
+	var current int
+	err := s.db.QueryRowContext(ctx, `SELECT version FROM module_migrations WHERE module = ?`, module).Scan(&current)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	entries, err := fs.ReadDir(migrations, ".")
 	if err != nil {
-		return err
+		return fmt.Errorf("store: module %s migrations: %w", module, err)
 	}
-	defer tx.Rollback()
-	var n int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM watchlist WHERE profile_id = ?`, profileID).Scan(&n); err != nil {
-		return err
-	}
-	if n >= MaxWatchlist {
-		return ErrWatchlistFull
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO watchlist (profile_id, item_id, added_at) VALUES (?, ?, ?)
-		ON CONFLICT DO NOTHING`, profileID, itemID, s.now().Unix()); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// WatchlistRemove takes a title off a profile's watchlist.
-func (s *Store) WatchlistRemove(ctx context.Context, profileID, itemID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM watchlist WHERE profile_id = ? AND item_id = ?`, profileID, itemID)
-	return err
-}
-
-// WatchlistHas reports whether a title is on a profile's watchlist.
-func (s *Store) WatchlistHas(ctx context.Context, profileID, itemID string) (bool, error) {
-	var one int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM watchlist WHERE profile_id = ? AND item_id = ?`, profileID, itemID).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
-// Watchlist lists a profile's watchlist, most recently added first.
-func (s *Store) Watchlist(ctx context.Context, profileID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT item_id FROM watchlist WHERE profile_id = ? ORDER BY added_at DESC, rowid DESC`, profileID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			names = append(names, e.Name())
 		}
-		out = append(out, id)
 	}
-	return out, rows.Err()
+	sort.Strings(names)
+	for i, name := range names {
+		version := i + 1
+		m := moduleMigrationName.FindStringSubmatch(name)
+		if m == nil || m[1] != fmt.Sprintf("%03d", version) {
+			return fmt.Errorf("store: module %s migration %s is misnamed or out of sequence", module, name)
+		}
+		if version <= current {
+			continue
+		}
+		body, err := fs.ReadFile(migrations, name)
+		if err != nil {
+			return err
+		}
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("store: module %s, applying %s: %w", module, name, err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO module_migrations (module, version) VALUES (?, ?)
+			ON CONFLICT (module) DO UPDATE SET version = excluded.version`, module, version); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }

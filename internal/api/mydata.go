@@ -77,8 +77,9 @@ type exportProfileJSON struct {
 	// WatchHistory is read from the media server for this download; Overfin
 	// doesn't keep it.
 	WatchHistory []exportItemJSON `json:"watchHistory"`
-	// Watchlist is the profile's watchlist, most recently added first.
-	Watchlist []library.ItemSummary `json:"watchlist"`
+	// Modules holds what each switched-on module keeps about the profile,
+	// by module name (the watchlist, say).
+	Modules map[string]any `json:"modules,omitempty"`
 }
 
 type exportItemJSON struct {
@@ -147,16 +148,23 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 			problem.Send(w, problem.Internal, "")
 			return
 		}
-		watchlist, err := watchlistItems(ctx, Library{Sessions: a.Sessions, Jellyfin: a.Provisioner.Jellyfin}, p)
-		if err != nil {
-			a.Logger.Error("reading the watchlist for an export failed", "err", err)
-			problem.Send(w, problem.Internal, "")
-			return
+		mods := map[string]any{}
+		as := &Caller{Account: c.Account, Session: c.Session, Profile: p, Owner: c.Owner}
+		for _, m := range a.Mounts {
+			data, ok, err := m.Export(ctx, as)
+			if err != nil {
+				a.Logger.Error("a module's part of an export failed", "module", m.Name(), "err", err)
+				problem.Send(w, problem.Internal, "")
+				return
+			}
+			if ok {
+				mods[m.Name()] = data
+			}
 		}
 		out.Profiles = append(out.Profiles, exportProfileJSON{
 			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language,
 			RatingCeiling: p.RatingCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
-			WatchHistory: history, Watchlist: watchlist,
+			WatchHistory: history, Modules: mods,
 		})
 	}
 	sessions, err := a.Sessions.Store.Sessions(ctx, c.Account.ID)

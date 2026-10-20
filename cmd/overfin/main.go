@@ -54,6 +54,9 @@ func run(logger *slog.Logger) error {
 		"move every account adopted in \"link\" mode for good (opaque name, lock-down, new password), then exit")
 	flag.Parse()
 
+	if err := registerModules(); err != nil {
+		return err
+	}
 	cfg, err := config.Load(*configPath, os.Getenv)
 	if err != nil {
 		return err
@@ -74,6 +77,9 @@ func run(logger *slog.Logger) error {
 	}
 	defer db.Close()
 	logger.Info("database ready", "path", cfg.Storage.Path)
+	if err := migrateModules(context.Background(), db); err != nil {
+		return err
+	}
 	if !*recoverTokens {
 		if err := db.CheckKey(context.Background(), k.Check); errors.Is(err, store.ErrWrongKey) {
 			return fmt.Errorf("%w. Restore the original key; if it's lost for good, run overfin -recover-tokens once "+

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/C0PT3R/overfin/internal/ids"
@@ -313,33 +314,23 @@ func TestLinkedProfiles(t *testing.T) {
 	}
 }
 
-func TestWatchlist(t *testing.T) {
+func TestModuleMigrations(t *testing.T) {
 	ctx := context.Background()
 	s := openTest(t)
-	a, p, _ := s.CreateAccount(ctx, "subject", owner("1"))
-	_ = s.WatchlistAdd(ctx, p.ID, "item-a")
-	_ = s.WatchlistAdd(ctx, p.ID, "item-b")
-	_ = s.WatchlistAdd(ctx, p.ID, "item-a") // already there
-	got, _ := s.Watchlist(ctx, p.ID)
-	if len(got) != 2 || got[0] != "item-b" {
-		t.Errorf("watchlist = %v, want newest first", got)
+	m := fstest.MapFS{
+		"001_first.sql":  {Data: []byte(`CREATE TABLE demo_things (id TEXT PRIMARY KEY) STRICT;`)},
+		"002_second.sql": {Data: []byte(`ALTER TABLE demo_things ADD COLUMN note TEXT;`)},
 	}
-	if has, _ := s.WatchlistHas(ctx, p.ID, "item-a"); !has {
-		t.Error("item-a missing")
+	for i := 0; i < 2; i++ { // twice: the second run applies nothing
+		if err := s.MigrateModule(ctx, "demo", m); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
 	}
-	_ = s.WatchlistRemove(ctx, p.ID, "item-a")
-	if has, _ := s.WatchlistHas(ctx, p.ID, "item-a"); has {
-		t.Error("item-a still there")
+	if _, err := s.db.Exec(`INSERT INTO demo_things (id, note) VALUES ('a', 'b')`); err != nil {
+		t.Errorf("table not migrated: %v", err)
 	}
-	// Private to the profile, and gone with the account.
-	kid, _ := s.AddProfile(ctx, a.ID, newProfile("Kid", "k"), 0)
-	if got, _ := s.Watchlist(ctx, kid.ID); len(got) != 0 {
-		t.Errorf("another profile sees %v", got)
-	}
-	_ = s.DeleteAccount(ctx, a.ID)
-	var n int
-	s.db.QueryRow(`SELECT count(*) FROM watchlist`).Scan(&n)
-	if n != 0 {
-		t.Errorf("%d watchlist rows outlived their account", n)
+	bad := fstest.MapFS{"002_skip.sql": {Data: []byte(`SELECT 1;`)}}
+	if err := s.MigrateModule(ctx, "other", bad); err == nil {
+		t.Error("an out-of-sequence migration was accepted")
 	}
 }

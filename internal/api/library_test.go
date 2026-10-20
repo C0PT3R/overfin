@@ -30,6 +30,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
 	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin/modules/watchlist"
 )
 
 const (
@@ -247,8 +248,13 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxStreams: maxStreams, Logger: logger}
 	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
-	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb}, api.Watchlist{Library: lib},
-		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker},
+	// The watchlist module, mounted as the real program mounts it.
+	if err := st.MigrateModule(context.Background(), "watchlist", watchlist.Module{}.Info().Migrations); err != nil {
+		t.Fatal(err)
+	}
+	wl := api.Mount{Module: watchlist.Module{}, Library: lib, DB: st.DB(), Logger: logger}
+	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb}, wl,
+		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker, Mounts: []api.Mount{wl}},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},
 	}, extra...)

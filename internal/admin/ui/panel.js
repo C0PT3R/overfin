@@ -80,8 +80,7 @@ function render(state, draft) {
   const sections = [
     h('section', {}, h('h2', {}, 'Plugins'),
       ...state.plugins.map((p) => listToggle(p.name,
-        ({ library: 'Libraries, items, posters, continue watching', playback: 'Watching, with subtitles',
-          watchlist: "Each profile's own list of movies, shows, seasons and episodes to watch" }[p.name] || '') +
+        (p.description || '') +
         (p.needs ? ` (needs ${p.needs.join(', ')})` : ''), 'plugins.enable', p.name))),
     h('section', {}, h('h2', {}, 'Accounts'),
       toggle('Bring existing accounts', 'People bring their Jellyfin account and history with its username and password', 'adoption.claim'),

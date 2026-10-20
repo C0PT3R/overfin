@@ -146,11 +146,23 @@ type Plugins struct {
 }
 
 // KnownPlugins are the plugins an operator may enable, and what each one
-// needs enabled with it.
+// needs enabled with it. Modules add themselves with RegisterPlugin.
 var KnownPlugins = map[string][]string{
-	"library":   nil,
-	"playback":  {"library"},
-	"watchlist": {"library"},
+	"library":  nil,
+	"playback": {"library"},
+}
+
+// PluginDescriptions say what each plugin offers, for the control panel.
+var PluginDescriptions = map[string]string{
+	"library":  "Libraries, items, posters, continue watching",
+	"playback": "Watching, with subtitles",
+}
+
+// RegisterPlugin makes a compiled-in module known to the configuration, so
+// operators can switch it on. Call it before loading the configuration.
+func RegisterPlugin(name string, needs []string, description string) {
+	KnownPlugins[name] = needs
+	PluginDescriptions[name] = description
 }
 
 // Enabled reports whether the operator enabled a plugin.

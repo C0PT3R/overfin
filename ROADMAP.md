@@ -93,11 +93,15 @@ module API becomes a public, versioned promise. Official modules carry
 Overfin's guarantees; a third-party module is its developer's
 responsibility, as with any program, and the operator's for running it.
 
-1. The module contract: routes behind the core's guards, the calling
-   profile, the backend as that profile only (never the admin key), the
-   module's own tables and migrations (deleted with profiles), problems,
-   logging, and hooks for the data export and, later, the control panel.
-2. The watchlist moved onto it, as the pilot; then library and playback.
+1. ~~The module contract~~ (the `module` package): routes behind the
+   core's guards, the calling profile, the backend as that profile only
+   (never the admin key), the module's own tables and migrations, problems,
+   logging, and a hook for the data export. Later: control panel sections
+   and module settings.
+2. ~~The watchlist moved onto it, as the pilot~~ (`modules/watchlist`,
+   built only on the public contract); then library and playback.
+2b. Overfin's startup as an importable package (`overfin.Main(modules…)`),
+   so an operator's own build is a few lines.
 3. Invites, the first module written against the contract.
 4. A "Writing a module" guide with a small example.
 

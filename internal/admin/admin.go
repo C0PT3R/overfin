@@ -406,14 +406,15 @@ func (p *Panel) whoami(w http.ResponseWriter, r *http.Request, s *session) {
 
 // pluginInfo describes a plugin for the panel.
 type pluginInfo struct {
-	Name  string   `json:"name"`
-	Needs []string `json:"needs,omitempty"`
+	Name        string   `json:"name"`
+	Needs       []string `json:"needs,omitempty"`
+	Description string   `json:"description,omitempty"`
 }
 
 func (p *Panel) features(w http.ResponseWriter, r *http.Request, s *session) {
 	var plugins []pluginInfo
 	for name, needs := range config.KnownPlugins {
-		plugins = append(plugins, pluginInfo{Name: name, Needs: needs})
+		plugins = append(plugins, pluginInfo{Name: name, Needs: needs, Description: config.PluginDescriptions[name]})
 	}
 	slices.SortFunc(plugins, func(a, b pluginInfo) int { return strings.Compare(a.Name, b.Name) })
 	writeJSON(w, http.StatusOK, map[string]any{

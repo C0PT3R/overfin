@@ -224,6 +224,16 @@ comes from the internet, and media files can be written by anyone.
     and must belong to the configured admin group; a session ends after 30
     minutes without activity, and after 12 hours at most.
 
+### Modules
+62. Modules are compiled in; nothing is loaded while Overfin runs. A
+    module's routes go through the same registrar as the core's (no
+    catch-alls, a login required), it acts only as the calling profile, and
+    it never gets the media server's admin key. That keeps well-behaved
+    modules safe, but it's a convention, not a sandbox: a module runs with
+    Overfin's full power. These rules cover the core and the official
+    modules; a third-party module is its developer's responsibility, and the
+    operator's for running it.
+
 ### Code supply
 59. No code copied or ported from other projects. Dependencies are few, chosen
     on purpose, and pinned.
