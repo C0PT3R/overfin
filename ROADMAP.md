@@ -186,6 +186,17 @@ Everything is off by default.
    stream; history and activity read live from Jellyfin, never stored.
 6. Notices, off by default: invite used, account expiring (email, webhook),
    carrying account events only, never viewing activity.
+7. Email: an SMTP server set in the configuration, shared by everything
+   that sends mail (notices, personal invites, step-up codes). Mail names
+   the operator's site, never the software underneath. First use, **step-up
+   by emailed code**, an operator's choice beside the fresh login: before a
+   guarded action (removing or changing a PIN, deleting a profile or the
+   account, downloading one's data), the owner gets a 6-digit code at the
+   address the identity provider gave at login, used then, never stored.
+   Codes last 10 minutes, are single-use, tied to the session and the
+   action, kept only as hashes, and limited in attempts like PINs. No
+   weaker in practice than the login itself, which the same mailbox can
+   reset. Needs the provider's `email` claim, so not in forwardauth mode.
 
 Later, perhaps: letting the configuration file pin a feature setting, for
 operators who manage servers as files.
