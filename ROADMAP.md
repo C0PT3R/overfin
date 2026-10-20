@@ -207,6 +207,37 @@ Everything is off by default.
 Later, perhaps: letting the configuration file pin a feature setting, for
 operators who manage servers as files.
 
+## Milestone 3: simple to run
+
+Running Overfin should take minutes, not an afternoon, without giving up
+what makes it worth running: the control panel never on the internet,
+Jellyfin never exposed, HTTPS required, passwords only ever at the identity
+provider.
+
+1. **Releases, with a ready-made image**: signed, multi-architecture, on
+   GitHub's registry, holding the core and the official modules (each off
+   until switched on). Custom builds stay as easy: a builder image takes a
+   list of modules (`--build-arg MODULES=…`), writes the few lines of
+   `main.go` and compiles, like `xcaddy`.
+2. **The identity provider made easy**: an Authentik blueprint creating the
+   provider, the application, the admin group and the connector's user in
+   one import; tested recipes for simpler providers (Pocket ID first), and
+   perhaps a compose bundle that includes one. Overfin itself never handles
+   passwords.
+3. **A first-run setup page**, on the private panel address: the Jellyfin
+   address and key, the identity provider and the site address, each
+   tested before it's saved. It opens only with a one-time code printed in
+   the log, so nobody else can claim a fresh install. The configuration
+   file shrinks to almost nothing.
+4. **Overfin serves the site itself**, gate included, so the reverse proxy
+   only needs to pass everything on (`reverse_proxy overfin:8080`).
+5. **`overfin -check`**: tests the configuration, reaches Jellyfin, fetches
+   the provider's discovery document, checks the proxy is trusted, and says
+   in plain words what's wrong.
+6. **The secret key generated on first start**, into its own secrets
+   folder, apart from the database it protects; operators who want more
+   still supply their own.
+
 ## Beyond Jellyfin
 
 Overfin keeps looking for what people miss in Jellyfin's own experience and
@@ -295,6 +326,11 @@ built on Overfin without changing it:
   narrow exception to SECURITY.md rule 3.
 
 ## Open questions
+
+- Modules loaded at runtime, if third-party ones become common: WebAssembly
+  (a pure-Go runtime such as wazero) would make them a true sandbox, which
+  compiled-in modules can't be. Go's own `plugin` package is too fragile
+  (cgo, exact versions), and separate processes trade speed for isolation.
 
 - Step-up checks the login time in the ID token rather than trusting
   `prompt=login`. Confirm each supported identity provider updates it on a
