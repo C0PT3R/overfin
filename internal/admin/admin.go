@@ -375,8 +375,11 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: pendingCookie, Value: "", Path: "/", MaxAge: -1,
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
-	if q.Get("error") != "" || q.Get("code") == "" {
-		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+	// Shown, not retried: starting over would loop on a provider that
+	// refuses every time.
+	if code, refused := oidc.Refused(q); refused {
+		p.Logger.Warn("admin sign-in refused by the identity provider", "error", code)
+		http.Error(w, "The identity provider refused the sign-in ("+code+"). The log says more.", http.StatusForbidden)
 		return
 	}
 	login, err := p.Provider.Exchange(r.Context(), q.Get("code"), pd.verifier, pd.nonce)

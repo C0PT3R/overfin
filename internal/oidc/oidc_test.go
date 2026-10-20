@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -212,5 +213,22 @@ func TestRefresh(t *testing.T) {
 	}
 	if _, err := p.Refresh(ctx, "other-user", "user-1"); err == nil || errors.Is(err, ErrRevoked) {
 		t.Errorf("another user's token: %v", err)
+	}
+}
+
+func TestRefused(t *testing.T) {
+	for q, want := range map[string]string{
+		"code=abc":                         "",
+		"":                                 "no_code",
+		"error=access_denied":              "access_denied",
+		"error=invalid_request&code=abc":   "invalid_request",
+		"error=%3Cscript%3E":               "unrecognized",
+		"error=" + strings.Repeat("a", 65): "unrecognized",
+	} {
+		v, _ := url.ParseQuery(q)
+		code, refused := Refused(v)
+		if code != want || refused != (want != "") {
+			t.Errorf("%q: %q %v", q, code, refused)
+		}
 	}
 }

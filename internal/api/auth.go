@@ -345,8 +345,13 @@ func (a *Auth) finishLogin(w http.ResponseWriter, r *http.Request, p pendingAuth
 	http.SetCookie(w, &http.Cookie{Name: pendingCookie, Value: "", Path: "/", MaxAge: -1,
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	q := r.URL.Query()
-	if q.Get("error") != "" || q.Get("code") == "" {
-		problem.Send(w, problem.NotAuthenticated, "the login was cancelled")
+	if code, refused := oidc.Refused(q); refused {
+		a.Logger.Warn("login refused by the identity provider", "error", code)
+		detail := "the identity provider refused the login"
+		if code == "access_denied" {
+			detail = "the login was cancelled or refused"
+		}
+		problem.Send(w, problem.NotAuthenticated, detail)
 		return
 	}
 	ctx := r.Context()
@@ -404,8 +409,10 @@ func (a *Auth) finishStepUp(w http.ResponseWriter, r *http.Request, p pendingAut
 		return
 	}
 	q := r.URL.Query()
-	if q.Get("error") != "" || q.Get("code") == "" {
-		// Cancelled at the provider: back to the page, still not fresh.
+	if code, refused := oidc.Refused(q); refused {
+		// Cancelled or refused at the provider: back to the page, still not
+		// fresh.
+		a.Logger.Warn("step-up refused by the identity provider", "error", code)
 		http.Redirect(w, r, p.Return, http.StatusSeeOther)
 		return
 	}

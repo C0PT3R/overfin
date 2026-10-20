@@ -74,6 +74,9 @@ entries:
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       client_type: confidential
+      # What Overfin uses: the login, and refreshing it. A blueprint gets
+      # none unless they're listed.
+      grant_types: [authorization_code, refresh_token]
       client_id: overfin
       client_secret: !Env OVERFIN_OIDC_CLIENT_SECRET
       redirect_uris:

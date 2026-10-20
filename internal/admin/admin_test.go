@@ -275,3 +275,18 @@ func TestModuleTabs(t *testing.T) {
 		}
 	}
 }
+
+// When the provider refuses the sign-in, the panel says so instead of
+// starting over, which would loop on a provider that refuses every time.
+func TestProviderRefusalIsShown(t *testing.T) {
+	p, _, _ := newPanel(t)
+	b := &browser{h: p.Handler(), cookies: map[string]string{}}
+	rec := b.do("GET", "/admin/login?return=/admin/", "", nil)
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	ret := url.Values{"error": {"invalid_request"}, "state": {loc.Query().Get("state")}}.Encode()
+	b.do("GET", "/admin/auth/callback?"+ret, "", map[string]string{"Sec-Fetch-Site": "cross-site"})
+	rec = b.do("GET", "/admin/auth/finish?"+ret, "", map[string]string{"Sec-Fetch-Site": "same-origin"})
+	if rec.Code != 403 || rec.Header().Get("Location") != "" || !strings.Contains(rec.Body.String(), "invalid_request") {
+		t.Errorf("refused sign-in: %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body)
+	}
+}

@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -151,6 +152,25 @@ func (p *Provider) LogoutURL(ctx context.Context) string {
 		return ""
 	}
 	return m.EndSessionEndpoint
+}
+
+// errorCode is the form of an OAuth error code, such as "access_denied".
+var errorCode = regexp.MustCompile(`^[a-z_]{1,64}$`)
+
+// Refused reports whether the provider answered a login with an error
+// instead of a code, and which one: a standard OAuth code, or
+// "unrecognized" for anything else, so it's always safe to log and show.
+func Refused(q url.Values) (code string, refused bool) {
+	switch e := q.Get("error"); {
+	case e == "" && q.Get("code") != "":
+		return "", false
+	case e == "":
+		return "no_code", true
+	case errorCode.MatchString(e):
+		return e, true
+	default:
+		return "unrecognized", true
+	}
 }
 
 // Random returns n random bytes, base64url-encoded: states, nonces, PKCE
