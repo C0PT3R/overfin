@@ -267,6 +267,36 @@ Overfin keeps holding as little as it can.
   item, so they come with the TMDB catalog and Seerr requests plugins (Seerr
   keeps watchlists of its own).
 
+## Hypothetical ideas
+
+Ideas worth keeping, with no plan and no promise: they depend on pieces that
+don't exist yet, or on Overfin being used widely.
+
+**Federation.** What Jellyfin users ask for under that name is what Plex
+calls shared servers: a friend's libraries appear next to yours, in the same
+site and apps, with one login. Jellyfin has no plans for it; people make do
+with workarounds (a reverse proxy presenting several servers as one, a
+plugin, or mounting each other's libraries over a VPN). Overfin could do it
+gateway to gateway, each Jellyfin staying private:
+
+- two operators pair their gateways with an invitation, like a user's, and
+  each chooses what it shares with the other (libraries, streams at once, a
+  quality cap); either can end it at once;
+- people see the peer's libraries in their own site, under its brand
+  (`item_<peer>_<id>` IDs are ready for it); the peer sees pseudonymous
+  accounts, not who they are, though what they watch there stays in its
+  history;
+- one stream, one peer, switching to another peer holding the same file if
+  it fails.
+
+Further out, if Overfin networks grew large: **files identified by their
+content** (a hash computed in the background), so servers know for certain
+they hold the same file; **several sources at once**, first for downloads;
+and, much later, **servers as a swarm**, each streaming pieces of the same
+file to the gateway that serves the viewer, like a torrent network made of
+servers only, so viewers never connect to anyone but their own site. That
+last part only pays off with many servers holding identical files.
+
 ## Designed, to implement later
 
 - TMDB catalog plugin: discover, catalog titles, curated lists.
