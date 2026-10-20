@@ -302,7 +302,13 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !slices.Contains(login.Groups, p.Group) {
-		p.Logger.Warn("admin sign-in refused: not in the admin group")
+		if login.Groups == nil {
+			p.Logger.Warn("admin sign-in refused: the login token carries no groups; " +
+				"have the identity provider include them (with Authentik: the 'profile' scope mapping)",
+				"claim", p.Provider.GroupsClaim)
+		} else {
+			p.Logger.Warn("admin sign-in refused: not in the admin group", "adminGroup", p.Group, "groups", login.Groups)
+		}
 		http.Error(w, "This account is not an administrator of this server", http.StatusForbidden)
 		return
 	}
