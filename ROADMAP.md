@@ -214,7 +214,8 @@ what makes it worth running: the control panel never on the internet,
 Jellyfin never exposed, HTTPS required, passwords only ever at the identity
 provider.
 
-1. **Releases, with a ready-made image**: signed, multi-architecture, on
+1. **Releases, with a ready-made image** (done, waiting for the first
+   version tag): signed, multi-architecture, on
    GitHub's registry, holding the core and the official modules (each off
    until switched on). Custom builds stay as easy: a builder image takes a
    list of modules (`--build-arg MODULES=…`), writes the few lines of

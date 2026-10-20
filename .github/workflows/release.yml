@@ -1,0 +1,73 @@
+# Publishes a release when a version tag (v0.1.0, v1.2.3…) is pushed: the
+# same checks as CI, then the image for amd64 and arm64 on GitHub's
+# registry, with a signed attestation of where and how it was built, and a
+# GitHub release with notes from the commits.
+#
+# Verify an image: gh attestation verify oci://ghcr.io/c0pt3r/overfin:<version> -R C0PT3R/overfin
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # the GitHub release
+      packages: write      # the image
+      id-token: write      # signing the attestation
+      attestations: write
+    env:
+      IMAGE: ghcr.io/c0pt3r/overfin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ github.ref_name }}
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        # Versions before 1.0 are marked as pre-releases.
+        run: |
+          pre=""
+          case "$TAG" in v0.*) pre="--prerelease" ;; esac
+          gh release create "$TAG" --generate-notes $pre

@@ -89,6 +89,17 @@ contract.
 
 ## Building Overfin with your module
 
+The easy way is the Dockerfile: name your module, and it's built in with the
+official ones, no Go needed:
+
+```sh
+docker build --build-arg MODULES="example.org/mymodule@v1.2.0" -t overfin .
+```
+
+`MODULES` takes several, separated by spaces. Each is a Go package path,
+optionally with `@version`, whose package exports a `Module` type, as above.
+
+To choose exactly which modules go in, write the main package yourself.
 Overfin's core is a Go package; your build is a few lines:
 
 ```go
@@ -108,9 +119,8 @@ func main() {
 }
 ```
 
-Build it like the official one (`go build`, or the Dockerfile with your
-`main` package), then switch your module on in the control panel, like any
-other. Nothing is ever loaded while Overfin runs.
+Build it with `go build`, then switch your module on in the control panel,
+like any other. Nothing is ever loaded while Overfin runs.
 
 ## The rules that keep everyone safe
 

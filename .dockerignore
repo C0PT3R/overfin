@@ -1,0 +1,11 @@
+# Kept out of the build context: history, local data and anything that
+# could hold secrets.
+.git
+.github
+*.db
+*.db-*
+*.env
+secrets*
+cmd/custom
+*.toml
+.env*

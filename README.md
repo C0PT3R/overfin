@@ -213,7 +213,8 @@ compiled in, each off until switched on.
 | `catalog` | TMDB discovery and lists | Planned |
 | `requests` | Seerr requests | Planned |
 
-You can write your own and build Overfin with it in a few lines:
+You can write your own and build Overfin with it in one command
+(`docker build --build-arg MODULES="example.org/mymodule" -t overfin .`):
 [MODULES.md](MODULES.md) describes the contract, with a working example. A
 module you add is your responsibility, as with any code you run.
 
