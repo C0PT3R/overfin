@@ -38,7 +38,7 @@ jobs:
       - name: Tests
         run: go test -race ./...
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
