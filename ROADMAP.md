@@ -82,9 +82,10 @@ Jellyfin server, using only the public API.
 **Overfin's own control panel**, built in and the same for every operator:
 the place to run an instance without Jellyfin's dashboard, where Overfin's
 users only appear under pseudonyms. It's served on its own listener, never on
-the internet (SECURITY.md rule 58): without a certificate it only accepts
-`localhost` (reach it with an SSH tunnel); with one, the operator's LAN or
-VPN too. Admins sign in through the identity provider, must be in the admin
+the internet (SECURITY.md rule 58), and only answers private addresses.
+Browsers keep its login cookie only over HTTPS or on `localhost`, so without
+a certificate it's reached through an SSH tunnel (`http://localhost:…`);
+with one, straight from the operator's LAN or VPN. Admins sign in through the identity provider, must be in the admin
 group, and every change needs a fresh login.
 
 **Settings move to the panel.** The configuration file keeps only what

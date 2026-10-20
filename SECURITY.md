@@ -216,7 +216,7 @@ comes from the internet, and media files can be written by anyone.
     to the internet. It exists only on its own listener, off by default; no
     admin route can be registered on the public API. That listener answers
     only clients with private addresses (loopback, private ranges,
-    unique-local IPv6; without a TLS certificate, loopback only), and
+    unique-local IPv6), and
     refuses any request a proxy relays for a public address, so routing it
     through a public reverse proxy fails closed. How admins reach it (LAN,
     VPN, SSH tunnel) is the operator's choice. Admins log in through the
