@@ -1,6 +1,7 @@
-# Checks every push and pull request: formatting, vet, tests (with the race
-# detector), the JavaScript SDK's tests, and that the API specification is
-# valid YAML.
+# Checks every push and pull request: formatting, vet, static analysis,
+# known vulnerabilities, tests (with the race detector, and the check that
+# the API specification matches the routes), the JavaScript SDK's tests, and
+# that the API specification is valid YAML.
 name: CI
 
 on:
@@ -25,6 +26,12 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      - name: Static analysis
+        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+
+      - name: Known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
       - name: Tests
         run: go test -race ./...

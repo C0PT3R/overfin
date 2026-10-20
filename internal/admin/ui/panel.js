@@ -47,7 +47,10 @@ function field(get, set, input) {
 }
 
 function render(state, draft) {
-  const f = structuredClone(draft || state.features);
+  // A draft fills in over the current settings: one kept from an older
+  // version may lack sections, or have some that are gone.
+  const f = structuredClone({ ...state.features,
+    ...Object.fromEntries(Object.entries(draft || {}).filter(([k]) => k in state.features)) });
   const fields = [];
   const num = (label, hint, path, min) => {
     const input = h('input', { type: 'number', min: String(min ?? 0) });

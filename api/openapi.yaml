@@ -32,6 +32,10 @@ info:
     media server keeps the item, so clients may store them; they stay valid
     if Overfin later serves several media servers at once.
 
+    **Planned endpoints.** Operations marked `x-status: planned` are
+    designed but not served yet: until they are, they answer `not-found`.
+    Everything else is served (by a plugin the operator may switch off).
+
     **Missing values.** Optional fields that have no value are left out
     instead of being `null`. Lists are `[]` when empty, never `null`.
 
@@ -114,6 +118,7 @@ paths:
 
   /info:
     get:
+      x-status: planned
       operationId: getInfo
       summary: Describe this Overfin instance
       description: |
@@ -136,10 +141,11 @@ paths:
       summary: The current account and active profile
       description: |
         On the first visit, this creates the account, its owner profile and
-        the matching media server user. When the operator enables claiming
-        (`claim` in `Info.features`), it doesn't: it answers
-        `account-setup-required`, and the site offers to start fresh
-        (`POST /me`) or to bring an existing account (`POST /me/claim`).
+        the matching media server user. When the operator offers bringing an
+        existing account (the migration module), it doesn't: it answers
+        `account-setup-required` with a `claim` member, and the site offers
+        to start fresh (`POST /me`) or to bring an existing account
+        (`POST /me/claim`).
       tags: [account]
       responses:
         "200":
@@ -710,6 +716,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ProfileId"
     put:
+      x-status: planned
       operationId: setProfileAvatar
       summary: Upload a profile picture
       description: |
@@ -748,6 +755,7 @@ paths:
         "415":
           $ref: "#/components/responses/UnsupportedImage"
     delete:
+      x-status: planned
       operationId: removeProfileAvatar
       summary: Remove a profile picture
       description: Owner profile only.
@@ -764,6 +772,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ProfileId"
     post:
+      x-status: planned
       operationId: startProfileTransfer
       summary: Create a code to move this profile to another account
       description: Owner profile only, and needs a fresh login. The code is
@@ -784,6 +793,7 @@ paths:
 
   /transfers/accept:
     post:
+      x-status: planned
       operationId: acceptProfileTransfer
       summary: Receive a profile into this account with a transfer code
       description: Owner profile only. If the account already has a profile
@@ -1085,6 +1095,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ItemId"
     get:
+      x-status: planned
       operationId: listSimilar
       summary: Items like this one
       description: Where the suggestions come from (Jellyfin, TMDB, or
@@ -1113,6 +1124,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ItemId"
     put:
+      x-status: planned
       operationId: addFavorite
       summary: Mark as a favorite of the active profile
       tags: [library]
@@ -1122,6 +1134,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
+      x-status: planned
       operationId: removeFavorite
       summary: Unmark as a favorite
       tags: [library]
@@ -1135,6 +1148,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ItemId"
     put:
+      x-status: planned
       operationId: markPlayed
       summary: Mark as watched or listened to
       description: On a series, season or album, marks all of its children.
@@ -1145,6 +1159,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
+      x-status: planned
       operationId: markUnplayed
       summary: Mark as not watched
       tags: [library]
@@ -1158,6 +1173,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ItemId"
     get:
+      x-status: planned
       operationId: getLyrics
       summary: A track's lyrics, timed when available
       tags: [library]
@@ -1175,6 +1191,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ItemId"
     get:
+      x-status: planned
       operationId: getTrickplay
       summary: Seek-bar preview thumbnails
       tags: [library]
@@ -1196,6 +1213,7 @@ paths:
 
   /genres:
     get:
+      x-status: planned
       operationId: listGenres
       summary: Genres, for filter menus
       tags: [library]
@@ -1244,6 +1262,7 @@ paths:
 
   /search:
     post:
+      x-status: planned
       operationId: search
       summary: Search the library and, when enabled, the TMDB catalog
       description: |
@@ -1313,6 +1332,7 @@ paths:
           type: string
           maxLength: 128
     get:
+      x-status: planned
       operationId: getTrickplaySheet
       summary: One sheet of seek-bar previews
       description: Use a URL from `Trickplay.sheets`. Checked against the
@@ -1393,6 +1413,7 @@ paths:
 
   /playback/bitrate-test:
     get:
+      x-status: planned
       operationId: bitrateTest
       summary: Download test bytes to measure bandwidth
       description: Served by Overfin itself, so it measures the real path
@@ -1434,6 +1455,7 @@ paths:
         "410":
           $ref: "#/components/responses/PlaybackEnded"
     patch:
+      x-status: planned
       operationId: changePlayback
       summary: Switch audio, subtitles, version or quality
       description: When the change needs a different stream, the response has
@@ -1508,6 +1530,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/PlaybackId"
     get:
+      x-status: planned
       operationId: getQueue
       summary: The full play queue, page by page
       tags: [playback]
@@ -1526,6 +1549,7 @@ paths:
         "410":
           $ref: "#/components/responses/PlaybackEnded"
     put:
+      x-status: planned
       operationId: setQueue
       summary: Replace the play queue
       description: Every entry is checked against the active profile; if any
@@ -1562,6 +1586,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/PlaybackId"
     post:
+      x-status: planned
       operationId: advanceQueue
       summary: Move to another queue entry (next episode, next track, a jump)
       description: Ends the current item and starts the chosen one, keeping
@@ -1665,6 +1690,7 @@ paths:
 
   /discover:
     get:
+      x-status: planned
       operationId: discover
       summary: Trending, popular and upcoming titles from TMDB
       description: Filter with `availability` to get, for example, "trending
@@ -1724,6 +1750,7 @@ paths:
           type: string
           pattern: "^[0-9]{1,12}$"
     get:
+      x-status: planned
       operationId: getCatalogTitle
       summary: A title's details, with per-season status for series
       tags: [catalog]
@@ -1739,6 +1766,7 @@ paths:
 
   /lists:
     get:
+      x-status: planned
       operationId: listCatalogLists
       summary: The curated lists the operator has defined
       description: Only when the operator enables lists (`lists` in
@@ -1769,6 +1797,7 @@ paths:
           maxLength: 64
           pattern: "^[a-z0-9-]+$"
     get:
+      x-status: planned
       operationId: getCatalogList
       summary: The titles in one curated list
       description: Same shape and `availability` filter as `/discover`, so
@@ -1813,6 +1842,7 @@ paths:
 
   /requests:
     get:
+      x-status: planned
       operationId: listMyRequests
       summary: The active profile's requests and their status
       description: The owner profile also sees the requests of the account's
@@ -1837,6 +1867,7 @@ paths:
                         items:
                           $ref: "#/components/schemas/MediaRequest"
     post:
+      x-status: planned
       operationId: createRequest
       summary: Request a movie, or seasons of a series
       description: Counts against the account's quota. Kids profiles can only
@@ -1884,6 +1915,7 @@ paths:
 
   /requests/quota:
     get:
+      x-status: planned
       operationId: getQuota
       summary: How many requests the account has left
       tags: [requests]
@@ -1904,6 +1936,7 @@ paths:
           type: string
           maxLength: 64
     delete:
+      x-status: planned
       operationId: cancelRequest
       summary: Cancel one of my requests while it is still pending
       tags: [requests]
@@ -1921,6 +1954,7 @@ paths:
 
   /issues:
     get:
+      x-status: planned
       operationId: listMyIssues
       summary: The active profile's problem reports, with replies
       description: Only when the operator enables conversations
@@ -1945,6 +1979,7 @@ paths:
                         items:
                           $ref: "#/components/schemas/Issue"
     post:
+      x-status: planned
       operationId: reportIssue
       summary: Report a problem with an item
       description: |
@@ -1976,6 +2011,7 @@ paths:
           type: string
           maxLength: 64
     post:
+      x-status: planned
       operationId: commentOnIssue
       summary: Reply in one of my problem reports
       description: Only when the operator enables conversations.
