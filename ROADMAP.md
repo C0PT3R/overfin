@@ -160,7 +160,12 @@ off by default.
    accounts from its own panel tab. How an existing user is checked and
    adopted is the backend's capability (Jellyfin has it); a backend without
    it makes the module say so instead of offering it. A new server, or one
-   done migrating, simply doesn't use it. Later:
+   done migrating, simply doesn't use it. An old account is one person and
+   one history: migrating it creates the account with its owner profile
+   only (Jellyfin and Emby have no profiles to bring), never starter
+   profiles. A backend with profiles of its own (Plex's managed users,
+   perhaps) could declare it can list them, and each would come over as a
+   profile; until one does, migration brings one. Later:
    **personal invites from a list** of usernames and emails (a plain CSV,
    exported from whatever tool the operator used): one single-use invite
    per old account, tied to it, so receiving the email is the proof and no
