@@ -126,6 +126,10 @@ only what its operator lists. A disabled plugin's routes don't exist at all.
 Unknown names, planned plugins and missing dependencies stop Overfin at
 startup rather than being ignored.
 
+Plugins are becoming **modules** grafted onto a small core, the gateway.
+If the official ones don't do what you need, you can write your own and
+build Overfin with it: see [MODULES.md](MODULES.md).
+
 ## Getting started
 
 You need a **Jellyfin 12** server that isn't reachable from the internet, an

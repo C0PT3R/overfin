@@ -30,6 +30,7 @@ import (
 	"github.com/C0PT3R/overfin/internal/seal"
 	"github.com/C0PT3R/overfin/internal/server"
 	"github.com/C0PT3R/overfin/internal/store"
+	"github.com/C0PT3R/overfin/module"
 	"github.com/C0PT3R/overfin/modules/watchlist"
 )
 
@@ -200,6 +201,8 @@ type options struct {
 	// login (identity mode "oidc"), re-checked on every request.
 	provider *oidc.Provider
 	login    bool
+	// modules are extra modules to mount, as an operator's build would.
+	modules []module.Module
 }
 
 func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
@@ -253,6 +256,12 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		t.Fatal(err)
 	}
 	wl := api.Mount{Module: watchlist.Module{}, Library: lib, DB: st.DB(), Logger: logger}
+	for _, m := range o.modules {
+		if err := st.MigrateModule(context.Background(), m.Info().Name, m.Info().Migrations); err != nil {
+			t.Fatal(err)
+		}
+		extra = append(extra, api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger})
+	}
 	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb}, wl,
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Claim: true, PINs: checker, Mounts: []api.Mount{wl}},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, MaxProfiles: 3, LogoutURL: "/sign-out", Logger: logger,

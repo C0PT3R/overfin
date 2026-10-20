@@ -1,4 +1,4 @@
-package main
+package overfin
 
 import (
 	"context"
@@ -8,14 +8,10 @@ import (
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/store"
 	"github.com/C0PT3R/overfin/module"
-	"github.com/C0PT3R/overfin/modules/watchlist"
 )
 
-// modules are the modules compiled into this build: the official ones. An
-// operator's own build adds theirs to this list.
-var modules = []module.Module{
-	watchlist.Module{},
-}
+// modules are the modules compiled into this build, given to Main.
+var modules []module.Module
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
 

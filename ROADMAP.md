@@ -100,10 +100,13 @@ responsibility, as with any program, and the operator's for running it.
    and module settings.
 2. ~~The watchlist moved onto it, as the pilot~~ (`modules/watchlist`,
    built only on the public contract); then library and playback.
-2b. Overfin's startup as an importable package (`overfin.Main(modules…)`),
-   so an operator's own build is a few lines.
+2b. ~~Overfin's startup as an importable package
+   (`overfin.Main(modules…)`), so an operator's own build is a few
+   lines.~~ Done.
 3. Invites, the first module written against the contract.
-4. A "Writing a module" guide with a small example.
+4. ~~A "Writing a module" guide with a small example.~~ Done:
+   [MODULES.md](MODULES.md), with an example compiled and tested with
+   Overfin.
 
 **Media backends as modules.** The backend becomes an interface written in
 terms of what Overfin needs, with each backend declaring what it can do;

@@ -28,6 +28,10 @@ website someone else builds. MIT, public.
   `python3 -c "import yaml; yaml.safe_load(open('api/openapi.yaml'))"`.
   A colon followed by a space inside a plain-text description breaks it.
 - CI (`.github/workflows/ci.yml`) runs all of the above on every push.
+- Layout: the root package `overfin` is the core (startup, gateway);
+  `cmd/overfin` is the official build (the core plus the official modules);
+  `module` is the public module contract; `modules/` holds the official
+  modules, which use only that contract.
 
 ## Layout
 - `cmd/overfin`: entry point
