@@ -115,8 +115,10 @@ terms of what Overfin needs, with each backend declaring what it can do;
 Overfin fails closed (a backend that can't enforce a rating ceiling offers
 no kids profiles). Jellyfin 12 is extracted as the first implementation, the
 Jellyfin 10.11 adapter proves the interface isn't shaped like one backend,
-and others (Emby, perhaps Plex) follow on demand. Later, **several backends
-at once**: each profile with its own user on each, merged listings (the same
+and Emby, Jellyfin's parent with a close API, may follow. **Overfin stays
+over Jellyfin**: Jellyfin first, Emby secondarily, no other media servers
+(Plex and the like are out of scope). Later, **several backends at once**
+(several Jellyfin or Emby servers): each profile with its own user on each, merged listings (the same
 title recognized across servers by its TMDB or IMDb ID), limits counted
 across all. Item IDs are ready for it: `item_<id>` means the default
 backend, and any other backend's IDs will name it (`item_<backend>_<id>`), so
@@ -167,10 +169,7 @@ Everything is off by default.
    it makes the module say so instead of offering it. A new server, or one
    done migrating, simply doesn't use it. An old account is one person and
    one history: migrating it creates the account with its owner profile
-   only (Jellyfin and Emby have no profiles to bring). A backend with
-   profiles of its own (Plex's managed users, perhaps) could declare it can
-   list them, and each would come over as a profile; until one does,
-   migration brings one. Later:
+   only (Jellyfin and Emby have no profiles to bring). Later:
    **personal invites from a list** of usernames and emails (a plain CSV,
    exported from whatever tool the operator used): one single-use invite
    per old account, tied to it, so receiving the email is the proof and no
