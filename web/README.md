@@ -26,10 +26,12 @@ reported. Text from the server is only ever set with `textContent`.
 
 ## How it's served
 
-The files are compiled into Overfin (`web.go`) and served at the site's
-root, to logged-in visitors only, with a strict Content-Security-Policy:
-everything comes from the site itself. It needs the `library` and
-`playback` plugins.
+overfin-web is its own app, on Overfin's public API like any other client.
+Overfin's official build bundles it (`web.Files`, in `web.go`), and the
+core serves it at the site's root, to logged-in visitors only, with a
+strict Content-Security-Policy: everything comes from the site itself. The
+core never imports it; a build chooses its site, or none. It needs the
+`library` and `playback` plugins.
 
 To serve your own client instead, point `[site] serve` at its folder in
 Overfin's configuration; to serve the site some other way, set it to

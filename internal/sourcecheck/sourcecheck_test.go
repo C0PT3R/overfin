@@ -54,3 +54,32 @@ func TestNoInvisibleCharactersInSource(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The core is the gateway: it serves whatever site a build gives it, and
+// never bundles a client itself. Only builds (cmd/…) import overfin-web.
+func TestCoreDoesNotBundleTheWebClient(t *testing.T) {
+	root := filepath.Join("..", "..")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		if d.IsDir() && (d.Name() == ".git" || rel == "cmd" || rel == "examples") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), `"github.com/C0PT3R/overfin/web"`) {
+			t.Errorf("%s imports overfin-web; only builds (cmd/…) may", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

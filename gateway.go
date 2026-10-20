@@ -28,7 +28,6 @@ import (
 	"github.com/C0PT3R/overfin/internal/server"
 	"github.com/C0PT3R/overfin/internal/site"
 	"github.com/C0PT3R/overfin/internal/store"
-	"github.com/C0PT3R/overfin/web"
 )
 
 // shared is what lives for the whole run, across configuration reloads: the
@@ -165,14 +164,17 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	return b, nil
 }
 
-// newSite is the website Overfin serves beside the API: overfin-web, the
-// operator's own client from a folder, or none (nil).
+// newSite is the website Overfin serves beside the API: the one this build
+// includes, the operator's own client from a folder, or none (nil).
 func newSite(s config.Site, gate site.Gate) (http.Handler, error) {
 	switch s.Serve {
 	case "none":
 		return nil, nil
 	case "builtin":
-		return site.Embedded(web.Files, s.CSP, s.SPAFallback, gate)
+		if builtinSite == nil {
+			return nil, nil // this build includes none
+		}
+		return site.Embedded(builtinSite, s.CSP, s.SPAFallback, gate)
 	default:
 		return site.Folder(s.Serve, s.CSP, s.SPAFallback, gate)
 	}

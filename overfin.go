@@ -22,6 +22,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -44,14 +45,33 @@ import (
 	"github.com/C0PT3R/overfin/module"
 )
 
+// builtinSite is the web client this build includes, if any.
+var builtinSite fs.FS
+
 // Version is set at build time with
 // -ldflags "-X github.com/C0PT3R/overfin.Version=…".
 var Version = "dev"
 
-// Main runs Overfin with the given modules compiled in, and exits when it
-// stops. Command-line flags are parsed here.
+// Main runs Overfin with the given modules compiled in, and no site of its
+// own, and exits when it stops. Command-line flags are parsed here.
 func Main(mods ...module.Module) {
-	modules = mods
+	Run(Build{Modules: mods})
+}
+
+// Build is what a build of Overfin includes besides its core, the gateway.
+type Build struct {
+	// Modules are compiled in, each switched on or off in the control panel.
+	Modules []module.Module
+	// Site is the web client this build serves at the site's root, when the
+	// configuration leaves [site] serve at "builtin"; nil for none. The
+	// official build includes overfin-web.
+	Site fs.FS
+}
+
+// Run runs Overfin as b describes, and exits when it stops. Command-line
+// flags are parsed here.
+func Run(b Build) {
+	modules, builtinSite = b.Modules, b.Site
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
 		logger.Error("fatal", "err", err)

@@ -232,9 +232,10 @@ provider.
    tested before it's saved. It opens only with a one-time code printed in
    the log, so nobody else can claim a fresh install. The configuration
    file shrinks to almost nothing.
-4. ~~**Overfin serves the site itself**~~ Done: overfin-web (the former
-   demo site, [web](web)) is compiled in and served by default, to
-   logged-in visitors only, so the reverse proxy only passes everything on
+4. ~~**Overfin serves the site itself**~~ Done: the core serves the site
+   its build includes; the official build bundles overfin-web (the former
+   demo site, [web](web), an app of its own on the public API, which the
+   core never imports). It's served by default, to logged-in visitors only, so the reverse proxy only passes everything on
    (`reverse_proxy overfin:8080`). `[site] serve` takes a folder with your
    own client instead (served live, never outside the folder, with your
    CSP, optionally as a single-page app), or `"none"` to serve it

@@ -99,7 +99,7 @@ docker build --build-arg MODULES="example.org/mymodule@v1.2.0" -t overfin .
 `MODULES` takes several, separated by spaces. Each is a Go package path,
 optionally with `@version`, whose package exports a `Module` type, as above.
 
-To choose exactly which modules go in, write the main package yourself.
+To choose exactly what goes in, write the main package yourself.
 Overfin's core is a Go package; your build is a few lines:
 
 ```go
@@ -107,17 +107,25 @@ package main
 
 import (
 	"github.com/C0PT3R/overfin"
+	"github.com/C0PT3R/overfin/module"
 	"github.com/C0PT3R/overfin/modules/watchlist"
+	"github.com/C0PT3R/overfin/web"
 	"example.org/mymodule"
 )
 
 func main() {
-	overfin.Main(
-		watchlist.Module{}, // the official modules you want
-		mymodule.Module{},
-	)
+	overfin.Run(overfin.Build{
+		Modules: []module.Module{
+			watchlist.Module{}, // the official modules you want
+			mymodule.Module{},
+		},
+		Site: web.Files, // overfin-web; leave it out for no built-in site
+	})
 }
 ```
+
+`overfin.Main(modules…)` is the short form: modules, and no site of its
+own.
 
 Build it with `go build`, then switch your module on in the control panel,
 like any other. Nothing is ever loaded while Overfin runs.

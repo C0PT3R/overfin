@@ -14,7 +14,7 @@ func TestGenerate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`m3 "example.org/mod"`, `m4 "github.com/someone/other"`, "m0.Module{}", "m4.Module{}", "DO NOT EDIT"} {
+	for _, want := range []string{`m3 "example.org/mod"`, `m4 "github.com/someone/other"`, "m0.Module{}", "m4.Module{}", "DO NOT EDIT", "Site: web.Files"} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("missing %q in:\n%s", want, src)
 		}
