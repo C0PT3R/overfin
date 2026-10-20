@@ -79,27 +79,44 @@ Jellyfin server, using only the public API.
 
 ## Milestone 2: administration
 
-A private admin side, to run an instance without touching Jellyfin's
-dashboard, where Overfin's users only appear under pseudonyms. Its own
-listener, never on the internet (SECURITY.md rule 58), with its own API and
-SDK part, so operators build the admin page they want.
+**Overfin's own control panel**, built in and the same for every operator:
+the place to run an instance without Jellyfin's dashboard, where Overfin's
+users only appear under pseudonyms. It's served on its own listener, never on
+the internet (SECURITY.md rule 58): without a certificate it only accepts
+`localhost` (reach it with an SSH tunnel); with one, the operator's LAN or
+VPN too. Admins sign in through the identity provider, must be in the admin
+group, and every change needs a fresh login.
 
-1. The admin listener: private addresses only, admin group, step-up for
-   every change, an admin part of the JavaScript SDK.
-2. Users: list and search accounts with their profiles, disable, re-enable,
-   delete (with their Jellyfin users), account expiry, per-account limits,
-   PIN-lock resets, sessions, adoption of existing Jellyfin users, labels.
-3. Invites: links with an expiry, a number of uses and a template (profiles,
-   kids limits, stream limit, account expiry); optionally, accounts only by
-   invite.
-4. Live view: who's watching, method and bitrate, transcode load; stopping a
+**Settings move to the panel.** The configuration file keeps only what
+Overfin needs to start (listen addresses, Jellyfin, the database, the
+identity provider, the admin listener; secrets stay in the environment).
+Every feature (plugins, limits, adoption, account deletion, privacy fields,
+PIN attempts, and later invites, catalog, requests) lives in the database,
+is switched on and off from the panel, and applies at once. Everything is
+off by default.
+
+1. The admin listener and panel: sign-in, the admin group, step-up for
+   changes, and the feature settings.
+2. Users: every account with its profiles, under real names when a
+   connector provides them; disable, re-enable, delete (with their Jellyfin
+   users), account expiry, per-account limits, PIN-lock resets, sessions.
+3. Invites: created and managed in the panel (expiry, number of uses, a
+   template: profiles, kids limits, stream limit, account expiry); redeemed
+   on the public site, where they create the account. Optionally, accounts
+   only by invite. Invites are access control, so they belong in Overfin
+   (unlike social features, which are users' data).
+4. Identity provider connectors, optional: Authentik first. Users' real
+   names in the panel, and invites that come with an Authentik invitation:
+   one link, the person picks their username and password on Authentik's
+   own pages, comes back, and their account is set up. Passwords never pass
+   through Overfin. Connector tokens are used only by the admin side.
+5. Live view: who's watching, method and bitrate, transcode load; stopping a
    stream; history and activity read live from Jellyfin, never stored.
-5. Identity provider connectors, optional: Authentik first (create users,
-   groups, password-reset emails, disable), so user management needs no
-   trip to the provider's own admin pages. Their tokens are used only by the
-   admin side.
 6. Notices, off by default: invite used, account expiring (email, webhook),
    carrying account events only, never viewing activity.
+
+Later, perhaps: letting the configuration file pin a feature setting, for
+operators who manage servers as files.
 
 ## Designed, to implement later
 
