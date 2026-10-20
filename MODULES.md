@@ -1,7 +1,7 @@
 # Writing a module
 
 Overfin is a small core, the gateway, with modules grafted onto it. The
-watchlist and migration are two; invites, a catalog and requests will be
+watchlist, migration and invites are three; a catalog and requests will be
 others. If the
 official modules don't do what you need, you can write your own and build
 Overfin with it.
@@ -29,6 +29,10 @@ Through the `Host`, the core gives it:
   nothing about them; its `module.Visitor` can only have the core set their
   account up (`v.Adopt`, bringing an existing account of the media server
   over), and the core answers them itself.
+- **Links people open from elsewhere**, an email or a message, before
+  they've logged in: `h.HandleLink("GET /api/v1/…", fn)`. A fixed path that
+  acts only on its query, reveals nothing, and only leads people on (a
+  cookie, a redirect). Invitation links are one.
 - **A say in how accounts are set up**, by implementing
   `module.SetupOffer`: while a module offers another way than a new account
   (bringing an old one, say), a first visit asks instead of creating one,
@@ -52,6 +56,9 @@ Through the `Host`, the core gives it:
   lock, so creations never race, and an error afterwards undoes the account
   entirely. An account always starts with its owner profile alone; its
   template only sets how many more the owner may create.
+  `module.Adopting(ctx)` tells whether the visitor is bringing an existing
+  account over rather than starting fresh. `h.Templates(ctx)` lists the
+  account templates a plan can choose from.
 - **Settings**, declared in `Info().Settings`: switches, or choices among
   values. The panel shows them under the module's switch, the operator
   changes them live, and `h.Setting("mode")` reads them; the module is set
@@ -60,6 +67,8 @@ Through the `Host`, the core gives it:
   `h.Adoption()` counts the accounts brought over that are still linked to
   their old login, and moves them for good. It's nil when the backend can't
   bring accounts over.
+- **The site's address**, `h.SiteURL()`, for links to it (empty when the
+  core doesn't know it).
 - **Control panel routes**: `h.HandleAdmin("GET /stats", fn)`, filed under
   `/admin/api/modules/<name>/stats` on the panel's private listener, where
   only signed-in admins reach them.
@@ -74,8 +83,9 @@ Through the `Host`, the core gives it:
 calling profile, counts its visits in a table of its own, and shows the
 totals in its own control panel tab. It's compiled
 and tested with Overfin itself, so it's always current. The
-[watchlist](modules/watchlist) and [migration](modules/migration) are real
-modules built the same way, only on this contract.
+[watchlist](modules/watchlist), [migration](modules/migration) and
+[invites](modules/invites) are real modules built the same way, only on this
+contract.
 
 ## Building Overfin with your module
 

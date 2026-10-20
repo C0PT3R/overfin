@@ -160,7 +160,8 @@ paths:
         "403":
           description: This identity may not use the service, because it isn't
             in the required group or its account is disabled
-            (`account-not-allowed`).
+            (`account-not-allowed`); or accounts are by invitation only and
+            it has none (`invitation-required`).
           content:
             application/problem+json:
               schema:
@@ -210,7 +211,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Me"
         "403":
-          description: Not in the required group (`account-not-allowed`).
+          description: Not in the required group (`account-not-allowed`);
+            or accounts are by invitation only and this visitor has none
+            (`invitation-required`).
           content:
             application/problem+json:
               schema:
@@ -294,6 +297,33 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+
+  /invite:
+    get:
+      operationId: openInvitation
+      summary: Where an invitation link leads
+      description: |
+        Only when the operator switches the invites module on. Invitation
+        links are made in the control panel and point here; sites never
+        call it themselves. A working invitation is kept in a cookie for a
+        day, and the browser is sent to the site, where logging in and
+        setting up the account uses it: the invitation decides the
+        account's template and when its access ends. Bringing a previous
+        account over (`POST /me/claim`) never needs one.
+      tags: [account]
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "303":
+          description: On to the site, with the invitation kept.
+        "404":
+          description: The invitation has expired, been used up, or never
+            existed. A short plain-text page says so.
 
   /me/watchlist:
     get:

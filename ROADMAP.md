@@ -96,14 +96,16 @@ responsibility, as with any program, and the operator's for running it.
 1. ~~The module contract~~ (the `module` package): routes behind the
    core's guards, the calling profile, the backend as that profile only
    (never the admin key), the module's own tables and migrations, problems,
-   logging, and a hook for the data export. Later: control panel sections
-   and module settings.
+   logging, and a hook for the data export. Since: control panel tabs and
+   routes, module settings, account gates, visitor routes, setup offers
+   and invitation links.
 2. ~~The watchlist moved onto it, as the pilot~~ (`modules/watchlist`,
    built only on the public contract); then library and playback.
 2b. ~~Overfin's startup as an importable package
    (`overfin.Main(modules…)`), so an operator's own build is a few
    lines.~~ Done.
-3. Invites, the first module written against the contract.
+3. ~~Invites, the first module written against the contract.~~ Done,
+   after migration.
 4. ~~A "Writing a module" guide with a small example.~~ Done:
    [MODULES.md](MODULES.md), with an example compiled and tested with
    Overfin.
@@ -172,11 +174,14 @@ Everything is off by default.
    exported from whatever tool the operator used): one single-use invite
    per old account, tied to it, so receiving the email is the proof and no
    old password is needed. Overfin integrates with no user manager.
-3. Invites: created and managed in the panel (expiry, number of uses, a
-   template: account template, access length); redeemed on the public
-   site, where they create the account. Optionally, accounts
-   only by invite. Invites are access control, so they belong in Overfin
-   (unlike social features, which are users' data).
+3. ~~Invites~~ Done (the `invites` module): made in the panel from invite
+   templates (an account template, how long access lasts, how long the
+   link works, how many uses), each for someone; the link is shown once
+   and only its hash kept. Opening it keeps the invitation in a cookie,
+   and logging in sets the account up with it. Optionally, accounts only
+   by invitation (bringing a previous account still works). Invites are
+   access control, so they belong in Overfin (unlike social features,
+   which are users' data).
 4. Identity provider connectors, optional: Authentik first. Users' real
    names in the panel (done), and invites that come with an Authentik invitation:
    one link, the person picks their username and password on Authentik's

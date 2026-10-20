@@ -46,6 +46,7 @@ const messages = {
   'rate-limited': 'Too many attempts; wait a moment.',
   'claim-failed': 'Wrong username or password.',
   'claim-not-allowed': "This account can't be brought over.",
+  'invitation-required': 'Joining needs an invitation. Ask the person who runs this site for one.',
   'stream-limit-reached': 'Too many streams on this account.',
   'server-busy': 'The server is busy; try again shortly.',
   'not-playable': "This item can't be played.",
@@ -630,6 +631,9 @@ async function start() {
     if (err.type === 'account-setup-required') return setupPage(err.problem.claim);
     if (err.type === 'account-not-allowed') {
       return render(h('div', { class: 'center' }, h('h1', {}, 'No access'), h('p', {}, explain(err))));
+    }
+    if (err.type === 'invitation-required') {
+      return render(h('div', { class: 'center' }, h('h1', {}, 'Invitation needed'), h('p', {}, explain(err))));
     }
     return render(h('p', { class: 'error' }, explain(err)));
   }

@@ -124,6 +124,7 @@ only what its operator lists. A disabled plugin's routes don't exist at all.
 | `library` | Libraries, items, filters and sorting, shuffle, continue watching, next up, recently added, images | | Available |
 | `playback` | Direct play, repackaging or transcoding, token-free HLS, WebVTT subtitles, progress and resume, stream limits, skip-intro markers | `library` | Available |
 | `migration` | People bring their previous account and its watch history, with its username and password (see [Migrating from Jellyfin](#migrating-from-jellyfin)) | | Available |
+| `invites` | Invitation links made in the control panel from invite templates; optionally, accounts only by invitation (see [Invitations](#invitations)) | | Available |
 | `watchlist` | Each profile's own watchlist: movies, whole shows, seasons or single episodes, as the person chooses | `library` | Available |
 | `catalog` | Discover lists, curated lists, titles not in the library yet | a TMDB key | Planned |
 | `requests` | Requests, quotas, problem reports; kids profiles limited to their ceiling | Seerr | Planned |
@@ -224,6 +225,24 @@ in, and you're watching.
 
 To limit who gets an account, set `identity.required_group` to a group from
 your identity provider. Without it, anyone who can log in there gets in.
+
+## Invitations
+
+With the `invites` module on, you invite people from its tab in the control
+panel:
+
+1. Make an invite template: which account template people get, how long
+   their access lasts, how long the link works, and how many people can use
+   it.
+2. Make an invitation from it, for someone. Copy its link right away: it's
+   shown only once, and Overfin keeps only a fingerprint of it.
+3. They open the link, log in at your identity provider, and their account
+   is set up as the invitation says.
+
+Switch on "Accounts only by invitation" and nobody gets an account without
+one, except people bringing their previous account over. People still need a
+login at your identity provider: the invitation decides what they get here,
+not who can log in there.
 
 ## Migrating from Jellyfin
 

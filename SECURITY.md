@@ -257,6 +257,15 @@ comes from the internet, and media files can be written by anyone.
     modules; a third-party module is its developer's responsibility, and the
     operator's for running it.
 
+### Invitations
+63. Invitation links carry 128 random bits; only their SHA-256 is kept, and
+    a link is shown to the admin once. Opening one only keeps it in an
+    HttpOnly cookie for a day and leads on to the site; an account is set
+    up with it only after a login, under the account-creation lock, so a
+    single-use invitation is used once. Uses stay counted when the account
+    is deleted. An invitation decides what an account gets, never who may
+    log in: the identity provider and the required group still do.
+
 ## Deployment
 
 Jellyfin must not be reachable from the internet. Ideally its port is reachable

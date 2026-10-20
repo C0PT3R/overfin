@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/C0PT3R/overfin/internal/creation"
 	"github.com/C0PT3R/overfin/internal/problem"
 )
 
@@ -15,7 +16,8 @@ import (
 type AccountGate interface {
 	// NewAccount runs before an account is created for the visitor making
 	// r. Return a *Refusal to refuse it, a plan to shape it, or nil and nil
-	// to have no opinion. Nothing is created yet.
+	// to have no opinion. Nothing is created yet. Adopting(ctx) tells
+	// whether the visitor is bringing an existing account over.
 	NewAccount(ctx context.Context, h Host, r *http.Request) (*AccountPlan, error)
 	// AccountCreated runs once the account exists and the plan is applied,
 	// with the plan this module gave (nil if none). An error undoes the
@@ -48,3 +50,16 @@ func (r *Refusal) Error() string { return "module: account refused: " + string(r
 
 // InvitationRequired refuses an account for want of a valid invitation.
 const InvitationRequired ProblemType = problem.InvitationRequired
+
+// Adopting reports, in an AccountGate's methods, whether the account is
+// being created by bringing an existing one over (Visitor.Adopt) rather
+// than as a new one.
+func Adopting(ctx context.Context) bool { return creation.IsAdopting(ctx) }
+
+// AccountTemplate is an account template: what an account on it may do.
+type AccountTemplate struct {
+	ID          string
+	Name        string
+	MaxStreams  int
+	MaxProfiles int
+}

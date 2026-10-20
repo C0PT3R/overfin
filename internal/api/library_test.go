@@ -225,6 +225,10 @@ type options struct {
 	login    bool
 	// modules are extra modules to mount, as an operator's build would.
 	modules []module.Module
+	// settings are the modules' settings, by module name.
+	settings map[string]map[string]string
+	// admin, when set, receives the modules' control panel routes.
+	admin *http.ServeMux
 	// template, when set, receives the ID of the test account's template
 	// (3 profiles).
 	template *string
@@ -306,7 +310,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		if err := st.MigrateModule(context.Background(), m.Info().Name, m.Info().Migrations); err != nil {
 			t.Fatal(err)
 		}
-		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger})
+		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger,
+			Settings: o.settings[m.Info().Name], Admin: o.admin})
 	}
 	for i := range mounts {
 		mounts[i].Peers = mounts

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -116,7 +117,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		info := m.Info()
 		if cfg.Plugins.Enabled(info.Name) {
 			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: db.DB(), Logger: logger, Admin: b.admin,
-				Settings: cfg.Modules[info.Name]})
+				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg)})
 			b.tabs = append(b.tabs, admin.Tab{Name: info.Name, Description: info.Description, UI: info.AdminUI})
 		}
 	}
@@ -156,6 +157,16 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	}
 	b.handler = h
 	return b, nil
+}
+
+// siteURL is the site's address, from the login's return address; empty
+// without one.
+func siteURL(cfg *config.Config) string {
+	u, err := url.Parse(cfg.OIDC.RedirectURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return ""
+	}
+	return "https://" + u.Host
 }
 
 // effective completes a configuration read from the file with the feature

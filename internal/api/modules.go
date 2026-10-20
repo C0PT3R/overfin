@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/C0PT3R/overfin/internal/creation"
 	"github.com/C0PT3R/overfin/internal/identity"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/library"
@@ -37,6 +38,8 @@ type Mount struct {
 	// Peers are all the modules switched on, this one included: each has
 	// its say when this one sets a visitor's account up.
 	Peers []Mount
+	// SiteURL is the site's address, when known.
+	SiteURL string
 }
 
 func (m Mount) Name() string { return m.Module.Info().Name }
@@ -54,6 +57,24 @@ type host struct {
 func (h *host) DB() *sql.DB { return h.mount.DB }
 
 func (h *host) Setting(key string) string { return h.mount.Settings[key] }
+
+func (h *host) SiteURL() string { return h.mount.SiteURL }
+
+func (h *host) Templates(ctx context.Context) ([]module.AccountTemplate, error) {
+	ts, err := h.mount.Library.Provisioner.Store.Templates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]module.AccountTemplate, len(ts))
+	for i, t := range ts {
+		out[i] = module.AccountTemplate{ID: t.ID, Name: t.Name, MaxStreams: t.MaxStreams, MaxProfiles: t.MaxProfiles}
+	}
+	return out, nil
+}
+
+func (h *host) HandleLink(pattern string, fn http.HandlerFunc) error {
+	return h.reg.HandleNavigation(pattern, fn)
+}
 
 // Adoption is Jellyfin's: it can bring its existing users over.
 func (h *host) Adoption() module.Adoption { return adoption{h.mount.Library.Provisioner} }
@@ -128,7 +149,7 @@ func (v visitor) Adopt(w http.ResponseWriter, username, password string, keepLog
 	}
 	l := v.mount.Library
 	id, _ := identity.FromContext(v.r.Context())
-	acct, prof, err := l.Provisioner.Claim(v.r.Context(), id, username, password, !keepLogin,
+	acct, prof, err := l.Provisioner.Claim(creation.Adopting(v.r.Context()), id, username, password, !keepLogin,
 		creationHooks(v.r, v.mount.Peers, l.Provisioner))
 	accountResult(w, l.Sessions, l.Logger, acct, prof, err, http.StatusCreated)
 	return err == nil
