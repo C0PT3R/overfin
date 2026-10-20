@@ -89,7 +89,11 @@ are marked `x-status: planned`.
 
 ## Trying it
 
-You need a **Jellyfin 12** server that isn't reachable from the internet, an
+**The quickest way** is [deploy/](deploy): Overfin, Caddy and Authentik in
+one compose file, with Authentik set up for Overfin by a blueprint. A script
+asks a few questions and generates every secret.
+
+**By hand**, with your own reverse proxy and identity provider, you need a **Jellyfin 12** server that isn't reachable from the internet, an
 **OpenID Connect provider**, a **reverse proxy** with HTTPS, and **Docker**
 (or Go 1.26) to build Overfin.
 

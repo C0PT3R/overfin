@@ -6,3 +6,5 @@
 !*.example.toml
 .env*
 cmd/custom/
+# the deployment bundle's local files
+deploy/site/
