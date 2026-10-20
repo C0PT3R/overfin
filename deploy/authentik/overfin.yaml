@@ -7,7 +7,7 @@
 # Authentik applies it by itself from /blueprints/custom (the compose bundle
 # mounts it there), reading these environment variables:
 #   OVERFIN_DOMAIN               the site's domain, e.g. example.org
-#   OVERFIN_SITE_NAME            the name people see, e.g. "Movie night"
+#   OVERFIN_SITE_NAME            the login page's title, e.g. "Movie night"
 #   OVERFIN_OIDC_CLIENT_SECRET   Overfin's client secret
 #   OVERFIN_CONNECTOR_TOKEN      the connector's API token
 #   OVERFIN_ADMIN_GROUP          the admins' group (default overfin-admins)
@@ -95,11 +95,13 @@ entries:
       sub_mode: hashed_user_id
       issuer_mode: per_provider
 
+  # Overfin's own, like its client: the site's name is only on the login
+  # page, which is what people see.
   - model: authentik_core.application
     identifiers:
       slug: overfin
     attrs:
-      name: !Env [OVERFIN_SITE_NAME, Media]
+      name: Overfin
       provider: !KeyOf provider
       meta_launch_url: !Format ["https://%s/", !Env OVERFIN_DOMAIN]
       policy_engine_mode: any

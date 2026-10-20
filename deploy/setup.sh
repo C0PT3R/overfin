@@ -29,8 +29,10 @@ command -v openssl >/dev/null || { echo "setup.sh needs openssl." >&2; exit 1; }
 secret() { openssl rand -hex "$1"; }
 
 # Caddy's fixed address on the network it shares with Overfin and
-# Authentik; Overfin trusts it to say who's connecting.
+# Authentik; Overfin trusts it to say who's connecting. Other containers get
+# addresses from edge_range, which leaves Caddy's alone.
 edge_subnet=172.29.250.0/28
+edge_range=172.29.250.8/29
 caddy_ip=172.29.250.2
 
 domain='[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+'
@@ -62,6 +64,7 @@ CADDY_TAG=2
 
 # Caddy's fixed address on the internal network, which Overfin trusts.
 EDGE_SUBNET=$edge_subnet
+EDGE_RANGE=$edge_range
 CADDY_IP=$caddy_ip
 
 OVERFIN_SECRET_KEY=$(openssl rand -base64 32)

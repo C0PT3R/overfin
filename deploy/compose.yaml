@@ -113,11 +113,14 @@ services:
     networks: [authentik]
 
 networks:
-  # Caddy, Overfin and Authentik's server.
+  # Caddy, Overfin and Authentik's server. Automatic addresses come from
+  # EDGE_RANGE only, so Caddy's fixed one (CADDY_IP, outside it) is never
+  # handed to another container while Caddy restarts.
   edge:
     ipam:
       config:
         - subnet: ${EDGE_SUBNET:?run ./setup.sh first}
+          ip_range: ${EDGE_RANGE:?run ./setup.sh first}
   # Authentik and its database only.
   authentik: {}
 
