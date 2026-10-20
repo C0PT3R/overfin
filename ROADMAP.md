@@ -266,21 +266,26 @@ Overfin keeps holding as little as it can.
 - **Titles not in the library yet** on the watchlist: they have no Jellyfin
   item, so they come with the TMDB catalog and Seerr requests plugins (Seerr
   keeps watchlists of its own).
-
-## Hypothetical ideas
-
-Ideas worth keeping, with no plan and no promise: they depend on pieces that
-don't exist yet, or on Overfin being used widely.
-
-**Federation.** What Jellyfin users ask for under that name is what Plex
-calls shared servers: a friend's libraries appear next to yours, in the same
+- **Federation**, an important one. What Jellyfin users ask for under that
+  name is what Plex calls shared servers: a friend's libraries appear next to yours, in the same
 site and apps, with one login. Jellyfin has no plans for it; people make do
 with workarounds (a reverse proxy presenting several servers as one, a
 plugin, or mounting each other's libraries over a VPN). Overfin could do it
 gateway to gateway, each Jellyfin staying private:
 
-- two operators pair their gateways with an invitation, like a user's;
-  either can end it at once. Each says what it offers (libraries, streams
+- **pairing, by people, never by announcement**: each gateway has a key
+  pair and a short fingerprint. An operator creates a pairing invitation in
+  the panel (a one-time code with the gateway's address, fingerprint and a
+  single-use secret, valid a day) and sends it however they like; the other
+  operator pastes it in theirs, their gateway proves it has the secret and
+  presents its own key, and the first operator accepts it, fingerprints
+  compared to rule out impostors. Then the two gateways talk with signed
+  requests. No directory, no broadcast: the federation API answers paired
+  keys only, a plain 404 for anyone else, on the site's address (the panel
+  stays private). Every pairing is between two servers, deliberate on both
+  sides; trust is never passed along (A paired with B, and B with C, gives
+  A nothing of C). Later, perhaps, introductions: B passes A's invitation
+  to C, both still accepting. Either side can end a pairing at once. Each says what it offers (libraries, streams
   at once, a quality cap) and what it asks for: only what matches on both
   sides is shared;
 - people see the peer's titles in their own site, under its brand, mixed
@@ -314,8 +319,7 @@ gateway to gateway, each Jellyfin staying private:
   the bandwidth cost. The site's CSP allows media from paired peers only.
 
 Basic federation only: swarms of servers or of browsers (as PeerTube does)
-are out of scope. Open questions: how operators find each other (invitations
-only, or a directory someday); whether a pairing can share one way only; how
+are out of scope. Open questions: whether a pairing can share one way only; how
 keys are renewed, and what a compromised peer means; what viewers see while
 a peer is offline; whether a peer may refuse to transcode for its peers.
 
