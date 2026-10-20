@@ -314,7 +314,8 @@ type Site struct {
 	// fits overfin-web; your own client may need more sources.
 	CSP string `toml:"csp"`
 	// SPAFallback serves index.html for paths that aren't files, as
-	// single-page apps with their own routing need.
+	// single-page apps with their own routing need. The built-in client
+	// always gets it.
 	SPAFallback bool `toml:"spa_fallback"`
 }
 

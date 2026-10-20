@@ -332,7 +332,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}, extra...)
 	var siteHandler http.Handler
 	if o.site {
-		if siteHandler, err = site.Embedded(web.Files, config.DefaultCSP, false, api.SiteGate(sessions.Auth, prov)); err != nil {
+		if siteHandler, err = site.Embedded(web.Files, config.DefaultCSP, true, api.SiteGate(sessions.Auth, prov)); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -192,12 +192,24 @@ func TestSite(t *testing.T) {
 	if res, body := visit(t, b, srv, "/app.js", nil); res.StatusCode != 401 || strings.Contains(body, "import") {
 		t.Errorf("file, logged out: %d", res.StatusCode)
 	}
+	// A link deep into the site comes back to the same place after the login.
+	if res, _ := visit(t, b, srv, "/item/item_abc?x=1", page); res.StatusCode != 302 ||
+		res.Header.Get("Location") != "/api/v1/login?return=%2Fitem%2Fitem_abc%3Fx%3D1" {
+		t.Errorf("deep link, logged out: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
 
 	logIn(t, b, srv, idp, subject, "/")
 	res, body := visit(t, b, srv, "/", page)
 	if res.StatusCode != 200 || !strings.Contains(body, "<title>Overfin</title>") ||
 		res.Header.Get("Content-Security-Policy") != config.DefaultCSP {
 		t.Errorf("page, logged in: %d %v", res.StatusCode, res.Header)
+	}
+	// The site's own paths are its pages; a missing file is still missing.
+	if res, body := visit(t, b, srv, "/item/item_abc", page); res.StatusCode != 200 || !strings.Contains(body, "<title>Overfin</title>") {
+		t.Errorf("deep link, logged in: %d", res.StatusCode)
+	}
+	if res, _ := visit(t, b, srv, "/missing.js", nil); res.StatusCode != 404 {
+		t.Errorf("missing file: %d", res.StatusCode)
 	}
 	// The API is still the API.
 	if res, body := visit(t, b, srv, "/api/v1/nothing-here", nil); res.StatusCode != 404 || !strings.Contains(body, "not-found") {

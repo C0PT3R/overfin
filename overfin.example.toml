@@ -114,7 +114,8 @@ serve = "builtin"
 # The site's Content-Security-Policy. The default fits overfin-web
 # (everything from the site itself); your own client may need more sources.
 # csp = "default-src 'self'; ..."
-# For single-page apps: paths that aren't files get index.html.
+# For single-page apps: paths that aren't files get index.html. Always on for
+# the built-in client, whose pages have real paths (/item/…).
 spa_fallback = false
 
 # ---- Feature settings --------------------------------------------------------

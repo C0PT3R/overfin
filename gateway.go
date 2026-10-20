@@ -174,7 +174,9 @@ func newSite(s config.Site, gate site.Gate) (http.Handler, error) {
 		if builtinSite == nil {
 			return nil, nil // this build includes none
 		}
-		return site.Embedded(builtinSite, s.CSP, s.SPAFallback, gate)
+		// A build's client is a single-page app with real paths
+		// (/item/…): every page is its index.html.
+		return site.Embedded(builtinSite, s.CSP, true, gate)
 	default:
 		return site.Folder(s.Serve, s.CSP, s.SPAFallback, gate)
 	}
