@@ -154,10 +154,13 @@ off by default.
    profiles; later, which modules), followed live, so editing a template
    changes every account on it. The built-in Default is minimal; operators
    make their own. Access length stays individual.
-2d. **Jellyfin migration as a module** (`jellyfin-migration`): claiming an
-   old account with its username and password (move or link), and moving
-   linked accounts from its own panel tab. A new server, or one done
-   migrating, or one on another backend, simply doesn't use it. Later:
+2d. **Migration as a module** (`migration`): bringing old accounts and
+   their history over, the same on every backend. Claiming an old account
+   with its username and password (move or link), and moving linked
+   accounts from its own panel tab. How an existing user is checked and
+   adopted is the backend's capability (Jellyfin has it); a backend without
+   it makes the module say so instead of offering it. A new server, or one
+   done migrating, simply doesn't use it. Later:
    **personal invites from a list** of usernames and emails (a plain CSV,
    exported from whatever tool the operator used): one single-use invite
    per old account, tied to it, so receiving the email is the proof and no
