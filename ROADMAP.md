@@ -154,8 +154,9 @@ Everything is off by default.
    connector.
 2c. ~~Account templates~~ Done: what an account may do (streams,
    profiles; later, which modules), followed live, so editing a template
-   changes every account on it. The built-in Default is minimal; operators
-   make their own. Access length stays individual. A template only sets
+   changes every account on it. A Default exists from the start, so
+   accounts can be opened at once; it starts minimal, is edited like any
+   other, and only can't be deleted. Operators make their own. Access length stays individual. A template only sets
    how many profiles an account may have: every account starts with its
    owner profile alone, never a kids one, and its owner creates the rest.
 2d. ~~Migration as a module~~ Done (`migration`): bringing old accounts and

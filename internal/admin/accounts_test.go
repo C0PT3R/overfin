@@ -195,6 +195,13 @@ func TestTemplates(t *testing.T) {
 	if rec := b.do("DELETE", "/admin/api/templates/tmpl_default", "", nil); rec.Code != 400 {
 		t.Errorf("deleting Default: %d", rec.Code)
 	}
+	// Default is edited like any other.
+	if rec := b.do("PUT", "/admin/api/templates/tmpl_default", `{"name":"Everyone","maxStreams":2,"maxProfiles":3}`, nil); rec.Code != 204 {
+		t.Fatalf("editing Default: %d %s", rec.Code, rec.Body)
+	}
+	if ts, _ := db.Templates(ctx); ts[0].ID != "tmpl_default" || ts[0].Name != "Everyone" || ts[0].MaxProfiles != 3 {
+		t.Errorf("Default after the edit: %+v", ts[0])
+	}
 }
 
 func between(s, start, end string) string {

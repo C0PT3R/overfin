@@ -95,8 +95,9 @@ It's both a starting point and a reference for using the API.
   and idle transcodes are stopped.
 - **Account templates.** Every account follows a template saying what it
   may do (streams at once, profiles), and editing a template changes every
-  account on it at once. The built-in Default is minimal (one profile, one
-  stream); operators make the templates their users need.
+  account on it at once. A Default template exists from the start (one
+  profile, one stream), so accounts can be opened right away; edit it like
+  any other, and make the templates your users need.
 - **Gentle limits.** A new stream takes over the account's oldest by default,
   with a server-wide transcode cap and a bitrate cap. Another account's
   stream is never cut off.

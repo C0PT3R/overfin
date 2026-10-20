@@ -324,7 +324,7 @@ async function templatesView() {
       if (confirm(`Delete the template "${t.name}"?`)) run(() => api('DELETE', `/admin/api/templates/${t.id}`));
     } }, 'Delete');
     return h('section', {},
-      h('h2', {}, t ? t.name : 'New template', t?.default ? h('span', { class: 'pill' }, ' built in') : null),
+      h('h2', {}, t ? t.name : 'New template', t?.default ? h('span', { class: 'pill' }, ' default') : null),
       t && h('p', { class: 'hint' }, `${t.accounts} account${t.accounts === 1 ? '' : 's'} on it${t.accounts ? '; changes apply to them at once' : ''}.`),
       h('div', { class: 'row' }, h('div', {}, 'Name'), name),
       h('div', { class: 'row' }, h('div', {}, 'Streams at once'), streams),

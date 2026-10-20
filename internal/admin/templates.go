@@ -10,8 +10,9 @@ import (
 )
 
 // Account templates: what accounts may do. Accounts follow theirs live, so
-// editing a template changes every account on it at once. The built-in
-// Default is minimal; operators make the templates their users need.
+// editing a template changes every account on it at once. Default exists
+// from the start, so accounts can be opened right away; it's edited like any
+// other, and only can't be deleted.
 
 type templateJSON struct {
 	ID          string `json:"id"`
