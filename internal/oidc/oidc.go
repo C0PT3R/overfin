@@ -206,7 +206,10 @@ type Login struct {
 	Subject  string
 	AuthTime time.Time
 	// Groups is nil when the token carries no groups claim.
-	Groups       []string
+	Groups []string
+	// Name is a display name (preferred_username, else name), when the
+	// token has one.
+	Name         string
 	RefreshToken string
 }
 
@@ -321,6 +324,8 @@ func (p *Provider) verify(ctx context.Context, m *metadata, token, nonce string)
 		Iat      *int64          `json:"iat"`
 		AuthTime *int64          `json:"auth_time"`
 		Nonce    string          `json:"nonce"`
+		Username string          `json:"preferred_username"`
+		FullName string          `json:"name"`
 	}
 	if err := decodePart(parts[1], &c); err != nil {
 		return nil, err
@@ -354,7 +359,10 @@ func (p *Provider) verify(ctx context.Context, m *metadata, token, nonce string)
 	case c.Sub == "":
 		return nil, errors.New("oidc: no subject")
 	}
-	login := &Login{Subject: c.Sub}
+	login := &Login{Subject: c.Sub, Name: c.Username}
+	if login.Name == "" {
+		login.Name = c.FullName
+	}
 	if c.AuthTime != nil {
 		login.AuthTime = time.Unix(*c.AuthTime, 0)
 	}

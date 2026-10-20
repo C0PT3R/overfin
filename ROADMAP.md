@@ -96,8 +96,8 @@ PIN attempts, and later invites, catalog, requests) lives in the database,
 is switched on and off from the panel, and applies at once. Everything is
 off by default.
 
-1. The admin listener and panel: sign-in, the admin group, step-up for
-   changes, and the feature settings.
+1. ~~The admin listener and panel: sign-in, the admin group, step-up for
+   changes, and the feature settings.~~ Done.
 2. Users: every account with its profiles, under real names when a
    connector provides them; disable, re-enable, delete (with their Jellyfin
    users), account expiry, per-account limits, PIN-lock resets, sessions.

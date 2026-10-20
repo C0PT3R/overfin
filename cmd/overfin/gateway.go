@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -122,6 +124,40 @@ func build(cfg *config.Config, sh *shared) (http.Handler, error) {
 	return server.New(logger, identityMiddleware, plugins...)
 }
 
+// effective completes a configuration read from the file with the feature
+// settings, which live in the database. On the first start they come from
+// the file's feature sections, or the defaults, and are saved; after that
+// the database holds them, and the file's are ignored.
+func effective(ctx context.Context, cfg *config.Config, db *store.Store, logger *slog.Logger) (*config.Config, error) {
+	raw, stored, err := db.Features(ctx)
+	if err != nil {
+		return nil, err
+	}
+	f := cfg.Features()
+	if stored {
+		f = config.DefaultFeatures()
+		if err := json.Unmarshal(raw, &f); err != nil {
+			return nil, fmt.Errorf("feature settings in the database: %w", err)
+		}
+		if cfg.FeaturesInFile {
+			logger.Warn("the configuration file's feature settings are ignored: the control panel holds them; " +
+				"remove [limits], [adoption], [privacy], [plugins] and [accounts] from the file")
+		}
+	} else {
+		if raw, err = json.Marshal(f); err != nil {
+			return nil, err
+		}
+		if err := db.SetFeatures(ctx, raw); err != nil {
+			return nil, err
+		}
+		if cfg.FeaturesInFile {
+			logger.Info("feature settings imported from the configuration file into the database; " +
+				"the control panel holds them from now on, so their sections can be removed from the file")
+		}
+	}
+	return cfg.WithFeatures(f)
+}
+
 // gateway serves every request with the handler built from the current
 // configuration, and swaps it when the configuration is reloaded. Requests
 // already running finish on the handler they started with.
@@ -135,6 +171,10 @@ type gateway struct {
 }
 
 func newGateway(path string, cfg *config.Config, sh *shared) (*gateway, error) {
+	cfg, err := effective(context.Background(), cfg, sh.db, sh.logger)
+	if err != nil {
+		return nil, err
+	}
 	h, err := build(cfg, sh)
 	if err != nil {
 		return nil, err
@@ -157,11 +197,46 @@ func (g *gateway) reload(getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
+	if cfg, err = effective(context.Background(), cfg, g.sh.db, g.sh.logger); err != nil {
+		return err
+	}
 	if changed := restartOnly(g.cfg, cfg); len(changed) > 0 {
 		return fmt.Errorf("these settings only change with a restart: %s", strings.Join(changed, ", "))
 	}
 	h, err := build(cfg, g.sh)
 	if err != nil {
+		return err
+	}
+	g.handler.Store(&h)
+	g.cfg = cfg
+	return nil
+}
+
+// Features returns the feature settings in effect.
+func (g *gateway) Features() config.Features {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.cfg.Features()
+}
+
+// SetFeatures validates new feature settings, saves them and switches to
+// them at once. Invalid ones change nothing; the error says why.
+func (g *gateway) SetFeatures(ctx context.Context, f config.Features) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	cfg, err := g.cfg.WithFeatures(f)
+	if err != nil {
+		return err
+	}
+	h, err := build(cfg, g.sh)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(cfg.Features())
+	if err != nil {
+		return err
+	}
+	if err := g.sh.db.SetFeatures(ctx, raw); err != nil {
 		return err
 	}
 	g.handler.Store(&h)
@@ -182,6 +257,9 @@ func restartOnly(old, new *config.Config) []string {
 	}
 	if old.Jellyfin.URL != new.Jellyfin.URL {
 		changed = append(changed, "jellyfin.url")
+	}
+	if old.Admin != new.Admin {
+		changed = append(changed, "admin")
 	}
 	if !bytes.Equal(old.Secrets.Key, new.Secrets.Key) {
 		changed = append(changed, "OVERFIN_SECRET_KEY")

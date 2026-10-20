@@ -910,3 +910,23 @@ func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 	}
 	return tx.Commit()
 }
+
+// ---- Feature settings ----------------------------------------------------------
+
+// Features returns the stored feature settings (JSON), and false when none
+// are stored yet.
+func (s *Store) Features(ctx context.Context) ([]byte, bool, error) {
+	var v []byte
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'features'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	return v, err == nil, err
+}
+
+// SetFeatures stores the feature settings (JSON).
+func (s *Store) SetFeatures(ctx context.Context, v []byte) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('features', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, v)
+	return err
+}

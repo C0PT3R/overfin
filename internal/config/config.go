@@ -33,6 +33,12 @@ type Config struct {
 	Plugins  Plugins  `toml:"plugins"`
 	Accounts Accounts `toml:"accounts"`
 	OIDC     OIDC     `toml:"oidc"`
+	Admin    Admin    `toml:"admin"`
+
+	// FeaturesInFile reports whether the file held feature settings
+	// (limits, adoption, privacy, plugins, accounts). Those live in the
+	// database now; the file's are only read to fill an empty one.
+	FeaturesInFile bool `toml:"-"`
 
 	// Secrets, loaded from the environment, never from the file.
 	Secrets Secrets `toml:"-"`
@@ -75,18 +81,18 @@ type Identity struct {
 type Adoption struct {
 	// Claim lets a user adopt an existing Jellyfin account by entering its
 	// password once. Off by default.
-	Claim bool `toml:"claim"`
+	Claim bool `toml:"claim" json:"claim"`
 	// Mode is "move" (the default: claiming is one-way, the Jellyfin account
 	// gets an opaque name, the lock-down and a new password nobody knows) or
 	// "link" (it keeps its name and password, for a transition; the
 	// operator moves it later with overfin -move-linked).
-	Mode string `toml:"mode"`
+	Mode string `toml:"mode" json:"mode"`
 }
 
 // Privacy lists the privacy-sensitive fields the operator chooses to
 // expose (SECURITY.md rule 55). Everything not listed stays hidden.
 type Privacy struct {
-	Expose []string `toml:"expose"`
+	Expose []string `toml:"expose" json:"expose"`
 }
 
 // ExposableFields are the privacy-sensitive fields an operator may turn on.
@@ -129,13 +135,13 @@ type Accounts struct {
 	// OnDelete is what happens to the Jellyfin users of a deleted account:
 	// "delete" (the default: with their watch history) or "disable" (kept,
 	// with their history, but unusable).
-	OnDelete string `toml:"on_delete"`
+	OnDelete string `toml:"on_delete" json:"onDelete"`
 }
 
 type Plugins struct {
 	// Enable lists the plugins this instance offers. None are on by
 	// default: without any, Overfin only manages accounts and profiles.
-	Enable []string `toml:"enable"`
+	Enable []string `toml:"enable" json:"enable"`
 }
 
 // KnownPlugins are the plugins an operator may enable, and what each one
@@ -150,22 +156,76 @@ func (p Plugins) Enabled(name string) bool {
 	return slices.Contains(p.Enable, name)
 }
 
+// Features are the settings the control panel switches on and off. They
+// live in the database and apply at once.
+type Features struct {
+	Limits   Limits   `json:"limits"`
+	Adoption Adoption `json:"adoption"`
+	Privacy  Privacy  `json:"privacy"`
+	Plugins  Plugins  `json:"plugins"`
+	Accounts Accounts `json:"accounts"`
+}
+
+// Features returns the configuration's feature settings.
+func (c *Config) Features() Features {
+	return Features{Limits: c.Limits, Adoption: c.Adoption, Privacy: c.Privacy, Plugins: c.Plugins, Accounts: c.Accounts}
+}
+
+// DefaultFeatures are the feature settings of a new instance: everything
+// optional off.
+func DefaultFeatures() Features {
+	d := defaults()
+	return d.Features()
+}
+
+// WithFeatures returns a copy of the configuration with other feature
+// settings, validated together with the rest.
+func (c *Config) WithFeatures(f Features) (*Config, error) {
+	n := *c
+	n.Limits, n.Adoption, n.Privacy, n.Plugins, n.Accounts = f.Limits, f.Adoption, f.Privacy, f.Plugins, f.Accounts
+	n.Identity.Proxies = nil // filled again by validate
+	if err := n.validate(); err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+// Admin is Overfin's control panel: its own listener, never on the internet
+// (SECURITY.md rule 58). Off unless Listen is set.
+type Admin struct {
+	// Listen is the panel's address, e.g. ":8081" in a container whose port
+	// is published on a private address only.
+	Listen string `toml:"listen"`
+	// Group is the identity provider group whose members are admins.
+	Group string `toml:"group"`
+	// RedirectURL is the panel's login callback, registered at the
+	// provider: "http://localhost:8081/admin/auth/callback" through an SSH
+	// tunnel, or an https:// address on the LAN or VPN with TLS below.
+	RedirectURL string `toml:"redirect_url"`
+	// TLSCert and TLSKey, when set, serve the panel over HTTPS.
+	TLSCert string `toml:"tls_cert"`
+	TLSKey  string `toml:"tls_key"`
+}
+
+// Enabled reports whether the control panel is on.
+func (a Admin) Enabled() bool { return a.Listen != "" }
+
 type Storage struct {
 	// Path is the database file.
 	Path string `toml:"path"`
 }
 
 type Limits struct {
-	MaxProfilesPerAccount int `toml:"max_profiles_per_account"`
-	MaxStreamsPerAccount  int `toml:"max_streams_per_account"`
-	MaxTranscodesTotal    int `toml:"max_transcodes_total"`
+	MaxProfilesPerAccount int `toml:"max_profiles_per_account" json:"maxProfilesPerAccount"`
+	MaxStreamsPerAccount  int `toml:"max_streams_per_account" json:"maxStreamsPerAccount"`
+	MaxTranscodesTotal    int `toml:"max_transcodes_total" json:"maxTranscodesTotal"`
 	// MaxBitrateKbps caps every stream; 0 means no cap.
-	MaxBitrateKbps int `toml:"max_bitrate_kbps"`
+	MaxBitrateKbps int `toml:"max_bitrate_kbps" json:"maxBitrateKbps"`
 	// PINAttempts is how many wrong PINs in a row lock a profile.
-	PINAttempts int `toml:"pin_attempts"`
+	PINAttempts int `toml:"pin_attempts" json:"pinAttempts"`
 	// OnLimit is what happens when an account starts one stream too many:
 	// "replace-oldest" (the default) or "refuse".
-	OnLimit string `toml:"on_limit"`
+	OnLimit string `toml:"on_limit" json:"onLimit"`
 }
 
 type Secrets struct {
@@ -177,6 +237,16 @@ type Secrets struct {
 	// required only with [oidc].
 	OIDCClientSecret string
 }
+
+// PrivateAddr reports whether ip is private: loopback, link-local, the
+// private IPv4 ranges, the shared range VPNs use (100.64.0.0/10), and
+// unique-local IPv6.
+func PrivateAddr(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || cgnat.Contains(ip)
+}
+
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
 // MinKeyBytes is the minimum length of the secret key.
 const MinKeyBytes = 32
@@ -219,6 +289,12 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 			keys[i] = k.String()
 		}
 		return nil, fmt.Errorf("config: unknown keys: %s", strings.Join(keys, ", "))
+	}
+
+	for _, section := range []string{"limits", "adoption", "privacy", "plugins", "accounts"} {
+		if meta.IsDefined(section) {
+			cfg.FeaturesInFile = true
+		}
 	}
 
 	if err := loadSecrets(&cfg.Secrets, getenv); err != nil {
@@ -382,6 +458,32 @@ func (c *Config) validate() error {
 	}
 	if c.Adoption.Mode != "move" && c.Adoption.Mode != "link" {
 		add("adoption.mode must be \"move\" or \"link\", got %q", c.Adoption.Mode)
+	}
+
+	if a := c.Admin; a.Enabled() {
+		if !c.OIDC.Enabled() {
+			add("the admin panel needs the [oidc] section, for its sign-in")
+		}
+		if a.Group == "" {
+			add("admin.group is required: only its members may use the panel")
+		}
+		if host, _, err := net.SplitHostPort(a.Listen); err != nil {
+			add("admin.listen must be host:port, e.g. \":8081\"")
+		} else if ip, err := netip.ParseAddr(host); host != "" && (err != nil || !PrivateAddr(ip)) {
+			add("admin.listen must be a private address, or none (\":8081\"): the panel is never on the internet")
+		}
+		u, err := url.Parse(a.RedirectURL)
+		switch {
+		case err != nil || u.Path != "/admin/auth/callback" || u.RawQuery != "":
+			add("admin.redirect_url must be <panel address>/admin/auth/callback")
+		case u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && u.Hostname() != "::1":
+			add("admin.redirect_url may only use http:// on localhost (through an SSH tunnel); use https:// otherwise")
+		case u.Scheme != "http" && u.Scheme != "https":
+			add("admin.redirect_url must be an http:// (localhost) or https:// address")
+		}
+		if (a.TLSCert == "") != (a.TLSKey == "") {
+			add("admin.tls_cert and admin.tls_key go together")
+		}
 	}
 
 	if c.Storage.Path == "" {

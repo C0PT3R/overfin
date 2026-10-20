@@ -224,3 +224,41 @@ dial = "198.51.100.7:443"
 		t.Error("oidc mode accepted an identity header")
 	}
 }
+
+func TestAdmin(t *testing.T) {
+	vars := goodEnv()
+	vars["OVERFIN_OIDC_CLIENT_SECRET"] = "s"
+	oidc := `
+[oidc]
+issuer = "https://auth.example.org/application/o/site/"
+client_id = "overfin"
+redirect_url = "https://example.org/api/v1/auth/callback"
+`
+	ok := `
+[admin]
+listen = ":8081"
+group = "overfin-admins"
+redirect_url = "http://localhost:8081/admin/auth/callback"
+`
+	if _, err := Load(writeFile(t, goodFile+oidc+ok), env(vars)); err != nil {
+		t.Fatalf("valid admin: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"no oidc":               goodFile + ok,
+		"no group":              goodFile + oidc + strings.Replace(ok, `group = "overfin-admins"`, "", 1),
+		"public address":        goodFile + oidc + strings.Replace(ok, `":8081"`, `"203.0.113.5:8081"`, 1),
+		"http not on localhost": goodFile + oidc + strings.Replace(ok, "localhost:8081", "admin.example.org", 1),
+		"wrong callback":        goodFile + oidc + strings.Replace(ok, "/admin/auth/callback", "/callback", 1),
+		"cert without key":      goodFile + oidc + ok + "tls_cert = \"/a.crt\"\n",
+	} {
+		if _, err := Load(writeFile(t, bad), env(vars)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// A private address and https are fine.
+	lan := strings.Replace(strings.Replace(ok, `":8081"`, `"192.168.1.5:8081"`, 1),
+		"http://localhost:8081", "https://admin.example.org", 1) + "tls_cert = \"/a.crt\"\ntls_key = \"/a.key\"\n"
+	if _, err := Load(writeFile(t, goodFile+oidc+lan), env(vars)); err != nil {
+		t.Errorf("LAN admin: %v", err)
+	}
+}

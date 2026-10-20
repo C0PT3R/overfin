@@ -13,11 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/C0PT3R/overfin/internal/admin"
 	"github.com/C0PT3R/overfin/internal/api"
 	"github.com/C0PT3R/overfin/internal/config"
 	"github.com/C0PT3R/overfin/internal/images"
 	"github.com/C0PT3R/overfin/internal/jellyfin"
 	"github.com/C0PT3R/overfin/internal/keys"
+	"github.com/C0PT3R/overfin/internal/oidc"
 	"github.com/C0PT3R/overfin/internal/playback"
 	"github.com/C0PT3R/overfin/internal/provision"
 	"github.com/C0PT3R/overfin/internal/seal"
@@ -119,11 +121,31 @@ func run(logger *slog.Logger) error {
 	go janitor.RunJanitor(ctx)
 	go purgeExpired(ctx, db, logger)
 
-	errc := make(chan error, 1)
+	errc := make(chan error, 2)
 	go func() {
 		logger.Info("listening", "addr", addr)
 		errc <- srv.ListenAndServe()
 	}()
+
+	// The control panel, on its own listener (rule 58).
+	var adminSrv *http.Server
+	if a := cfg.Admin; a.Enabled() {
+		o := cfg.OIDC
+		panel := &admin.Panel{Features: gw, Group: a.Group, Logger: logger,
+			FreshFor: time.Duration(o.FreshForMinutes) * time.Minute,
+			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
+				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
+		adminSrv = &http.Server{Addr: a.Listen, Handler: panel.Handler(),
+			ReadHeaderTimeout: 10 * time.Second, WriteTimeout: time.Minute, IdleTimeout: 2 * time.Minute}
+		go func() {
+			logger.Info("control panel listening", "addr", a.Listen, "https", a.TLSCert != "")
+			if a.TLSCert != "" {
+				errc <- adminSrv.ListenAndServeTLS(a.TLSCert, a.TLSKey)
+			} else {
+				errc <- adminSrv.ListenAndServe()
+			}
+		}()
+	}
 
 	for running := true; running; {
 		select {
@@ -143,6 +165,9 @@ func run(logger *slog.Logger) error {
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	if adminSrv != nil {
+		_ = adminSrv.Shutdown(shutdownCtx)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

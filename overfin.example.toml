@@ -75,6 +75,28 @@ groups_claim = "groups"
 [storage]
 path = "/data/overfin.db"
 
+[admin]
+# Overfin's control panel, on its own listener: never on the internet. It
+# answers only private addresses (LAN, VPN, an SSH tunnel), and only members
+# of `group` may sign in, through the [oidc] provider. Register
+# `redirect_url` there too. Off when `listen` is empty.
+#
+# Through an SSH tunnel (no certificate needed): publish the port on the
+# server's 127.0.0.1 only, run `ssh -L 8081:localhost:8081 server`, and open
+# http://localhost:8081.
+# On a LAN or VPN instead: an https:// redirect_url, with tls_cert and
+# tls_key for that name.
+listen = ""                     # e.g. ":8081"
+group = ""                      # e.g. "overfin-admins"
+redirect_url = ""               # e.g. "http://localhost:8081/admin/auth/callback"
+tls_cert = ""
+tls_key = ""
+
+# ---- Feature settings --------------------------------------------------------
+# Everything below is switched on and off in the control panel, and lives in
+# the database. These sections are only read on the very first start, to fill
+# it; after that they're ignored (the log says so) and can be removed.
+
 [limits]
 max_profiles_per_account = 5
 max_streams_per_account = 2

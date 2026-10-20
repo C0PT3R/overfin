@@ -162,6 +162,9 @@ redirect_url = "https://example.org/api/v1/auth/callback"
 enable = ["library", "playback"]
 ```
 
+(`[plugins]` here only seeds a new instance; afterwards, features are
+switched in the [control panel](#control-panel).)
+
 **4. Secrets**, as environment variables (or `NAME_FILE` pointing to a file,
 for Docker secrets). They never go in the file:
 
@@ -237,6 +240,35 @@ stay, and they can bring them whenever they get their login. Tell people who
 watch through Jellyfin apps (TVs, phones) that those stop working; the
 website works in any browser, and Overfin's own login for native apps is on
 the roadmap.
+
+## Control panel
+
+Overfin has its own control panel, built in: every feature is switched on and
+off there, and applies at once. It's served on a separate listener that
+answers only private addresses, so it's never on the internet; admins sign in
+through the identity provider, must belong to the admin group, and every
+change needs a fresh login.
+
+```toml
+[admin]
+listen = ":8081"
+group = "overfin-admins"
+redirect_url = "http://localhost:8081/admin/auth/callback"
+```
+
+Publish that port on the server's `127.0.0.1` only (for example
+`ports: ["127.0.0.1:8081:8081"]`), register the redirect URL at your identity
+provider, and reach the panel through an SSH tunnel:
+
+```sh
+ssh -L 8081:localhost:8081 your-server
+# then open http://localhost:8081
+```
+
+To reach it from your LAN or VPN instead, give it an `https://` redirect URL
+and a certificate (`tls_cert`, `tls_key`). The configuration file then only
+holds what Overfin needs to start; feature settings in it are read once, to
+fill a new instance.
 
 ## Login modes
 
