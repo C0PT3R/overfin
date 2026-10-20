@@ -1,108 +1,107 @@
 # Overfin
 
-**Build any client. Expose nothing.**
-
-Overfin is a secure gateway between your Jellyfin server and the website or
-app you build yourself. It sits next to Jellyfin and offers a small,
-documented HTTP API under `/api/v1/`. Your site calls that API on its own
-domain: the browser never talks to Jellyfin, never sees a Jellyfin token, and
-can't reach anything Overfin doesn't explicitly offer.
+Overfin sits in front of a Jellyfin server and lets you run your own website
+for it. Your site talks to Overfin's small API; Jellyfin stays private,
+never exposed to the internet or to browsers. Overfin also takes care of the
+people using your server: logins through your identity provider, accounts
+and profiles, invitations, and a control panel to manage it all.
 
 ```
 browser ──▶ your site (any stack, even static HTML)
-   └──▶ /api/v1/*  ──▶  Overfin  ──▶  Jellyfin
+   └──▶ /api/v1/*  ──▶  Overfin  ──▶  Jellyfin (private)
                           │
                           └──▶  your identity provider (login)
 ```
 
-Overfin also manages the people who use your server: accounts, profiles,
-invitations, limits, all from its own control panel. Jellyfin stays where it
-belongs, private, doing what it does best: holding and playing your media.
+## Where it stands
 
-> **Status: early development.** Everything below works against a real
-> Jellyfin 12 server and runs a real site, but Overfin isn't ready for
-> production yet. See [ROADMAP.md](ROADMAP.md).
+Overfin is young. It started in October 2026, has no release yet, and is
+developed by one person with AI assistance. In practice:
 
-## Why build your own?
+- **It runs one real server**, every day, with the demo site in this
+  repository, against Jellyfin 12. That is the extent of its real-world use.
+- **There are no releases or prebuilt images.** You build it from source.
+  The API, the settings and the database can still change between commits;
+  the database migrates itself.
+- **Only Authentik has been tried** as the identity provider. Any OpenID
+  Connect provider should work, but none other has been tested.
+- **Browser only.** There's no login for native apps yet, and Jellyfin's own
+  apps don't go through Overfin, so people who move to it watch in a
+  browser.
+- **Jellyfin 12 only.**
+- **Its security rules are written down and tested, but nobody else has
+  reviewed them yet.**
 
-Any custom client gives you creative freedom. What Overfin changes is the cost
-of that freedom:
+Try it, read it, build on it; don't make something you depend on rely on it
+yet.
 
-| Path | Freedom | Cost |
-| --- | --- | --- |
-| Customize Jellyfin (themes, plugins, injected scripts) | Limited to the slots Jellyfin offers | Breaks with Jellyfin updates |
-| Build on Jellyfin's API | Total | A huge API to learn, tokens in the browser, Jellyfin exposed to the internet |
-| Build on Overfin | Total | A small, documented API, with the security built in |
+## What works
 
-The hard and security-sensitive parts live in Overfin: choosing how to play a
-file, keeping tokens out of the browser, profiles and their limits,
-recovering streams. Your site only decides how things look and behave, with
-components native to your own stack: a React carousel, a Svelte player, a
-Discord bot, a wall display.
+**Logging in and accounts**
 
-## What you get
+- Login through your OpenID Connect provider (or a reverse proxy's forward
+  auth), re-checked every few minutes. Deleting things, changing a PIN or
+  downloading one's data asks for a fresh login.
+- Accounts with Netflix-style profiles, each with its own watch history and
+  optional PIN. Kids profiles have a rating ceiling enforced by Jellyfin
+  itself, so titles above it are hidden everywhere, even from direct links.
+- People can download what's held about them and delete their account.
 
-**For the people watching**
+**Watching** (through the API, the SDK and the demo site)
 
-- **Profiles** under one login, Netflix-style, each with its own watch
-  history and optional PIN. **Kids profiles** get a rating ceiling that
-  Jellyfin itself enforces: titles above it, and unrated ones, are hidden
-  everywhere, even from direct links.
-- **Playback that just works.** The browser says what it can play; Overfin
-  picks direct play, repackaging or transcoding. Subtitles as clean WebVTT,
-  "skip intro", resume on any device, streams that recover by themselves.
-- **A watchlist** per profile: a movie, a whole show (its new episodes come
-  along), a season or a single episode.
-- **Their data, their call.** People can download everything held about
-  them, watch history included, and delete their account.
+- Browsing: libraries, filters, sorting, shuffle, continue watching, next
+  up, recently added, series → seasons → episodes, people.
+- Playback: Overfin picks direct play, repackaging or transcoding from what
+  the browser says it can play. WebVTT subtitles, audio tracks, "skip
+  intro", resume on any device, streams that recover by themselves, one
+  device taking over from another.
+- A watchlist per profile: movies, whole shows, seasons or single episodes.
 
-**For the operator**
+**Running the server**
 
-- **A control panel**, built in and never on the internet: every feature
-  switched on and off live, every account managed (access end dates,
-  templates, disabling, deleting, PIN unlocks, devices).
-- **Account templates** saying what an account may do (streams at once,
-  profiles). Editing one changes every account on it at once. A Default
-  template exists from the start, so accounts can be opened right away.
-- **Invitations**: links made from invite templates, each shaping the
-  account it opens; optionally, accounts only by invitation.
-- **Migration from Jellyfin**: people bring their existing account and its
-  watch history, once, with its old username and password.
-- **Real names in the panel**, read live from your identity provider through
-  an optional connector (Authentik for now), never stored.
-- **Gentle limits**: a new stream takes over the account's oldest, with a
-  server-wide transcode cap and a bitrate cap. Another account's stream is
-  never cut off.
+- A control panel on a private address only: feature switches that apply at
+  once, every account with its profiles and devices, account templates
+  (streams and profiles allowed), access end dates, disabling, deleting,
+  PIN unlocks.
+- Invitations made from invite templates, with an optional "accounts only by
+  invitation".
+- Migration: people bring their existing Jellyfin account and its history,
+  once, with its username and password.
+- Real names in the panel, read live from Authentik through an optional
+  connector.
+- Stream limits per account, a server-wide transcode cap, a bitrate cap.
 
-**For developers**
+## What's missing
 
-- **A small API**, specified first in OpenAPI, with one clean data model for
-  movies, series, music and more: no 150-field objects, no file paths, no
-  server internals.
-- **A JavaScript SDK** with a player that reports progress, recovers streams
-  and handles takeovers.
-- **A demo site** to start from.
-- **Modules**: add features to Overfin itself, in Go, and build it with them.
+The main gaps, roughly in the order they're planned (details in
+[ROADMAP.md](ROADMAP.md)):
 
-## Getting started
+- Invitations that include the identity provider's sign-up (today, invited
+  people need a login there first).
+- A live view of who's watching.
+- Email: notices, and confirming sensitive actions with an emailed code.
+- A login for native apps, and SDKs other than JavaScript.
+- Seek-bar previews, search, favorites, a TMDB catalog, Seerr requests.
+- Jellyfin 10.11 support.
+
+The API specification also describes endpoints that aren't served yet; they
+are marked `x-status: planned`.
+
+## Trying it
 
 You need a **Jellyfin 12** server that isn't reachable from the internet, an
-**OpenID Connect provider** (Authentik, Authelia, Keycloak, Pocket ID…), and a
-**reverse proxy** with HTTPS in front of Overfin and your site.
+**OpenID Connect provider**, a **reverse proxy** with HTTPS, and **Docker**
+(or Go 1.26) to build Overfin.
 
-**1. A Jellyfin API key.** In Jellyfin's dashboard, create an API key. Overfin
-uses it only to manage the Jellyfin users behind its profiles (create, limit,
-move), never for browsing or playback.
+**1. A Jellyfin API key**, made in Jellyfin's dashboard. Overfin uses it only
+to manage the Jellyfin users behind its profiles, never to browse or play.
 
-**2. A client at your identity provider.** Register Overfin as a confidential
-OAuth2/OpenID client with the redirect URL
-`https://example.org/api/v1/auth/callback`. Allow refresh tokens (usually the
-`offline_access` scope) so logins are re-checked every few minutes; without
-them a login simply lasts 12 hours.
+**2. A client at your identity provider**: a confidential OpenID client with
+the redirect URL `https://example.org/api/v1/auth/callback`, allowed to issue
+refresh tokens (usually the `offline_access` scope).
 
-**3. The configuration**, `overfin.toml`. This is all it takes; everything
-else has a default, and [overfin.example.toml](overfin.example.toml) lists
-every setting:
+**3. `overfin.toml`**, the least it needs
+([overfin.example.toml](overfin.example.toml) has every setting):
 
 ```toml
 [jellyfin]
@@ -121,20 +120,18 @@ redirect_url = "https://example.org/api/v1/auth/callback"
 enable = ["library", "playback"]
 ```
 
-`[plugins]` here only seeds a new instance. From then on, features live in
-the database and are switched in the [control panel](#control-panel).
+`[plugins]` only seeds a new instance; after that, features are switched in
+the control panel.
 
-**4. Secrets**, as environment variables (or `NAME_FILE` pointing to a file,
-for Docker secrets). They never go in the file:
+**4. Secrets**, as environment variables (or `NAME_FILE` pointing to a file):
 
-| Variable | Meaning |
+| Variable | |
 | --- | --- |
-| `OVERFIN_JELLYFIN_ADMIN_KEY` | The Jellyfin API key from step 1 |
-| `OVERFIN_SECRET_KEY` | Base64, at least 32 random bytes: `openssl rand -base64 32`. Keep a copy: it seals the tokens Overfin keeps |
+| `OVERFIN_JELLYFIN_ADMIN_KEY` | The Jellyfin API key |
+| `OVERFIN_SECRET_KEY` | `openssl rand -base64 32`, kept safe: it seals what Overfin stores |
 | `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
-| `OVERFIN_CONNECTOR_TOKEN` | Only with `[connector]`: the identity provider's API token |
 
-**5. Run it:**
+**5. Build and run:**
 
 ```sh
 docker build -t overfin .
@@ -145,13 +142,8 @@ docker run -d --name overfin --network proxy \
   overfin
 ```
 
-No port is published: only the reverse proxy reaches Overfin, over a Docker
-network they share (`proxy` here).
-
-**6. The reverse proxy.** Send `/api/*` to Overfin and serve your site for
-everything else. Asking Overfin's gate first keeps the site's pages private
-too: visitors who aren't logged in are sent to the login and brought back.
-With Caddy:
+**6. The reverse proxy** sends `/api/*` to Overfin and asks Overfin's gate
+before serving the site, so its pages are private too. With Caddy:
 
 ```caddyfile
 example.org {
@@ -168,217 +160,86 @@ example.org {
 }
 ```
 
-Put the [demo site](examples/demo-site) in `/srv/site`, open your domain, log
-in, and you're watching.
+Put the [demo site](examples/demo-site) in `/srv/site`, open your domain and
+log in.
 
-**Who gets an account?** Anyone who can log in at your identity provider,
-unless you narrow it: set `identity.required_group` to a group there, or
-switch on invitations only ([Invitations](#invitations)).
+Anyone who can log in at your identity provider gets an account, unless you
+set `identity.required_group`, or switch invitations on and make them
+required.
 
-## Control panel
+### The control panel
 
-Overfin has its own control panel, on a separate listener that answers only
-private addresses, so it's never on the internet. Admins sign in through the
-identity provider with a fresh login, must belong to the admin group, and
-stay signed in while they're active (30 idle minutes end it).
+Add an `[admin]` section and publish its port on the server's `127.0.0.1`
+only; reach it through an SSH tunnel (`ssh -L 8081:localhost:8081 server`,
+then `http://localhost:8081`), or on your LAN or VPN over HTTPS:
 
 ```toml
 [admin]
 listen = ":8081"
-group = "overfin-admins"
+group = "overfin-admins"   # who may sign in, at your identity provider
 redirect_url = "http://localhost:8081/admin/auth/callback"
 ```
 
-Publish that port on the server's `127.0.0.1` only (for example
-`ports: ["127.0.0.1:8081:8081"]`), register the redirect URL at your identity
-provider, and reach the panel through an SSH tunnel:
+For real names with Authentik, add a `[connector]` (`kind = "authentik"`,
+`url = "https://auth.example.org"`) and set `OVERFIN_CONNECTOR_TOKEN` to an
+Authentik token of intent **API Token** (not an app password), for a user
+allowed only to **view users**.
 
-```sh
-ssh -L 8081:localhost:8081 your-server
-# then open http://localhost:8081
-```
+### Moving people over from Jellyfin
 
-To reach it from your LAN or VPN instead, give it an `https://` redirect URL
-and a certificate (`tls_cert`, `tls_key`).
+Switch the `migration` module on, give everyone a login at your identity
+provider, and announce a date. On their first visit, people choose to bring
+their previous account and enter its old username and password once. By
+default that's a move: the old login and Jellyfin apps stop working for them
+at once. Mode "link" keeps the old login working until you press "Move
+linked accounts" in the module's tab. Nobody loses anything by being late.
 
-Its tabs:
-
-- **Settings**: modules and their settings, limits, what happens when an
-  account is deleted, privacy fields. Changes apply at once.
-- **Users**: every account, with its profiles and devices; its template,
-  when its access ends, disabling, deleting, PIN unlocks, signing devices
-  out.
-- **Templates**: the account templates.
-- One tab per module that has one (invitations, migration…).
-
-**Real names, with a connector.** Overfin itself only knows people by their
-identity provider ID. With Authentik, the optional connector shows each
-account's username, name, email and whether it's still active there, read
-live and never stored:
-
-```toml
-[connector]
-kind = "authentik"
-url = "https://auth.example.org"
-```
-
-`OVERFIN_CONNECTOR_TOKEN` is a token made in Authentik's *Directory → Tokens
-and App passwords*: intent **API Token** (an app password won't work), not
-expiring, for a user with the permission **Can view User** and nothing
-more. Copy that token's key, not another one's. Without a connector, give
-accounts labels in the panel to tell them apart.
+Overfin never names Jellyfin to the people using your site: speak of their
+"previous account", or your old service's name.
 
 ## Modules
 
-Overfin is a small core, the gateway: login, accounts, profiles, sessions,
-the control panel, and the guards around them. Everything else is a module,
-and **every module is off by default**: an instance offers only what its
-operator switches on, and a module that's off has no routes at all.
+Overfin is a core (logins, accounts, profiles, sessions, the control panel
+and the guards around them) with features grafted on as modules, Caddy-style:
+compiled in, each off until switched on.
 
-| Module | Offers | Needs | Status |
-| --- | --- | --- | --- |
-| `library` | Libraries, items, filters and sorting, shuffle, continue watching, next up, recently added, images | | Available |
-| `playback` | Direct play, repackaging or transcoding, token-free HLS, WebVTT subtitles, progress and resume, stream limits, skip-intro markers | `library` | Available |
-| `watchlist` | Each profile's own watchlist: movies, whole shows, seasons or single episodes | `library` | Available |
-| `invites` | Invitation links from invite templates; optionally, accounts only by invitation | | Available |
-| `migration` | People bring their previous Jellyfin account and its watch history | | Available |
-| `catalog` | Discover lists, curated lists, titles not in the library yet | a TMDB key | Planned |
-| `requests` | Requests, quotas, problem reports; kids profiles limited to their ceiling | Seerr | Planned |
-
-(`library` and `playback` are switched like modules, but still live in the
-core; they'll move onto the module contract like the others.)
-
-**Your own modules.** Modules are compiled in, as with Caddy. If the official
-ones don't do what you need, write your own in Go and build Overfin with it:
-your build is a few lines. [MODULES.md](MODULES.md) explains the contract,
-with a complete example. A module you write is yours to answer for, as with
-any program you run.
-
-## Invitations
-
-With the `invites` module on, you invite people from its tab:
-
-1. Make an invite template: which account template people get, how long
-   their access lasts, how long the link works, and how many people can use
-   it.
-2. Make an invitation from it, for someone. Copy its link right away: it's
-   shown only once, and Overfin keeps only a fingerprint of it.
-3. They open the link, log in at your identity provider, and their account
-   is set up as the invitation says.
-
-Switch on "Accounts only by invitation" and nobody gets an account without
-one, except people bringing their previous account over. People still need a
-login at your identity provider: the invitation decides what they get here,
-not who can log in there.
-
-## Migrating from Jellyfin
-
-People already using your Jellyfin server keep their watch history:
-
-1. Switch the `migration` module on in the control panel.
-2. Announce a date, and give everyone a login at your identity provider.
-3. On their first visit, people choose "bring my existing account" and enter
-   their old Jellyfin username and password, once.
-4. On the date, close the old way to Jellyfin.
-
-By default (mode "move") bringing an account is a move: the Jellyfin account
-gets an opaque name and a new password nobody knows, so the old login and
-Jellyfin apps stop working for that person at once. When you overfin, you
-don't fin. For a gentler transition, mode "link" lets people keep using
-Jellyfin apps until the date; then press "Move linked accounts" in the
-module's tab.
-
-What people see is your site, under your name: they may never have heard of
-Jellyfin, and Overfin never names it to them. Speak of "your previous
-account" or your old service's name in your announcement and on your site.
-
-Nobody loses anything by being late: their Jellyfin account and history
-stay, and they can bring them whenever they get their login. Tell people who
-watch through Jellyfin apps (TVs, phones) that those stop working; the
-website works in any browser, and Overfin's own login for native apps is on
-the roadmap.
-
-## Login modes
-
-The operator chooses, in `identity.mode`:
-
-| Mode | For | Takes |
+| Module | Offers | Status |
 | --- | --- | --- |
-| `oidc` (recommended) | Any OpenID Connect provider | The `[oidc]` section and one secret |
-| `forwardauth` | Setups where a reverse proxy already handles login | The header names the proxy sets |
-| `anonymous` | A private network with no login at all | Nothing |
+| `library` | Browsing, images | Works; still part of the core |
+| `playback` | Watching, subtitles, limits (needs `library`) | Works; still part of the core |
+| `watchlist` | Each profile's watchlist (needs `library`) | Works |
+| `invites` | Invitations and invite templates | Works |
+| `migration` | Bringing Jellyfin accounts over | Works |
+| `catalog` | TMDB discovery and lists | Planned |
+| `requests` | Seerr requests | Planned |
 
-In `oidc` mode, identity headers are ignored entirely, so there are none to
-spoof. In `forwardauth` mode they're accepted only from `trusted_proxies`.
-Destructive actions (deleting a profile or the account, changing a PIN,
-downloading one's data) need a fresh login, which works in both modes
-whenever `[oidc]` is set; without it, they're refused.
+You can write your own and build Overfin with it in a few lines:
+[MODULES.md](MODULES.md) describes the contract, with a working example. A
+module you add is your responsibility, as with any code you run.
 
-## Security and privacy
+## Building on it
 
-Overfin treats Jellyfin as a trusted service serving untrusted data, and
-every client as untrusted. Among its rules:
+- **The API**, specified in [api/openapi.yaml](api/openapi.yaml), with its
+  conventions at the top. Errors are typed problem details.
+- **The JavaScript SDK**, [sdk/js](sdk/js): one ES module, no dependencies,
+  TypeScript types, and a player that handles progress, recovery and
+  takeovers.
+- **The demo site**, [examples/demo-site](examples/demo-site): plain HTML,
+  CSS and JavaScript on the SDK, no build step. It's what the real server
+  runs, and the reference for using the API.
 
-- No passthrough: every route is declared, and catch-all routes are refused
-  at startup. Routes need a login unless explicitly public.
-- Jellyfin tokens never reach the browser, not even inside playlists; they
-  are encrypted at rest, and each profile has its own locked-down Jellyfin
-  user.
-- Only same-origin requests are accepted. Destructive actions need a fresh
-  login; frequent sensitive ones need the PIN.
-- Images are re-encoded and access-checked; metadata is served as plain text.
-- No analytics, no telemetry, no stored IP addresses. Privacy-sensitive
-  fields are off unless the operator turns them on. Watch history stays in
-  Jellyfin.
-- The control panel is never on the internet.
+## Security
 
-The full rules are in [SECURITY.md](SECURITY.md), and
-[THREAT_MODEL.md](THREAT_MODEL.md) explains which threat each one answers.
+Overfin treats every browser as untrusted and Jellyfin's data as untrusted
+input. Among its rules: every route is declared (no passthrough to
+Jellyfin), Jellyfin tokens never reach the browser and are encrypted at
+rest, each profile has its own locked-down Jellyfin user, images are
+re-encoded, nothing is collected for analytics, and the control panel is
+never on the internet.
 
-**Don't fin, overfin.** Jellyfin must not be reachable from the internet:
-Overfin replaces public access to it, native Jellyfin apps included. It never
-offers a route to Jellyfin's dashboard; operators reach that privately.
-
-## Building a site
-
-**The API** is specified first, in [api/openapi.yaml](api/openapi.yaml)
-(OpenAPI 3.1); its conventions, at the top of the file, apply to every
-endpoint. Errors are RFC 9457 problem details with stable types, so clients
-can branch on them. Endpoints that are designed but not served yet are
-marked `x-status: planned`, and a test keeps that true.
-
-**The JavaScript SDK**, [sdk/js](sdk/js), is one ES module with no
-dependencies and no build step, plus TypeScript types. It follows the login,
-turns errors into typed exceptions, and comes with a player that tells
-Overfin what the browser can play, reports progress, recovers streams and
-handles takeovers. A site on the SDK is mostly screens.
-
-**The demo site**, [examples/demo-site](examples/demo-site), is a small but
-complete website on the SDK, in plain HTML, CSS and JavaScript, with no
-framework and no build step:
-
-- account setup (new, invited, or brought over), "Who's watching?" with
-  PINs and kids profiles;
-- home rows (continue watching, next up, latest), libraries with sorting,
-  shuffle and infinite scroll, series → seasons → episodes, the watchlist;
-- a player that switches audio and subtitles, skips intros, resumes on any
-  device, recovers a stream the server freed, and offers "Continue here"
-  after a takeover.
-
-It's both a starting point and a reference for using the API.
-
-## Coming next
-
-Invitations that come with the identity provider's sign-up (one link for
-both), a live view of who's watching, email (notices, and confirming
-sensitive actions with an emailed code), then a TMDB catalog, Seerr
-requests, seek-bar previews, a login for native apps, and Jellyfin 10.11
-support. The full list and order are in [ROADMAP.md](ROADMAP.md).
-
-## Compatibility
-
-Overfin targets Jellyfin 12. Support for Jellyfin 10.11 is planned through a
-separate adapter, so servers that haven't upgraded aren't left behind.
+The rules are in [SECURITY.md](SECURITY.md), the threats they answer in
+[THREAT_MODEL.md](THREAT_MODEL.md). Remember they haven't been reviewed by
+anyone outside the project yet.
 
 ## Development
 
@@ -388,20 +249,14 @@ node --test sdk/js/overfin.test.js
 go run ./cmd/overfin -config overfin.toml
 ```
 
-Go, standard library first; two dependencies (a TOML parser and a pure-Go
-SQLite). Settings are read from `/etc/overfin/overfin.toml` by default
-(`-config` or `OVERFIN_CONFIG` to change it); unknown or invalid settings stop
-Overfin at startup.
+Go with the standard library and two dependencies (a TOML parser and a
+pure-Go SQLite). CI runs formatting, vet, staticcheck, govulncheck, the tests
+with the race detector, and a check that the API specification matches the
+routes.
 
-To apply changed settings without a restart, send Overfin `SIGHUP`
-(`docker kill -s HUP overfin`): playbacks in progress carry on. A file that
-doesn't load is refused and the running settings stay, as are changes that
-need a restart (`listen`, `storage.path`, `jellyfin.url`, the admin and
-connector sections, the secret key). The log says which.
-
-If the secret key is lost for good, start Overfin once with
-`-recover-tokens` and a new key: profiles keep their history, while PINs
-and logins are reset.
+Useful to know: `SIGHUP` reloads the configuration without dropping
+playbacks; `-recover-tokens` gets you going again if the secret key is lost
+(PINs and logins are reset, history is kept).
 
 ## AI-assisted development
 
@@ -416,5 +271,5 @@ authorization) are read line by line.
 [MIT](LICENSE). The demo site includes [hls.js](https://github.com/video-dev/hls.js),
 unmodified, under the Apache License 2.0.
 
-Overfin is an independent project. It is not affiliated with or endorsed by
-the Jellyfin project, Seerr or TMDB.
+Overfin is an independent project, not affiliated with or endorsed by the
+Jellyfin project, Seerr or TMDB.
