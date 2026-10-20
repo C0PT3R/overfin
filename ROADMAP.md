@@ -121,12 +121,31 @@ off by default.
 Later, perhaps: letting the configuration file pin a feature setting, for
 operators who manage servers as files.
 
+## Beyond Jellyfin
+
+Overfin keeps looking for what people miss in Jellyfin's own experience and
+offers it, built on what Jellyfin already stores wherever possible, so
+Overfin keeps holding as little as it can.
+
+- **Watchlist**, per profile: one "watch later" button on every title, a
+  home row, and titles marked or dropped once watched. Underneath, one
+  private Jellyfin playlist owned by the profile's own Jellyfin user, so
+  Overfin stores nothing, kids limits apply on their own, and deleting a
+  profile deletes it. Never shared: sharing is social, out of scope
+  (SECURITY.md rule 46). Its own plugin, off by default, needing `library`.
+- **Personal lists**, per profile (`/me/lists`): create, rename and delete
+  lists, add, remove and reorder titles, on the same private playlists.
+  Distinct from the operator's curated `/lists`.
+- **Titles not in the library yet** on the watchlist: they have no Jellyfin
+  item, so they come with the TMDB catalog and Seerr requests plugins (Seerr
+  keeps watchlists of its own).
+
 ## Designed, to implement later
 
 - TMDB catalog plugin: discover, catalog titles, curated lists.
 - Seerr requests plugin: requests, quotas, problem reports.
-- Profile avatars, profile transfers, data export.
-- Trickplay, lyrics, skip markers, bitrate test.
+- Profile avatars, profile transfers.
+- Trickplay, lyrics, bitrate test.
 
 ## Planned, not designed yet
 
