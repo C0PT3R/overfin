@@ -415,7 +415,9 @@ func TestClaimHooks(t *testing.T) {
 	}
 
 	// A failure afterwards undoes it all: the old account is as it was.
-	fail := &Hooks{After: func(context.Context, *store.Account, *store.Profile) error { return errors.New("invitation used meanwhile") }}
+	fail := &Hooks{After: func(context.Context, *store.Account, *store.Profile) error {
+		return errors.New("invitation used meanwhile")
+	}}
 	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, fail); err == nil {
 		t.Fatal("claim succeeded")
 	}
