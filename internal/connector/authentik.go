@@ -75,7 +75,8 @@ func (a *Authentik) People(ctx context.Context) (map[string]Person, error) {
 }
 
 // ErrUnauthorized: the token is wrong, expired, or lacks permission.
-var ErrUnauthorized = errors.New("connector: the identity provider refused the token")
+var ErrUnauthorized = errors.New("connector: Authentik refused the token: it must be an API Token " +
+	"(intent \"API\", not an app password), not expired, for an account allowed to view users")
 
 func (a *Authentik) get(ctx context.Context, u string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

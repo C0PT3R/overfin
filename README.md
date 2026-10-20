@@ -278,8 +278,10 @@ kind = "authentik"
 url = "https://auth.example.org"
 ```
 
-with `OVERFIN_CONNECTOR_TOKEN` set to an API token of an Authentik service
-account whose role only allows viewing users.
+with `OVERFIN_CONNECTOR_TOKEN` set to a token made in Authentik's *Tokens and
+App passwords*: intent **API Token** (an app password won't do, and creating
+a service account only makes one of those), not expiring, for a service
+account that has the global permission **Can view User**.
 
 To reach it from your LAN or VPN instead, give it an `https://` redirect URL
 and a certificate (`tls_cert`, `tls_key`). The configuration file then only

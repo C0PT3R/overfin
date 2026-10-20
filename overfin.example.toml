@@ -97,8 +97,9 @@ tls_key = ""
 [connector]
 # Optional: the identity provider's own API, so the control panel shows who's
 # behind each account (live, never stored), and later sends invitations.
-# Set OVERFIN_CONNECTOR_TOKEN. With Authentik: a service account whose role
-# can only view users, and an API token for it.
+# Set OVERFIN_CONNECTOR_TOKEN. With Authentik: a service account with the
+# global permission "Can view User", and a token for it made in Tokens and
+# App passwords with intent "API Token" (not an app password).
 kind = ""                       # "authentik"
 url = ""                        # e.g. "https://auth.example.org"
 dial = ""                       # optional "host:port", as in [oidc]
