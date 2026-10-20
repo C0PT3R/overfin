@@ -154,6 +154,14 @@ off by default.
    profiles; later, which modules), followed live, so editing a template
    changes every account on it. The built-in Default is minimal; operators
    make their own. Access length stays individual.
+2d. **Jellyfin migration as a module** (`jellyfin-migration`): claiming an
+   old account with its username and password (move or link), and moving
+   linked accounts from its own panel tab. A new server, or one done
+   migrating, or one on another backend, simply doesn't use it. Later:
+   **personal invites from a list** of usernames and emails (a plain CSV,
+   exported from whatever tool the operator used): one single-use invite
+   per old account, tied to it, so receiving the email is the proof and no
+   old password is needed. Overfin integrates with no user manager.
 3. Invites: created and managed in the panel (expiry, number of uses, a
    template: profiles, kids limits, stream limit, account expiry); redeemed
    on the public site, where they create the account. Optionally, accounts
