@@ -327,10 +327,6 @@ built on Overfin without changing it:
 
 ## Open questions
 
-- Modules loaded at runtime, if third-party ones become common: WebAssembly
-  (a pure-Go runtime such as wazero) would make them a true sandbox, which
-  compiled-in modules can't be. Go's own `plugin` package is too fragile
-  (cgo, exact versions), and separate processes trade speed for isolation.
 
 - Step-up checks the login time in the ID token rather than trusting
   `prompt=login`. Confirm each supported identity provider updates it on a
