@@ -17,15 +17,17 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
 // maxResponse bounds every JSON response read from Jellyfin.
 const maxResponse = 4 << 20 // 4 MiB
 
-// Client talks to one Jellyfin server.
+// Client talks to one Jellyfin server. Its address may change while it's
+// in use (SetURL), for the same server reached another way.
 type Client struct {
-	base    *url.URL
+	base    atomic.Pointer[url.URL]
 	http    *http.Client
 	version string
 }
@@ -33,12 +35,7 @@ type Client struct {
 // New returns a client for the Jellyfin server at baseURL. version is
 // Overfin's own version, reported to Jellyfin as the client version.
 func New(baseURL, version string) (*Client, error) {
-	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
-	if err != nil {
-		return nil, err
-	}
-	return &Client{
-		base:    u,
+	c := &Client{
 		version: version,
 		http: &http.Client{
 			Timeout: 15 * time.Second,
@@ -47,8 +44,26 @@ func New(baseURL, version string) (*Client, error) {
 				return http.ErrUseLastResponse
 			},
 		},
-	}, nil
+	}
+	if err := c.SetURL(baseURL); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
+
+// SetURL points the client at a new address. Requests already sent keep
+// the old one.
+func (c *Client) SetURL(baseURL string) error {
+	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
+	if err != nil {
+		return err
+	}
+	c.base.Store(u)
+	return nil
+}
+
+// baseURL is a copy of the current address, for one request to build on.
+func (c *Client) baseURL() url.URL { return *c.base.Load() }
 
 // StatusError is a non-success answer from Jellyfin. Only the status is
 // kept; Jellyfin's message never reaches clients.
@@ -94,7 +109,7 @@ func (c *Client) do(ctx context.Context, op, method, path string, a Auth, in, ou
 // doQuery is do with query parameters, which are encoded into the URL's
 // query, never pasted into its path.
 func (c *Client) doQuery(ctx context.Context, op, method, path string, query url.Values, a Auth, in, out any) error {
-	u := *c.base
+	u := c.baseURL()
 	u.Path += path
 	u.RawQuery = query.Encode()
 

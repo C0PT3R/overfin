@@ -489,8 +489,11 @@ func TestJellyfinSettings(t *testing.T) {
 	if _, _, ok, err := s.Jellyfin(ctx); ok || err != nil {
 		t.Fatalf("before setup: ok %v, err %v", ok, err)
 	}
-	if err := s.SetJellyfin(ctx, "http://192.0.2.10:8096", "admin-key"); err != nil {
+	if err := s.SetJellyfin(ctx, "http://192.0.2.10:8096", "admin-key", "server-1"); err != nil {
 		t.Fatal(err)
+	}
+	if id, err := s.JellyfinServer(ctx); id != "server-1" || err != nil {
+		t.Errorf("server ID: %q %v", id, err)
 	}
 	url, key, ok, err := s.Jellyfin(ctx)
 	if !ok || err != nil || url != "http://192.0.2.10:8096" || key != "admin-key" {

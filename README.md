@@ -109,7 +109,8 @@ asks a few questions and generates every secret.
 to manage the Jellyfin users behind its profiles, never to browse or play.
 Jellyfin's address and this key can also be left out of the configuration:
 with the control panel switched on (`[admin]`), its setup page asks for
-both, tests them and keeps them, the key sealed.
+both, tests them and keeps them, the key sealed; the panel's Settings
+change them later, for the same Jellyfin server.
 
 **2. A client at your identity provider**: a confidential OpenID client with
 the redirect URL `https://example.org/api/v1/auth/callback`, allowed to issue

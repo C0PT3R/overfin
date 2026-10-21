@@ -17,13 +17,17 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
-// fakeJellyfin answers what -check asks: its version, and its libraries to
-// the admin key ("admin") only.
+// fakeJellyfin answers what -check asks: its version and server ID, and
+// its libraries to the admin key ("admin") only.
 func fakeJellyfin(t *testing.T, version string) *httptest.Server {
+	return fakeJellyfinServer(t, version, "server-1")
+}
+
+func fakeJellyfinServer(t *testing.T, version, id string) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/System/Info/Public":
-			fmt.Fprintf(w, `{"Version":%q}`, version)
+			fmt.Fprintf(w, `{"Version":%q,"Id":%q}`, version, id)
 		case "/Library/MediaFolders":
 			switch {
 			case strings.Contains(r.Header.Get("Authorization"), `Token="admin"`):

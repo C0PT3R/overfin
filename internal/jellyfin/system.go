@@ -5,14 +5,14 @@ import (
 	"net/http"
 )
 
-// Version is the version Jellyfin says it runs, from its public
-// information: no key needed.
-func (c *Client) Version(ctx context.Context) (string, error) {
-	var info struct{ Version string }
+// PublicInfo is the version Jellyfin says it runs and its server ID, which
+// stays the same whatever address it's reached at. No key needed.
+func (c *Client) PublicInfo(ctx context.Context) (version, serverID string, err error) {
+	var info struct{ Version, Id string }
 	if err := c.do(ctx, "public information", http.MethodGet, "/System/Info/Public", Auth{DeviceID: "overfin-check"}, nil, &info); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return info.Version, nil
+	return info.Version, info.Id, nil
 }
 
 // CountLibraries counts the server's libraries. Only an administrator may list

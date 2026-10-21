@@ -43,6 +43,9 @@ type shared struct {
 	jf        *jellyfin.Client
 	images    *images.Pipeline
 	tickets   *playback.Tickets
+	// jellyfinSaved: Jellyfin's settings are the setup page's, in the
+	// database, not the configuration's, so the panel may change them.
+	jellyfinSaved bool
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -312,6 +315,59 @@ func (g *gateway) reload(getenv func(string) string) error {
 	g.current.Store(b)
 	g.cfg = cfg
 	return nil
+}
+
+// Jellyfin is Jellyfin's address in effect, and whether the configuration
+// file sets it (then only the file changes it).
+func (g *gateway) Jellyfin() (url string, inFile bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.cfg.Jellyfin.URL, !g.sh.jellyfinSaved
+}
+
+// SetJellyfin changes the address Overfin reaches Jellyfin at, its key, or
+// both (an empty key keeps the current one), tested first and applied at
+// once. Only the same Jellyfin server is accepted: another one has none of
+// the users behind Overfin's profiles. Errors say what's wrong in plain
+// words.
+func (g *gateway) SetJellyfin(ctx context.Context, url, key string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.sh.jellyfinSaved {
+		return "", problem("Jellyfin is set in Overfin's configuration file: change it there.")
+	}
+	url = strings.TrimRight(strings.TrimSpace(url), "/")
+	if key = strings.TrimSpace(key); key == "" {
+		key = g.cfg.Secrets.JellyfinAdminKey
+	}
+	found, err := testJellyfin(ctx, url, key)
+	if err != nil {
+		return "", err
+	}
+	saved, err := g.sh.db.JellyfinServer(ctx)
+	if err != nil {
+		return "", err
+	}
+	if saved != "" && found.serverID != saved {
+		return "", problem("That's another Jellyfin server. Only a new address for the same one can be set here: " +
+			"another server has none of the users behind Overfin's profiles.")
+	}
+	cfg := *g.cfg
+	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+	b, err := build(&cfg, g.sh)
+	if err != nil {
+		return "", err
+	}
+	if err := g.sh.db.SetJellyfin(ctx, url, key, found.serverID); err != nil {
+		return "", err
+	}
+	if err := g.sh.jf.SetURL(url); err != nil {
+		return "", err
+	}
+	g.current.Store(b)
+	g.cfg = &cfg
+	g.sh.logger.Info("Jellyfin changed in the control panel", "jellyfin", url)
+	return found.summary, nil
 }
 
 // Features returns the feature settings in effect.

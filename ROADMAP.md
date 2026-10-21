@@ -270,8 +270,10 @@ provider.
    database (the key sealed), opened only with a one-time code printed in
    the log, so nobody else can claim a fresh install; the site answers
    that it's being set up until then, and Overfin starts right after,
-   without a restart. Next: changing Jellyfin from the panel later, then
-   the identity provider and the site address (with the compose bundle,
+   without a restart. ~~Changing Jellyfin from the panel later~~ done: a
+   new address or key for the same server (its server ID is checked:
+   another server has none of the users behind the profiles), tested and
+   applied at once. Next: the identity provider and the site address (with the compose bundle,
    `setup.sh` already gives Caddy and Authentik those, so it writes them
    for Overfin too).
 4. ~~**Overfin serves the site itself**~~ Done: the core serves the site

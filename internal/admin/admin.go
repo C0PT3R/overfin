@@ -42,6 +42,17 @@ type Features interface {
 	SetFeatures(ctx context.Context, f config.Features) error
 }
 
+// Jellyfin is where the panel reads and changes how Overfin reaches
+// Jellyfin.
+type Jellyfin interface {
+	// Jellyfin is the address in effect, and whether the configuration
+	// file sets it (then the panel can't change it).
+	Jellyfin() (url string, inFile bool)
+	// SetJellyfin tests and applies a new address or key (empty: keep
+	// it). Its error says what's wrong in plain words.
+	SetJellyfin(ctx context.Context, url, key string) (string, error)
+}
+
 // Directory is an identity provider connector's view of people, by the
 // user ID logins carry.
 type Directory interface {
@@ -92,7 +103,9 @@ type Modules interface {
 
 // Panel serves the control panel.
 type Panel struct {
-	Features    Features
+	Features Features
+	// Jellyfin, when set, shows and changes how Overfin reaches Jellyfin.
+	Jellyfin    Jellyfin
 	Store       *store.Store
 	Provisioner *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are.
@@ -161,6 +174,8 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/api/session", p.signedIn(p.whoami))
 	mux.HandleFunc("GET /admin/api/features", p.signedIn(p.features))
 	mux.HandleFunc("PUT /admin/api/features", p.signedIn(p.setFeatures))
+	mux.HandleFunc("GET /admin/api/jellyfin", p.signedIn(p.jellyfin))
+	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("POST /admin/api/logout", p.logout)
 	mux.HandleFunc("GET /admin/api/accounts", p.signedIn(p.accounts))
 	mux.HandleFunc("PATCH /admin/api/accounts/{id}", p.signedIn(p.changeAccount))
@@ -481,6 +496,41 @@ func (p *Panel) setFeatures(w http.ResponseWriter, r *http.Request, s *session) 
 	}
 	p.Logger.Info("feature settings changed in the control panel")
 	writeJSON(w, http.StatusOK, map[string]any{"features": p.Features.Features()})
+}
+
+func (p *Panel) jellyfin(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.Jellyfin == nil {
+		http.NotFound(w, r)
+		return
+	}
+	url, inFile := p.Jellyfin.Jellyfin()
+	writeJSON(w, http.StatusOK, map[string]any{"url": url, "inFile": inFile})
+}
+
+func (p *Panel) setJellyfin(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.Jellyfin == nil {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		URL string `json:"url"`
+		Key string `json:"key"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a valid request"})
+		return
+	}
+	summary, err := p.Jellyfin.SetJellyfin(r.Context(), req.URL, req.Key)
+	if err != nil {
+		// What's wrong, in plain words: it carries no secrets, and only
+		// admins see it.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": err.Error()})
+		return
+	}
+	url, _ := p.Jellyfin.Jellyfin()
+	writeJSON(w, http.StatusOK, map[string]string{"summary": summary, "url": url})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

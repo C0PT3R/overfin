@@ -28,7 +28,7 @@ var streamClient = &http.Client{
 // rangeHeader is the client's Range header, already checked. The caller
 // closes the body.
 func (c *Client) Open(ctx context.Context, a Auth, path string, query url.Values, rangeHeader string) (*http.Response, error) {
-	u := *c.base
+	u := c.baseURL()
 	u.Path += path
 	u.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

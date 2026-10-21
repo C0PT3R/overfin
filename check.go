@@ -161,50 +161,58 @@ func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
 			return
 		}
 	}
-	summary, err := testJellyfin(ctx, url, key)
+	found, err := testJellyfin(ctx, url, key)
 	if err != nil {
 		c.fail("%v", err)
 		return
 	}
-	c.ok("%s", summary)
+	c.ok("%s", found.summary)
+}
+
+// jellyfinFound is what testJellyfin found: what to tell, and the server's
+// ID, which stays the same whatever address it's reached at.
+type jellyfinFound struct {
+	summary  string
+	serverID string
 }
 
 // testJellyfin tells whether Overfin can work with the Jellyfin server at
 // url with key: reachable, version 12, an administrator's key, at least one
 // library. Its error says what's wrong in plain words; the setup page shows
 // it as is.
-func testJellyfin(ctx context.Context, url, key string) (string, error) {
+func testJellyfin(ctx context.Context, url, key string) (jellyfinFound, error) {
 	if err := config.CheckJellyfinURL(url); err != nil {
-		return "", problemf("Jellyfin's address %s", err)
+		return jellyfinFound{}, problemf("Jellyfin's address %s", err)
 	}
 	jf, err := jellyfin.New(url, Version)
 	if err != nil {
-		return "", problemf("Jellyfin's address: %v", err)
+		return jellyfinFound{}, problemf("Jellyfin's address: %v", err)
 	}
-	v, err := jf.Version(ctx)
+	v, id, err := jf.PublicInfo(ctx)
 	if err != nil {
-		return "", problemf("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
+		return jellyfinFound{}, problemf("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
 			"in a container, localhost is the container itself", url, err)
 	}
 	if !strings.HasPrefix(v, "12.") {
-		return "", problemf("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
+		return jellyfinFound{}, problemf("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
 	}
 	n, err := jf.CountLibraries(ctx, jellyfin.Auth{Token: key, DeviceID: "overfin-check"})
 	switch {
 	case jellyfin.IsStatus(err, http.StatusUnauthorized):
-		return "", problemf("Jellyfin refuses its API key. Make one in its dashboard, under API Keys")
+		return jellyfinFound{}, problemf("Jellyfin refuses its API key. Make one in its dashboard, under API Keys")
 	case jellyfin.IsStatus(err, http.StatusForbidden):
-		return "", problemf("Jellyfin's API key isn't an administrator's. Make one in its dashboard, under API Keys")
+		return jellyfinFound{}, problemf("Jellyfin's API key isn't an administrator's. Make one in its dashboard, under API Keys")
 	case err != nil:
-		return "", problemf("Jellyfin's API key: %v", err)
+		return jellyfinFound{}, problemf("Jellyfin's API key: %v", err)
 	case n == 0:
-		return "", problemf("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
+		return jellyfinFound{}, problemf("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
 	}
 	libraries := "libraries"
 	if n == 1 {
 		libraries = "library"
 	}
-	return fmt.Sprintf("Jellyfin %s, at %s; its API key works; %d %s", v, url, n, libraries), nil
+	return jellyfinFound{summary: fmt.Sprintf("Jellyfin %s, at %s; its API key works; %d %s", v, url, n, libraries),
+		serverID: id}, nil
 }
 
 func fileExists(path string) bool {

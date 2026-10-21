@@ -48,7 +48,8 @@ After a minute or two:
    it by: its address on your network, never `localhost` (inside the
    container, that's Overfin itself). Everything is tested before it's
    saved, and Overfin starts right after. Until then, the site says it's
-   being set up.
+   being set up. Later, the control panel's Settings change Jellyfin's
+   address or key.
 2. **Sign in at `https://auth.example.org`** as `akadmin`, with the password
    `setup.sh` printed (it's also `AUTHENTIK_BOOTSTRAP_PASSWORD` in `.env`).
    Change it, and set up a second factor if you like.

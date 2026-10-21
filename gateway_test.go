@@ -293,3 +293,80 @@ func TestReloadKeepsSavedJellyfin(t *testing.T) {
 		t.Errorf("after reload: %q", g.cfg.Jellyfin.URL)
 	}
 }
+
+// The panel changes Jellyfin's address live, for the same server only.
+func TestSetJellyfin(t *testing.T) {
+	first := fakeJellyfinServer(t, "12.2.0", "server-1").URL
+	sameServer := fakeJellyfinServer(t, "12.2.0", "server-1").URL
+	otherServer := fakeJellyfinServer(t, "12.2.0", "server-2").URL
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "overfin.db")
+	cfgPath := filepath.Join(dir, "overfin.toml")
+	content := strings.ReplaceAll(baseConfig, "%DB%", dbPath)
+	content = strings.Replace(content, "[jellyfin]\nurl = \"http://192.0.2.10:8096\"\n", "", 1)
+	os.WriteFile(cfgPath, []byte(content), 0o600)
+	noAdminKey := func(name string) string {
+		if name == "OVERFIN_JELLYFIN_ADMIN_KEY" {
+			return ""
+		}
+		return env("a")(name)
+	}
+	cfg, err := config.Load(cfgPath, noAdminKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := keys.Derive(cfg.Secrets.Key)
+	box, _ := seal.New(k.TokenEncryption)
+	db, err := store.Open(context.Background(), dbPath, box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// As the setup page left it.
+	db.SetJellyfin(context.Background(), first, "admin", "server-1")
+	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = first, "admin"
+	sh, err := newShared(cfg, db, nil, k, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.jellyfinSaved = true
+	g, err := newGateway(cfgPath, cfg, sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	// Another server is refused, and nothing changes.
+	if _, err := g.SetJellyfin(ctx, otherServer, ""); err == nil || !strings.Contains(err.Error(), "another Jellyfin server") {
+		t.Errorf("another server: %v", err)
+	}
+	// A key that doesn't work is refused too.
+	if _, err := g.SetJellyfin(ctx, sameServer, "nope"); err == nil {
+		t.Error("a refused key was saved")
+	}
+	if url, _ := g.Jellyfin(); url != first {
+		t.Errorf("changed after refusals: %s", url)
+	}
+
+	// The same server at a new address, the key kept: applied and saved.
+	summary, err := g.SetJellyfin(ctx, sameServer+"/", "")
+	if err != nil || !strings.Contains(summary, "Jellyfin 12.2.0") {
+		t.Fatalf("same server: %q %v", summary, err)
+	}
+	if url, inFile := g.Jellyfin(); url != sameServer || inFile {
+		t.Errorf("in effect: %s, in file %v", url, inFile)
+	}
+	if n, err := sh.jf.CountLibraries(ctx, jellyfin.Auth{Token: "admin", DeviceID: "t"}); err != nil || n != 2 {
+		t.Errorf("the client doesn't reach the new address: %d %v", n, err)
+	}
+	if url, key, _, _ := db.Jellyfin(ctx); url != sameServer || key != "admin" {
+		t.Errorf("saved: %s %s", url, key)
+	}
+
+	// Set in the file: the panel can't change it.
+	sh.jellyfinSaved = false
+	if _, err := g.SetJellyfin(ctx, first, ""); err == nil || !strings.Contains(err.Error(), "configuration file") {
+		t.Errorf("in the file: %v", err)
+	}
+}

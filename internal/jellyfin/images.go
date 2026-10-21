@@ -33,7 +33,7 @@ func (c *Client) Image(ctx context.Context, a Auth, req ImageRequest) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	u := *c.base
+	u := c.baseURL()
 	u.Path += "/Items/" + id + "/Images/" + req.Type + "/" + strconv.Itoa(req.Index)
 	u.RawQuery = url.Values{
 		"tag":      {req.Tag},

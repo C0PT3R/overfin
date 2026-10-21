@@ -220,7 +220,8 @@ func run(logger *slog.Logger) error {
 
 	// Jellyfin: set in the configuration, saved by the setup page, or asked
 	// for now.
-	if cfg.Jellyfin.URL == "" {
+	jellyfinSaved := cfg.Jellyfin.URL == ""
+	if jellyfinSaved {
 		url, key, ok, err := db.Jellyfin(ctx)
 		if err != nil {
 			return err
@@ -231,9 +232,17 @@ func run(logger *slog.Logger) error {
 					"or switch on the control panel ([admin]) and use its setup page")
 			}
 			saved := make(chan [2]string, 1)
-			setup := &admin.Setup{Code: admin.NewSetupCode(), Test: testJellyfin, Logger: logger,
+			// The page tests, then saves, one request at a time: the save
+			// keeps the server ID its test just found.
+			var serverID string
+			setup := &admin.Setup{Code: admin.NewSetupCode(), Logger: logger,
+				Test: func(ctx context.Context, url, key string) (string, error) {
+					found, err := testJellyfin(ctx, url, key)
+					serverID = found.serverID
+					return found.summary, err
+				},
 				Save: func(ctx context.Context, url, key string) error {
-					if err := db.SetJellyfin(ctx, url, key); err != nil {
+					if err := db.SetJellyfin(ctx, url, key, serverID); err != nil {
 						return err
 					}
 					saved <- [2]string{url, key}
@@ -258,6 +267,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	sh.jellyfinSaved = jellyfinSaved
 	gw, err := newGateway(*configPath, cfg, sh)
 	if err != nil {
 		return err
@@ -272,7 +282,7 @@ func run(logger *slog.Logger) error {
 
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
-		p := &admin.Panel{Features: gw, Modules: gw, Group: a.Group, Logger: logger,
+		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Group: a.Group, Logger: logger,
 			Store: db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
@@ -318,7 +328,11 @@ func runRecovery(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.
 	switch {
 	case cfg.Jellyfin.URL != "":
 		if err != nil {
-			if err := db.SetJellyfin(ctx, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey); err != nil {
+			id, err := db.JellyfinServer(ctx)
+			if err != nil {
+				return err
+			}
+			if err := db.SetJellyfin(ctx, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey, id); err != nil {
 				return err
 			}
 		}

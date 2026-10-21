@@ -1027,8 +1027,19 @@ func (s *Store) Jellyfin(ctx context.Context) (url, key string, ok bool, err err
 	return jellyfinSettings(ctx, s.db, s.box)
 }
 
-// SetJellyfin saves the Jellyfin server's address and key.
-func (s *Store) SetJellyfin(ctx context.Context, url, key string) error {
+// JellyfinServer is the ID of the Jellyfin server saved by the setup page;
+// empty when none is saved.
+func (s *Store) JellyfinServer(ctx context.Context) (string, error) {
+	var id []byte
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'jellyfin-id'`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return string(id), err
+}
+
+// SetJellyfin saves the Jellyfin server's address, key and server ID.
+func (s *Store) SetJellyfin(ctx context.Context, url, key, serverID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1037,6 +1048,7 @@ func (s *Store) SetJellyfin(ctx context.Context, url, key string) error {
 	for name, value := range map[string][]byte{
 		"jellyfin-url": []byte(url),
 		"jellyfin-key": s.box.Seal([]byte(key), jellyfinKeyContext),
+		"jellyfin-id":  []byte(serverID),
 	} {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES (?, ?)
 			ON CONFLICT (name) DO UPDATE SET value = excluded.value`, name, value); err != nil {

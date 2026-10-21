@@ -46,6 +46,42 @@ function field(get, set, input) {
   return { get, set, input };
 }
 
+// Jellyfin: where Overfin reaches it, changed apart from the feature
+// settings, tested before it's saved.
+function jellyfinSection(j) {
+  if (!j) return null;
+  if (j.inFile) {
+    return h('section', {}, h('h2', {}, 'Jellyfin'),
+      h('div', { class: 'row' }, h('div', {}, j.url,
+        h('div', { class: 'hint' }, "Set in Overfin's configuration file: change it there."))));
+  }
+  const url = h('input', { value: j.url, autocomplete: 'off', spellcheck: 'false' });
+  const key = h('input', { type: 'password', autocomplete: 'off', placeholder: 'Unchanged' });
+  const msg = h('span', {});
+  const save = h('button', { type: 'button', onclick: async () => {
+    msg.className = 'muted';
+    msg.textContent = 'Testing…';
+    save.disabled = true;
+    try {
+      const out = await api('PUT', '/admin/api/jellyfin', { url: url.value, key: key.value });
+      url.value = out.url;
+      key.value = '';
+      msg.className = '';
+      msg.textContent = `Saved and applied: ${out.summary}.`;
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    } finally {
+      save.disabled = false;
+    }
+  } }, 'Test and save');
+  return h('section', {}, h('h2', {}, 'Jellyfin'),
+    h('div', { class: 'row' }, h('div', {}, "Jellyfin's address",
+      h('div', { class: 'hint' }, 'A new address for the same server, as Overfin reaches it. Not localhost: in a container, that\'s Overfin itself.')), url),
+    h('div', { class: 'row' }, h('div', {}, 'API key', h('div', { class: 'hint' }, 'Only to replace it; empty keeps the current one.')), key),
+    h('div', { class: 'row' }, msg, save));
+}
+
 function render(state, draft) {
   // A draft fills in over the current settings: one kept from an older
   // version may lack sections, or have some that are gone.
@@ -90,6 +126,7 @@ function render(state, draft) {
   };
 
   const sections = [
+    jellyfinSection(state.jellyfin),
     h('section', {}, h('h2', {}, 'Plugins'),
       ...state.plugins.flatMap((p) => [listToggle(p.name,
         (p.description || '') +
@@ -150,7 +187,7 @@ function render(state, draft) {
     }
   } }, 'Save');
   const restored = draft && h('span', { class: 'muted' }, 'Your unsaved changes are back; save to apply them.');
-  show(...sections, h('div', { class: 'bar' }, save, restored, msg));
+  show(...sections.filter(Boolean), h('div', { class: 'bar' }, save, restored, msg));
 }
 
 // ---- Users -----------------------------------------------------------------
@@ -366,6 +403,7 @@ async function route() {
   if (tab === 'templates') return templatesView();
   $('#main').classList.remove('wide');
   const state = await api('GET', '/admin/api/features');
+  state.jellyfin = await api('GET', '/admin/api/jellyfin').catch(() => null);
   let draft = null;
   try { draft = JSON.parse(sessionStorage.getItem(DRAFT) || 'null'); } catch { draft = null; }
   render(state, draft);
