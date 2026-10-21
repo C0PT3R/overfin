@@ -27,7 +27,10 @@ docker compose up -d
 `setup.sh` asks for the two names, your site's name, Jellyfin's address and
 API key, and your email. Jellyfin's address is the one Overfin's container
 reaches it by: its address on your network, never `localhost` (inside the
-container, that's Overfin itself), even when Jellyfin runs on this machine. It generates every secret into `.env` (readable by
+container, that's Overfin itself), even when Jellyfin runs on this machine. Before writing
+anything, it shows a summary, with where each name points, to confirm.
+Made a mistake? Run `./setup.sh` again: it asks the same questions with
+your answers as defaults and keeps every secret; then `docker compose up -d`. It generates every secret into `.env` (readable by
 you only: keep a copy somewhere safe) and writes `overfin.toml`. The site
 people use is overfin-web, Overfin's own web client, served by Overfin
 itself; to serve your own client instead, see `[site]` in Overfin's
