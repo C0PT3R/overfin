@@ -127,6 +127,8 @@ type ItemQuery struct {
 	// ExtraFields asks for more fields than listings need, such as
 	// "ProviderIds".
 	ExtraFields string
+	// IDs, when set, asks for these items only (validated by the caller).
+	IDs []string
 }
 
 func (q ItemQuery) values(userID string) url.Values {
@@ -144,6 +146,9 @@ func (q ItemQuery) values(userID string) url.Values {
 	v.Set("limit", strconv.Itoa(q.Limit))
 	if q.ParentID != "" {
 		v.Set("parentId", q.ParentID)
+	}
+	if len(q.IDs) > 0 {
+		v.Set("ids", strings.Join(q.IDs, ","))
 	}
 	if q.Recursive {
 		v.Set("recursive", "true")

@@ -258,3 +258,93 @@ func nullInt(n int) any {
 	}
 	return n
 }
+
+// ---- Seerr ----------------------------------------------------------------------
+
+// Seerr, as the control panel saved it: its address as is, its API key
+// sealed, bound to its row.
+const seerrKeyContext = "seerr api key"
+
+// Seerr returns Seerr's address and API key, and false when none is saved.
+func (s *Store) Seerr(ctx context.Context) (url, key string, ok bool, err error) {
+	var u, sealed []byte
+	err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'seerr-url'`).Scan(&u)
+	if err == nil {
+		err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'seerr-key'`).Scan(&sealed)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	k, err := s.box.Open(sealed, seerrKeyContext)
+	if err != nil {
+		return "", "", false, fmt.Errorf("store: Seerr's API key can't be read with this secret key: %w", err)
+	}
+	return string(u), string(k), true, nil
+}
+
+// SetSeerr saves Seerr's address and API key.
+func (s *Store) SetSeerr(ctx context.Context, url, key string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for name, value := range map[string][]byte{
+		"seerr-url": []byte(url),
+		"seerr-key": s.box.Seal([]byte(key), seerrKeyContext),
+	} {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES (?, ?)
+			ON CONFLICT (name) DO UPDATE SET value = excluded.value`, name, value); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ForgetSeerr removes Seerr's settings: Overfin no longer uses it.
+func (s *Store) ForgetSeerr(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE name IN ('seerr-url', 'seerr-key')`)
+	return err
+}
+
+// CatalogByTMDB finds library titles of a kind (movie, series) by their
+// TMDB IDs: TMDB ID → item ID, for those the library has.
+func (s *Store) CatalogByTMDB(ctx context.Context, kind string, tmdbIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, tmdb := range tmdbIDs {
+		var id string
+		err := s.db.QueryRowContext(ctx, `SELECT id FROM catalog_items WHERE kind = ? AND tmdb = ? ORDER BY id LIMIT 1`,
+			kind, tmdb).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[tmdb] = id
+	}
+	return out, nil
+}
+
+// CatalogEpisodes counts a series' episodes in the library, by season
+// number.
+func (s *Store) CatalogEpisodes(ctx context.Context, seriesID string) (map[int]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT season_number, count(*) FROM catalog_items
+		WHERE kind = 'episode' AND series_id = ? AND season_number IS NOT NULL GROUP BY season_number`, seriesID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]int{}
+	for rows.Next() {
+		var season, n int
+		if err := rows.Scan(&season, &n); err != nil {
+			return nil, err
+		}
+		out[season] = n
+	}
+	return out, rows.Err()
+}

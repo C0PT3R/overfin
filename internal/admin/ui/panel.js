@@ -82,6 +82,40 @@ function jellyfinSection(j) {
     h('div', { class: 'row' }, msg, save));
 }
 
+// Seerr: discovery's source, connected, changed or disconnected here,
+// tested before it's saved.
+function seerrSection(sr) {
+  if (!sr) return null;
+  const url = h('input', { value: sr.url, autocomplete: 'off', spellcheck: 'false', placeholder: 'http://192.168.1.10:5055' });
+  const key = h('input', { type: 'password', autocomplete: 'off', placeholder: sr.url ? 'Unchanged' : '' });
+  const msg = h('span', { class: 'muted' }, sr.url ? 'Connected: discovery is on.' : 'Not connected: discovery is off.');
+  const send = async (body, button) => {
+    msg.className = 'muted';
+    msg.textContent = 'Testing…';
+    button.disabled = true;
+    try {
+      const out = await api('PUT', '/admin/api/seerr', body);
+      url.value = out.url;
+      key.value = '';
+      key.placeholder = out.url ? 'Unchanged' : '';
+      msg.className = '';
+      msg.textContent = out.summary;
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  };
+  const save = h('button', { type: 'button', onclick: () => send({ url: url.value, key: key.value }, save) }, 'Test and save');
+  const off = h('button', { type: 'button', onclick: () => send({ url: '', key: '' }, off) }, 'Disconnect');
+  return h('section', {}, h('h2', {}, 'Seerr'),
+    h('div', { class: 'row' }, h('div', {}, "Seerr's address",
+      h('div', { class: 'hint' }, 'As Overfin reaches it. Discovery (trending, popular, upcoming) comes from it.')), url),
+    h('div', { class: 'row' }, h('div', {}, 'API key', h('div', { class: 'hint' }, "In Seerr's settings, under General.")), key),
+    h('div', { class: 'row' }, msg, h('span', {}, sr.url ? off : null, ' ', save)));
+}
+
 // The catalog's index: read only, where it stands.
 function catalogSection(c) {
   if (!c) return null;
@@ -151,6 +185,7 @@ function render(state, draft) {
   const sections = [
     jellyfinSection(state.jellyfin),
     catalogSection(state.catalog),
+    seerrSection(state.seerr),
     h('section', {}, h('h2', {}, 'Features'),
       ...state.plugins.flatMap((p) => [listToggle(p.name,
         (p.description || '') +
@@ -429,6 +464,7 @@ async function route() {
   const state = await api('GET', '/admin/api/features');
   state.jellyfin = await api('GET', '/admin/api/jellyfin').catch(() => null);
   state.catalog = await api('GET', '/admin/api/catalog').catch(() => null);
+  state.seerr = await api('GET', '/admin/api/seerr').catch(() => null);
   let draft = null;
   try { draft = JSON.parse(sessionStorage.getItem(DRAFT) || 'null'); } catch { draft = null; }
   render(state, draft);

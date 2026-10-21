@@ -54,6 +54,15 @@ type Jellyfin interface {
 	SetJellyfin(ctx context.Context, url, key string) (string, error)
 }
 
+// Seerr is where the panel reads and changes Seerr's connection.
+type Seerr interface {
+	// Seerr is its address; empty when it isn't connected.
+	Seerr() string
+	// SetSeerr tests and applies an address and key (empty key: keep it);
+	// both empty disconnects it. Its error says what's wrong in plain words.
+	SetSeerr(ctx context.Context, url, key string) (string, error)
+}
+
 // Catalog says where the catalog's index stands.
 type Catalog interface {
 	Status(ctx context.Context) (catalog.Status, error)
@@ -113,7 +122,9 @@ type Panel struct {
 	// Jellyfin, when set, shows and changes how Overfin reaches Jellyfin.
 	Jellyfin Jellyfin
 	// Catalog, when set, shows where the catalog's index stands.
-	Catalog     Catalog
+	Catalog Catalog
+	// Seerr, when set, shows and changes Seerr's connection.
+	Seerr       Seerr
 	Store       *store.Store
 	Provisioner *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are.
@@ -184,6 +195,8 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/features", p.signedIn(p.setFeatures))
 	mux.HandleFunc("GET /admin/api/jellyfin", p.signedIn(p.jellyfin))
 	mux.HandleFunc("GET /admin/api/catalog", p.signedIn(p.catalog))
+	mux.HandleFunc("GET /admin/api/seerr", p.signedIn(p.seerr))
+	mux.HandleFunc("PUT /admin/api/seerr", p.signedIn(p.setSeerr))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("POST /admin/api/logout", p.logout)
 	mux.HandleFunc("GET /admin/api/accounts", p.signedIn(p.accounts))
@@ -531,6 +544,37 @@ func (p *Panel) catalog(w http.ResponseWriter, r *http.Request, s *session) {
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+func (p *Panel) seerr(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.Seerr == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"url": p.Seerr.Seerr()})
+}
+
+func (p *Panel) setSeerr(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.Seerr == nil {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		URL string `json:"url"`
+		Key string `json:"key"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a valid request"})
+		return
+	}
+	summary, err := p.Seerr.SetSeerr(r.Context(), req.URL, req.Key)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"summary": summary, "url": p.Seerr.Seerr()})
 }
 
 func (p *Panel) setJellyfin(w http.ResponseWriter, r *http.Request, s *session) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -26,6 +27,7 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/playback"
 	"github.com/C0PT3R/overfin-gateway/internal/plugin"
 	"github.com/C0PT3R/overfin-gateway/internal/provision"
+	"github.com/C0PT3R/overfin-gateway/internal/seerr"
 	"github.com/C0PT3R/overfin-gateway/internal/server"
 	"github.com/C0PT3R/overfin-gateway/internal/site"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
@@ -46,6 +48,12 @@ type shared struct {
 	// jellyfinSaved: Jellyfin's settings are the setup page's, in the
 	// database, not the configuration's, so the panel may change them.
 	jellyfinSaved bool
+	// seerr is Seerr, when the panel connected it (nil otherwise); with
+	// it, discovery is on. Changed under the gateway's lock.
+	seerr     *seerr.Client
+	seerrURL  string
+	seerrKey  string
+	discovery *api.DiscoveryCache
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -112,6 +120,13 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		checker.UnlockAfter = 15 * time.Minute
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor, Logger: logger}
+	// Discovery, when Seerr is connected. The library hands it the
+	// catalog's TMDB images.
+	var disc *api.Discovery
+	if sh.seerr != nil {
+		disc = &api.Discovery{Library: lib, Seerr: sh.seerr, Store: db, Cache: sh.discovery}
+		lib.Discovery = disc
+	}
 	pb := api.Playback{Library: lib, Tickets: sh.tickets,
 		MaxBitrateKbps: cfg.Limits.MaxBitrateKbps, VersionNames: cfg.Privacy.Exposes("version.names"),
 		MaxTranscodes:   cfg.Limits.MaxTranscodesTotal,
@@ -152,6 +167,9 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	}
 	if cfg.Plugins.Enabled("playback") {
 		plugins = append(plugins, pb, api.Stream{Playback: pb})
+	}
+	if disc != nil {
+		plugins = append(plugins, disc)
 	}
 	// Modules go behind the same guards as the core's own routes.
 	for _, m := range mounts {
@@ -375,6 +393,65 @@ func (g *gateway) SetJellyfin(ctx context.Context, url, key string) (string, err
 	g.cfg = &cfg
 	g.sh.logger.Info("Jellyfin changed in the control panel", "jellyfin", url)
 	return found.summary, nil
+}
+
+// Seerr is Seerr's address, when it's connected.
+func (g *gateway) Seerr() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sh.seerrURL
+}
+
+// SetSeerr connects Seerr, or changes its address or key (an empty key
+// keeps the current one), tested first and applied at once; with neither,
+// it disconnects Seerr. Errors say what's wrong in plain words.
+func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	url = strings.TrimRight(strings.TrimSpace(url), "/")
+	if key = strings.TrimSpace(key); key == "" {
+		key = g.sh.seerrKey
+	}
+	var client *seerr.Client
+	if url != "" {
+		var err error
+		if client, err = seerr.New(url, key); err != nil {
+			return "", problem("That isn't an address: use http://… or https://….")
+		}
+		switch _, err := client.Check(ctx); {
+		case errors.Is(err, seerr.ErrUnauthorized):
+			return "", problem("Seerr refuses this API key. It's in Seerr's settings, under General.")
+		case err != nil:
+			return "", problemf("Seerr: can't reach it at %s (%v). It's reached from where Overfin runs: "+
+				"in a container, localhost is the container itself", url, err)
+		}
+	}
+
+	// Build with the new Seerr first: nothing changes if that fails.
+	old, oldURL, oldKey := g.sh.seerr, g.sh.seerrURL, g.sh.seerrKey
+	if client == nil {
+		key = ""
+	}
+	g.sh.seerr, g.sh.seerrURL, g.sh.seerrKey = client, url, key
+	b, err := build(g.cfg, g.sh)
+	if err == nil {
+		if client == nil {
+			err = g.sh.db.ForgetSeerr(ctx)
+		} else {
+			err = g.sh.db.SetSeerr(ctx, url, key)
+		}
+	}
+	if err != nil {
+		g.sh.seerr, g.sh.seerrURL, g.sh.seerrKey = old, oldURL, oldKey
+		return "", err
+	}
+	g.current.Store(b)
+	if client == nil {
+		g.sh.logger.Info("Seerr disconnected in the control panel")
+		return "Seerr is disconnected: discovery is off.", nil
+	}
+	g.sh.logger.Info("Seerr connected in the control panel", "seerr", url)
+	return "Seerr, at " + url + ": its API key works. Discovery is on.", nil
 }
 
 // Features returns the feature settings in effect.

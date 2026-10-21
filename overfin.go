@@ -30,6 +30,7 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/playback"
 	"github.com/C0PT3R/overfin-gateway/internal/provision"
 	"github.com/C0PT3R/overfin-gateway/internal/seal"
+	"github.com/C0PT3R/overfin-gateway/internal/seerr"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
@@ -236,6 +237,15 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	sh.jellyfinSaved = jellyfinSaved
+	// Seerr, if the panel connected it. Settings sealed with a lost secret
+	// key can't be read: Overfin starts without it, and says so.
+	if url, key, ok, err := db.Seerr(ctx); err != nil {
+		logger.Warn("Seerr's settings can't be read: connect Seerr again in the control panel", "err", err)
+	} else if ok {
+		if c, err := seerr.New(url, key); err == nil {
+			sh.seerr, sh.seerrURL, sh.seerrKey = c, url, key
+		}
+	}
 	gw, err := newGateway(*configPath, cfg, sh)
 	if err != nil {
 		return err
@@ -255,7 +265,7 @@ func run(logger *slog.Logger) error {
 
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
-		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Catalog: cat, Group: a.Group, Logger: logger,
+		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
 			Store: db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
@@ -288,7 +298,8 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 		return nil, err
 	}
 	return &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
-		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour)}, nil
+		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour),
+		discovery: api.NewDiscoveryCache()}, nil
 }
 
 // runRecovery runs -recover-tokens. It needs Jellyfin: from the

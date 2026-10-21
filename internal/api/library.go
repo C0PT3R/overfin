@@ -37,6 +37,8 @@ type Library struct {
 	Images      *images.Pipeline
 	CursorKey   []byte
 	Logger      *slog.Logger
+	// Discovery, when set, serves the catalog's TMDB images (tmdb_…).
+	Discovery *Discovery
 }
 
 func (Library) Name() string { return "library" }
@@ -365,6 +367,16 @@ func (l Library) image(w http.ResponseWriter, r *http.Request) {
 	size := r.URL.Query().Get("size")
 	if size == "" {
 		size = "medium"
+	}
+	if id := r.PathValue("id"); strings.HasPrefix(id, "tmdb_") {
+		if l.Discovery == nil || !slices.Contains(images.Sizes, size) {
+			problem.Send(w, problem.NotFound, "")
+			return
+		}
+		if p := l.active(w, r); p != nil {
+			l.Discovery.image(w, r, p, id, size)
+		}
+		return
 	}
 	ref, err := images.Parse(r.PathValue("id"))
 	if err != nil || !slices.Contains(images.Sizes, size) {

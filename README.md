@@ -228,7 +228,8 @@ watchlist are always on; the rest is switched on in the control panel.
 | Watchlist | Each profile's watchlist | Always on |
 | Invitations | Invitations and invite templates | Switch |
 | Migration | Bringing Jellyfin accounts over | Switch |
-| Catalog | TMDB discovery and lists | Planned |
+| Catalog | The library's index, matched to TMDB | Always on |
+| Discovery | Trending, popular and upcoming titles, from Seerr | Once Seerr is connected; not for kids profiles yet |
 | Requests | Seerr requests | Planned |
 
 ## Building your own client

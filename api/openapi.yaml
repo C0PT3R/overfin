@@ -1690,13 +1690,16 @@ paths:
 
   /discover:
     get:
-      x-status: planned
       operationId: discover
       summary: Trending, popular and upcoming titles from TMDB
       description: Filter with `availability` to get, for example, "trending
         in our library" (`library`) or "trending titles we don't have"
         (`missing`). Titles already in the library carry their
-        `libraryItem`, with progress and watched state.
+        `libraryItem`, with progress and watched state. Only when the
+        operator connects Seerr; kids profiles get an empty page for now,
+        since these titles carry no rating Overfin has checked. A filtered
+        page may hold fewer titles than asked for; `nextCursor` says
+        whether there are more.
       tags: [catalog]
       parameters:
         - name: list
@@ -1750,7 +1753,6 @@ paths:
           type: string
           pattern: "^[0-9]{1,12}$"
     get:
-      x-status: planned
       operationId: getCatalogTitle
       summary: A title's details, with per-season status for series
       tags: [catalog]

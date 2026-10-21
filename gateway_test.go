@@ -369,3 +369,71 @@ func TestSetJellyfin(t *testing.T) {
 		t.Errorf("in the file: %v", err)
 	}
 }
+
+// The panel connects and disconnects Seerr; discovery follows at once.
+func TestSetSeerr(t *testing.T) {
+	seerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != "seerr-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v1/status":
+			io.WriteString(w, `{"version":"3.5.0"}`)
+		case "/api/v1/auth/me":
+			io.WriteString(w, `{"id":1}`)
+		}
+	}))
+	defer seerrSrv.Close()
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "overfin.db")
+	cfgPath := filepath.Join(dir, "overfin.toml")
+	os.WriteFile(cfgPath, []byte(strings.ReplaceAll(baseConfig, "%DB%", dbPath)), 0o600)
+	cfg, err := config.Load(cfgPath, env("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := keys.Derive(cfg.Secrets.Key)
+	box, _ := seal.New(k.TokenEncryption)
+	db, err := store.Open(context.Background(), dbPath, box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sh, err := newShared(cfg, db, nil, k, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := newGateway(cfgPath, cfg, sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if code := status(g, "/api/v1/discover"); code != 404 {
+		t.Fatalf("discover before Seerr: %d", code)
+	}
+	if _, err := g.SetSeerr(ctx, seerrSrv.URL, "wrong"); err == nil || !strings.Contains(err.Error(), "refuses this API key") {
+		t.Errorf("wrong key: %v", err)
+	}
+	if _, err := g.SetSeerr(ctx, seerrSrv.URL+"/", "seerr-key"); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if g.Seerr() != seerrSrv.URL || status(g, "/api/v1/discover") == 404 {
+		t.Errorf("after connecting: %q, discover %d", g.Seerr(), status(g, "/api/v1/discover"))
+	}
+	if url, key, ok, _ := db.Seerr(ctx); !ok || url != seerrSrv.URL || key != "seerr-key" {
+		t.Errorf("saved: %q %q %v", url, key, ok)
+	}
+	// An empty key keeps the current one.
+	if _, err := g.SetSeerr(ctx, seerrSrv.URL, ""); err != nil {
+		t.Errorf("same key: %v", err)
+	}
+	// Disconnected: discovery is gone, and so are the settings.
+	if _, err := g.SetSeerr(ctx, "", ""); err != nil || status(g, "/api/v1/discover") != 404 {
+		t.Errorf("disconnect: %v", err)
+	}
+	if _, _, ok, _ := db.Seerr(ctx); ok {
+		t.Error("settings kept after disconnecting")
+	}
+}

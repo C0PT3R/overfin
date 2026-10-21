@@ -466,6 +466,14 @@ nothing beyond what that needs.
 
 ## Designed, to implement later
 
+- ~~**Discovery from Seerr, first version**~~ Done: Seerr connected from
+  the panel (tested, its key sealed), `/discover` (trending, popular,
+  upcoming; all, in the library, missing) and `/catalog/{kind}/{tmdbId}`
+  (genres, cast, each season's place from the index), the library item
+  read as the profile, TMDB posters through the image pipeline (only at the
+  path Seerr gives), Seerr's answers cached in memory. Kids profiles see
+  none of it yet. Next: ratings for kids (Seerr's lists already filter by
+  certification and country), search, curated lists, TMDB directly.
 - **Discovery**: trending, popular and upcoming titles, search, a title's
   page, curated lists, with each title's place in the library (available,
   partly, requested, missing). From Seerr (no TMDB key needed, and it

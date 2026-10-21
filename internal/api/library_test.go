@@ -24,6 +24,7 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/config"
 	"github.com/C0PT3R/overfin-gateway/internal/feature"
 	"github.com/C0PT3R/overfin-gateway/internal/identity"
+	"github.com/C0PT3R/overfin-gateway/internal/images"
 	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
 	"github.com/C0PT3R/overfin-gateway/internal/migration"
 	"github.com/C0PT3R/overfin-gateway/internal/oidc"
@@ -32,6 +33,7 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/plugin"
 	"github.com/C0PT3R/overfin-gateway/internal/provision"
 	"github.com/C0PT3R/overfin-gateway/internal/seal"
+	"github.com/C0PT3R/overfin-gateway/internal/seerr"
 	"github.com/C0PT3R/overfin-gateway/internal/server"
 	"github.com/C0PT3R/overfin-gateway/internal/site"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
@@ -240,6 +242,9 @@ type options struct {
 	// template, when set, receives the ID of the test account's template
 	// (3 profiles).
 	template *string
+	// seerr, when set, connects discovery to it; store receives the store.
+	seerr *seerr.Client
+	store **store.Store
 }
 
 func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
@@ -303,6 +308,15 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		}
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
+	if o.seerr != nil {
+		lib.Images = images.New(jf, 1<<20)
+		disc := &api.Discovery{Library: lib, Seerr: o.seerr, Store: st, Cache: api.NewDiscoveryCache()}
+		lib.Discovery = disc
+		extra = append(extra, disc)
+	}
+	if o.store != nil {
+		*o.store = st
+	}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger}
 	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
 	// The watchlist and migration modules, mounted as the real program
