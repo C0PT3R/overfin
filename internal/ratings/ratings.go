@@ -139,20 +139,39 @@ func (k *Keeper) Once(ctx context.Context) error {
 			k.Logger.Info("ratings: titles' certifications fetched", "titles", fetched)
 		}
 	}()
-	for {
-		todo, err := k.Store.TitlesToRate(ctx, k.clock().Add(-Fresh), 100)
-		if err != nil || len(todo) == 0 {
+	// A title Seerr fails on is left for the next pass, and the others go
+	// on; ten failures in a row mean Seerr itself is unwell, and the pass
+	// stops there.
+	failed := map[store.RatedTitle]bool{}
+	var lastErr error
+	for streak := 0; ; {
+		todo, err := k.Store.TitlesToRate(ctx, k.clock().Add(-Fresh), 100+len(failed))
+		if err != nil {
 			return err
 		}
+		progress := false
 		for _, t := range todo {
+			if failed[t] {
+				continue
+			}
+			progress = true
 			// A title TMDB doesn't know has no certification: it's kept as
 			// such (hidden from kids), and not asked for again until later.
 			var r map[string][]string
 			if id, err := strconv.Atoi(t.TMDB); err == nil {
-				if r, err = src.Ratings(ctx, t.Kind, id); err != nil && !errors.Is(err, ErrUnknown) {
+				r, err = src.Ratings(ctx, t.Kind, id)
+				switch {
+				case errors.Is(err, seerr.ErrUnauthorized), ctx.Err() != nil:
 					return err
+				case err != nil && !errors.Is(err, ErrUnknown):
+					failed[t], lastErr = true, err
+					if streak++; streak == 10 {
+						return err
+					}
+					continue
 				}
 			}
+			streak = 0
 			if err := k.Store.SetTitleRatings(ctx, t, r, k.clock()); err != nil {
 				return err
 			}
@@ -162,6 +181,12 @@ func (k *Keeper) Once(ctx context.Context) error {
 				return ctx.Err()
 			case <-time.After(k.Pause):
 			}
+		}
+		if !progress {
+			if len(failed) > 0 {
+				k.Logger.Warn("ratings: some titles couldn't be fetched; tried again next time", "titles", len(failed), "err", lastErr)
+			}
+			return nil
 		}
 	}
 }
