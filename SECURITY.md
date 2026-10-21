@@ -137,7 +137,8 @@ comes from the internet, and media files can be written by anyone.
 32. When an account reaches its stream limit, its oldest stream stops and the
     stopped device is told why (operators can choose to refuse the new stream
     instead). Overfin never stops another user's stream: when the server is
-    busy, it tries direct play or lower quality before refusing.
+    busy, it plays a version that needs no transcoding if there is one, and
+    refuses otherwise.
 33. A transcode is stopped as soon as its playback stops, its ticket expires or
     its progress reports go silent, so abandoned streams never keep the server
     busy.
