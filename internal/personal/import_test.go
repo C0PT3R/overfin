@@ -73,6 +73,12 @@ func TestImport(t *testing.T) {
 		t.Fatalf("before the index: %v, %d calls", err, calls.Load())
 	}
 	st.SetCatalogState(ctx, store.CatalogState{Pass: 1})
+	// Indexed, but without keys yet: still nothing.
+	st.PutCatalog(ctx, []store.CatalogItem{{ID: id(5), Kind: "movie", Name: "New", SortName: "New"}}, 1)
+	if err := im.Once(ctx); err != nil || calls.Load() != 0 {
+		t.Fatalf("before the keys: %v, %d calls", err, calls.Load())
+	}
+	st.RefreshTitleKeys(ctx)
 	if err := im.Once(ctx); err != nil {
 		t.Fatal(err)
 	}

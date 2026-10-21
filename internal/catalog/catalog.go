@@ -63,6 +63,10 @@ func (s *Sync) clock() time.Time {
 // one is old or there's none, then changes every ChangesEvery, and a full
 // pass every FullEvery.
 func (s *Sync) Run(ctx context.Context) {
+	// Title keys first, for items indexed before they existed.
+	if err := s.Store.RefreshTitleKeys(ctx); err != nil && ctx.Err() == nil {
+		s.Logger.Error("catalog: computing title keys failed", "err", err)
+	}
 	for {
 		s.once(ctx)
 		select {

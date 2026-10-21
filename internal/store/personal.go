@@ -42,6 +42,14 @@ func (s *Store) TitleKeys(ctx context.Context, itemIDs []string) (map[string]str
 	return out, nil
 }
 
+// TitleKeysReady reports whether every indexed item has its title key
+// (RefreshTitleKeys ran since the last items arrived).
+func (s *Store) TitleKeysReady(ctx context.Context) (bool, error) {
+	var missing int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM catalog_items WHERE title_key IS NULL`).Scan(&missing)
+	return missing == 0, err
+}
+
 // showKey is a show's key from its external IDs, in SQL: TMDB, else TVDB,
 // else IMDb; NULL without any.
 const showKey = `CASE WHEN s.tmdb IS NOT NULL THEN 'series/tmdb/' || s.tmdb

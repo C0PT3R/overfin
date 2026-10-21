@@ -49,6 +49,11 @@ func (im *Importer) Once(ctx context.Context) error {
 	if err != nil || st.Pass == 0 {
 		return err // the index isn't ready: next time
 	}
+	// Titles are named by their keys: none may be missing, or a profile's
+	// data would be kept under its copies' IDs, once and for all.
+	if ready, err := im.Store.TitleKeysReady(ctx); err != nil || !ready {
+		return err
+	}
 	profiles, err := im.Store.ProfilesToImport(ctx)
 	if err != nil {
 		return err
