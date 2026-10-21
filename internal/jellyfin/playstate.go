@@ -73,3 +73,25 @@ func (c *Client) SetFavorite(ctx context.Context, a Auth, userID, itemID string,
 	}
 	return c.doQuery(ctx, "set favorite", method, "/UserFavoriteItems/"+id, url.Values{"userId": {userID}}, a, nil, nil)
 }
+
+// VideoCopied tells whether Jellyfin copies the video of the item a device
+// is playing, rather than re-encoding it, from the device's session; found
+// is false while Jellyfin has no transcode for it.
+func (c *Client) VideoCopied(ctx context.Context, a Auth, deviceID, itemID string) (copied, found bool, err error) {
+	var sessions []struct {
+		NowPlayingItem  *struct{ Id string }
+		TranscodingInfo *struct{ IsVideoDirect bool }
+	}
+	if err := c.doQuery(ctx, "sessions", http.MethodGet, "/Sessions", url.Values{"deviceId": {deviceID}}, a, nil, &sessions); err != nil {
+		return false, false, err
+	}
+	for _, s := range sessions {
+		if s.NowPlayingItem == nil || s.TranscodingInfo == nil {
+			continue
+		}
+		if id, err := NormalizeID(s.NowPlayingItem.Id); err == nil && id == itemID {
+			return s.TranscodingInfo.IsVideoDirect, true, nil
+		}
+	}
+	return false, false, nil
+}

@@ -164,6 +164,9 @@ func (pb Playback) progress(w http.ResponseWriter, r *http.Request) {
 	}
 	pb.Tickets.Progress(s, req.PositionMs*10_000, req.Paused, time.Now())
 	pb.record(r.Context(), s, req.PositionMs, false)
+	if pb.Tickets.Method(s) == "remux" {
+		s.Checked.Do(func() { go pb.checkRemux(s) })
+	}
 	if err := pb.Library.Jellyfin.ReportProgress(r.Context(), s.Auth, pb.state(s, pb.Tickets.Snapshot(s))); err != nil {
 		pb.Logger.Warn("could not report progress", "playback", s.ID, "err", err)
 	}
@@ -505,4 +508,23 @@ func languageTag(s string) string {
 		return ""
 	}
 	return s
+}
+
+// checkRemux asks Jellyfin, once the stream runs, whether a remux really
+// copies the video. The reasons Jellyfin gives beforehand don't cover
+// everything it decides when it starts encoding (converting HDR for a
+// screen, say); a remux that re-encodes is a transcode, and counts as one
+// from then on.
+func (pb Playback) checkRemux(s *playback.Stream) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	copied, found, err := pb.Library.Jellyfin.VideoCopied(ctx, s.Auth, s.Auth.DeviceID, s.ItemID)
+	if err != nil {
+		pb.Logger.Warn("could not check how Jellyfin serves a playback", "playback", s.ID, "err", err)
+		return
+	}
+	if found && !copied {
+		pb.Tickets.Reencodes(s)
+		pb.Logger.Info("a playback taken for a remux re-encodes its video: counted as a transcode", "playback", s.ID)
+	}
 }

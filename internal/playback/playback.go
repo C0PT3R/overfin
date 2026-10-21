@@ -43,6 +43,7 @@ var (
 	knownContainers  = []string{"mp4", "m4v", "mov", "webm", "mkv", "ts", "mp3", "aac", "m4a", "flac", "ogg", "opus", "wav"}
 	knownVideoCodecs = []string{"h264", "hevc", "av1", "vp8", "vp9"}
 	knownAudioCodecs = []string{"aac", "mp3", "opus", "vorbis", "flac", "ac3", "eac3", "alac", "pcm_s16le"}
+	knownHDR         = []string{"hdr10", "hlg"}
 	audioContainers  = []string{"mp3", "aac", "m4a", "flac", "ogg", "opus", "wav", "webm", "mp4"}
 )
 
@@ -103,6 +104,29 @@ func DeviceProfile(c Capabilities, maxBitrate int) jellyfin.DeviceProfile {
 			Context: "Streaming", MaxAudioChannels: channels, MinSegments: 1, BreakOnNonKeyFrames: true},
 		{Container: "mp4", Type: "Audio", AudioCodec: "aac", Protocol: "hls",
 			Context: "Streaming", MaxAudioChannels: channels, MinSegments: 1, BreakOnNonKeyFrames: true},
+	}
+	// The color ranges the screen shows, for the codecs that carry HDR:
+	// without them, Jellyfin takes the screen for standard range only and
+	// converts HDR, which means re-encoding the video. HDR10+ carries HDR10
+	// as its base. Dolby Vision is left out: browsers don't play its
+	// streams reliably.
+	ranges := "SDR"
+	hdr := known(c.HDR, knownHDR)
+	if slices.Contains(hdr, "hdr10") {
+		ranges += "|HDR10|HDR10Plus"
+	}
+	if slices.Contains(hdr, "hlg") {
+		ranges += "|HLG"
+	}
+	for _, codec := range []string{"hevc", "av1", "vp9"} {
+		if slices.Contains(video, codec) {
+			p.CodecProfiles = append(p.CodecProfiles, jellyfin.CodecProfile{
+				Type: "Video", Codec: codec,
+				Conditions: []jellyfin.ProfileCondition{
+					{Condition: "EqualsAny", Property: "VideoRangeType", Value: ranges},
+				},
+			})
+		}
 	}
 	if c.MaxHeight >= 144 && c.MaxHeight <= 4320 {
 		p.CodecProfiles = append(p.CodecProfiles, jellyfin.CodecProfile{

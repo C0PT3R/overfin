@@ -33,8 +33,30 @@ func TestDeviceProfile(t *testing.T) {
 	if p.TranscodingProfiles[0].VideoCodec != "h264,hevc" || p.TranscodingProfiles[0].Protocol != "hls" {
 		t.Errorf("transcoding: %+v", p.TranscodingProfiles[0])
 	}
-	if len(p.CodecProfiles) != 1 || p.CodecProfiles[0].Conditions[0].Value != "1080" {
+	// HEVC, declared, carries its color ranges: standard only without HDR.
+	ranges := map[string]string{}
+	height := ""
+	for _, cp := range p.CodecProfiles {
+		for _, c := range cp.Conditions {
+			switch c.Property {
+			case "VideoRangeType":
+				ranges[cp.Codec] = c.Value
+			case "Height":
+				height = c.Value
+			}
+		}
+	}
+	if height != "1080" || ranges["hevc"] != "SDR" || len(ranges) != 1 {
 		t.Errorf("codec profiles: %+v", p.CodecProfiles)
+	}
+	hdr := DeviceProfile(Capabilities{VideoCodecs: []string{"hevc", "av1", "h264"}, HDR: []string{"HDR10", "dolbyvision"}}, 1)
+	for _, cp := range hdr.CodecProfiles {
+		if cp.Codec != "" && cp.Conditions[0].Value != "SDR|HDR10|HDR10Plus" {
+			t.Errorf("%s with an HDR10 screen: %q", cp.Codec, cp.Conditions[0].Value)
+		}
+		if cp.Codec == "h264" {
+			t.Error("H.264 got a range condition")
+		}
 	}
 
 	// A client that claims nothing still gets the H.264 fallback, and no
@@ -192,6 +214,13 @@ func TestTranscodesCountsOnlyReencoding(t *testing.T) {
 	}
 	if n := tk.Transcodes(); n != 1 {
 		t.Errorf("transcodes = %d, want 1", n)
+	}
+	// A remux found to re-encode its video counts as a transcode.
+	remux := &Stream{AccountID: "acct_a", ProfileID: "prof_a", ItemID: item, Decision: Decision{Method: "remux", Protocol: "hls"}}
+	tk.Add(remux, 0, now)
+	tk.Reencodes(remux)
+	if n, m := tk.Transcodes(), tk.Method(remux); n != 2 || m != "transcode" {
+		t.Errorf("after re-encoding: %d transcodes, %q", n, m)
 	}
 }
 

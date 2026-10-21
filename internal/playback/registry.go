@@ -30,6 +30,8 @@ type Stream struct {
 	View          any // the session as last sent to the client, for restoring
 
 	// Guarded by the registry's lock.
+	// reencodes: a remux found to re-encode its video (Reencodes).
+	reencodes     bool
 	started       time.Time
 	lastSeen      time.Time
 	positionTicks int64
@@ -39,6 +41,9 @@ type Stream struct {
 	// files maps the neutral names in rewritten playlists to the real
 	// upstream URLs. It grows as playlists are fetched.
 	files map[string]Upstream
+
+	// Checked runs once: whether a remux really copies the video.
+	Checked sync.Once
 }
 
 // AddFiles records the real URLs behind a rewritten playlist's names.
@@ -203,6 +208,25 @@ func (t *Tickets) ForAccount(accountID string) []*Stream {
 	return out
 }
 
+// Method is how the playback is served: "direct", "remux" or "transcode",
+// a remux found to re-encode its video being a transcode.
+func (t *Tickets) Method(s *Stream) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if s.reencodes {
+		return "transcode"
+	}
+	return s.Decision.Method
+}
+
+// Reencodes records that a remux turned out to re-encode its video: it
+// counts as a transcode from then on. The decision itself stays as made.
+func (t *Tickets) Reencodes(s *Stream) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s.reencodes = true
+}
+
 // Transcodes counts playbacks that make Jellyfin re-encode the media;
 // repackaging (remux) costs little and isn't counted.
 func (t *Tickets) Transcodes() int {
@@ -210,7 +234,7 @@ func (t *Tickets) Transcodes() int {
 	defer t.mu.Unlock()
 	n := 0
 	for _, s := range t.byID {
-		if s.Decision.Method == "transcode" {
+		if s.Decision.Method == "transcode" || s.reencodes {
 			n++
 		}
 	}
