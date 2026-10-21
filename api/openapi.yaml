@@ -1125,7 +1125,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ItemId"
     put:
-      x-status: planned
       operationId: addFavorite
       summary: Mark as a favorite of the active profile
       tags: [library]
@@ -1135,7 +1134,6 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
-      x-status: planned
       operationId: removeFavorite
       summary: Unmark as a favorite
       tags: [library]
@@ -1149,7 +1147,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ItemId"
     put:
-      x-status: planned
       operationId: markPlayed
       summary: Mark as watched or listened to
       description: On a series, season or album, marks all of its children.
@@ -1160,7 +1157,6 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
-      x-status: planned
       operationId: markUnplayed
       summary: Mark as not watched
       tags: [library]

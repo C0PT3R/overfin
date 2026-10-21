@@ -213,7 +213,11 @@ func (b profileBackend) Item(ctx context.Context, id string) (feature.Item, erro
 	if !ok {
 		return feature.Item{}, feature.ErrNotFound
 	}
-	return s, nil
+	one := []library.ItemSummary{s}
+	if err := b.l.withStates(ctx, b.p, one); err != nil {
+		return feature.Item{}, err
+	}
+	return one[0], nil
 }
 
 func (b profileBackend) Items(ctx context.Context, ids []string) ([]feature.Item, error) {
@@ -234,6 +238,9 @@ func (b profileBackend) Items(ctx context.Context, ids []string) ([]feature.Item
 				out = append(out, s)
 			}
 		}
+	}
+	if err := b.l.withStates(ctx, b.p, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

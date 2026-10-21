@@ -65,6 +65,7 @@ func TestImport(t *testing.T) {
 		{ID: id(3), Kind: "series", Name: "Dark", SortName: "Dark", TMDB: "70523"},
 		{ID: id(4), Kind: "episode", Name: "Secrets", SortName: "Secrets", SeriesID: id(3), SeasonNumber: &one, EpisodeNumber: &two},
 	}, 1)
+	st.RefreshTitleKeys(ctx)
 	im := &Importer{Jellyfin: client, Store: st, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Every: time.Hour}
 
 	// Before the index has read the library, nothing happens.

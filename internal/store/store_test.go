@@ -587,6 +587,7 @@ func TestPersonal(t *testing.T) {
 		{ID: id(4), Kind: "episode", Name: "Secrets", SortName: "Secrets", SeriesID: id(3), SeasonNumber: &one, EpisodeNumber: &two},
 		{ID: id(5), Kind: "movie", Name: "Home video", SortName: "Home video"},
 	}, 1)
+	s.RefreshTitleKeys(ctx)
 	keys, err := s.TitleKeys(ctx, []string{id(1), id(2), id(4), id(5), id(9)})
 	if err != nil {
 		t.Fatal(err)

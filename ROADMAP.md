@@ -332,9 +332,17 @@ own do), so a title looks the same wherever it is.
    by its TMDB ID, an episode by its show's and its numbers) and brought
    over from Jellyfin once, with the profile's own token, in the
    background; it's in the data download, and SECURITY.md rule 40 says
-   whose it is. Next: Overfin writes it (playback, watched, favorites),
-   then reads it (listings, Continue Watching, Next Up), then the site's
-   buttons, clearing it included.
+   whose it is. ~~Overfin writes it~~ Done: playbacks record where the
+   profile stopped (from 5%) and what it watched (past 90%, or played to
+   the end), and `PUT`/`DELETE /items/{id}/played|favorite` mark titles
+   (a series or season marks its episodes); Jellyfin is told the marks
+   too, while some listings still read it. ~~Overfin reads it~~ Done:
+   every item carries Overfin's state; Continue Watching and Next Up are
+   Overfin's, and so are the watched, favorite and in-progress filters
+   (series and seasons' "watched" still Jellyfin's), once the profile's
+   data is imported. Each key lives in the index, computed after each
+   sync. Next: the site's buttons, removing a title from Continue
+   Watching, clearing it.
    **Personal data in Overfin, for every title:** resume points, watched
    marks and counts, favorites, personal ratings, history, and titles
    hidden from "Continue Watching", kept by title, so the same film on two

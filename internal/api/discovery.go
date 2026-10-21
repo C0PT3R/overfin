@@ -300,10 +300,17 @@ func (d Discovery) place(ctx context.Context, p *store.Profile, titles []store.T
 		if err != nil {
 			return nil, err
 		}
+		var found []library.ItemSummary
 		for i := range page.Items {
 			if s, ok := library.Summary(&page.Items[i]); ok {
-				items[s.ID] = s
+				found = append(found, s)
 			}
+		}
+		if err := d.Library.withStates(ctx, p, found); err != nil {
+			return nil, err
+		}
+		for _, s := range found {
+			items[s.ID] = s
 		}
 	}
 	out := make([]catalogTitle, len(titles))

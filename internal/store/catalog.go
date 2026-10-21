@@ -389,6 +389,12 @@ type ListQuery struct {
 	Studios  []string // any of them
 	YearFrom int      // 0: no bound
 	YearTo   int
+	// ProfileID, with Played, Favorite or InProgress, filters by what that
+	// profile did with the titles.
+	ProfileID  string
+	Played     *bool
+	Favorite   *bool
+	InProgress bool
 	// Sort is "name", "premiereDate", "addedAt" or "communityRating".
 	Sort       string
 	Descending bool
@@ -438,6 +444,27 @@ func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) 
 		for _, v := range values {
 			args = append(args, v)
 		}
+	}
+	// What the profile did with the title, through its key.
+	mine := func(cond string) string {
+		return "EXISTS (SELECT 1 FROM profile_titles x WHERE x.profile_id = ? AND x.title = catalog_items.title_key AND " + cond + ")"
+	}
+	if q.Played != nil {
+		cond := mine("x.played = 1")
+		if !*q.Played {
+			cond = "NOT " + cond
+		}
+		where, args = append(where, cond), append(args, q.ProfileID)
+	}
+	if q.Favorite != nil {
+		cond := mine("x.favorite = 1")
+		if !*q.Favorite {
+			cond = "NOT " + cond
+		}
+		where, args = append(where, cond), append(args, q.ProfileID)
+	}
+	if q.InProgress {
+		where, args = append(where, mine("x.played = 0 AND x.position_ms > 0")), append(args, q.ProfileID)
 	}
 	if q.YearFrom > 0 {
 		where, args = append(where, "year >= ?"), append(args, q.YearFrom)

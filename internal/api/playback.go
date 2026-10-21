@@ -83,6 +83,8 @@ func (pb Playback) end(s *playback.Stream, reason, by string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
+		// Where the profile is in the title, now that the playback is over.
+		pb.record(ctx, s, snap.PositionTicks/10_000, true)
 		jf := pb.Library.Jellyfin
 		if err := jf.ReportStopped(ctx, s.Auth, pb.state(s, snap)); err != nil {
 			pb.Logger.Warn("could not report a stopped playback", "playback", s.ID, "err", err)
@@ -161,6 +163,7 @@ func (pb Playback) progress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pb.Tickets.Progress(s, req.PositionMs*10_000, req.Paused, time.Now())
+	pb.record(r.Context(), s, req.PositionMs, false)
 	if err := pb.Library.Jellyfin.ReportProgress(r.Context(), s.Auth, pb.state(s, pb.Tickets.Snapshot(s))); err != nil {
 		pb.Logger.Warn("could not report progress", "playback", s.ID, "err", err)
 	}
@@ -180,7 +183,11 @@ func (pb Playback) stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s, ended, ok := pb.Tickets.ByID(r.PathValue("id"), p.ID, time.Now()); ok && ended == nil {
-		pb.Tickets.Progress(s, req.PositionMs*10_000, false, time.Now())
+		position := req.PositionMs
+		if req.Ended { // played to the end, whatever the last position said
+			position = max(position, s.Decision.Source.RunTimeTicks/10_000)
+		}
+		pb.Tickets.Progress(s, position*10_000, false, time.Now())
 		pb.end(s, "stopped", "")
 	}
 	w.WriteHeader(http.StatusNoContent)

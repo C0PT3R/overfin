@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"slices"
@@ -28,14 +29,20 @@ import (
 var indexKinds = []string{"movie", "series", "season", "episode"}
 
 // indexQuery is the listing as the index answers it, when it can.
-func indexQuery(q url.Values, p *store.Profile) (store.ListQuery, bool) {
+// imported says whether the profile's own data is Overfin's yet (else
+// personal filters go to Jellyfin).
+func indexQuery(q url.Values, p *store.Profile, imported bool) (store.ListQuery, bool) {
 	if p.Kind == "kids" {
 		return store.ListQuery{}, false
 	}
-	for _, personal := range []string{"played", "favorite", "inProgress", "person", "seed"} {
-		if q.Has(personal) {
+	for _, other := range []string{"person", "seed"} {
+		if q.Has(other) {
 			return store.ListQuery{}, false
 		}
+	}
+	personal := q.Has("played") || q.Has("favorite") || q.Has("inProgress")
+	if personal && !imported {
+		return store.ListQuery{}, false
 	}
 	lq := store.ListQuery{Sort: q.Get("sort"), Descending: q.Get("order") == "desc", Genres: q["genre"]}
 	if lq.Sort == "" {
@@ -63,6 +70,25 @@ func indexQuery(q url.Values, p *store.Profile) (store.ListQuery, bool) {
 	}
 	if s := q.Get("parent"); s != "" {
 		lq.ParentID, _ = library.Unwrap(library.ItemPrefix, s)
+	}
+	if personal {
+		lq.ProfileID = p.ID
+		// Watched and in progress mean "every episode" for a series or a
+		// season, which the index doesn't count yet: those go to Jellyfin.
+		if q.Has("played") || q.Has("inProgress") {
+			for _, k := range lq.Kinds {
+				if k == "series" || k == "season" {
+					return store.ListQuery{}, false
+				}
+			}
+		}
+		for param, dst := range map[string]**bool{"played": &lq.Played, "favorite": &lq.Favorite} {
+			if s := q.Get(param); s != "" {
+				b, _ := strconv.ParseBool(s) // checked by parseItemQuery
+				*dst = &b
+			}
+		}
+		lq.InProgress, _ = strconv.ParseBool(q.Get("inProgress"))
 	}
 	return lq, true
 }
@@ -105,23 +131,9 @@ func (l Library) indexPage(w http.ResponseWriter, r *http.Request, p *store.Prof
 			out.NextCursor = c
 		}
 	}
-	if len(ids) > 0 {
-		page, err := l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jellyfin.ItemQuery{IDs: ids, Limit: len(ids)})
-		if err != nil {
-			l.upstreamError(w, err)
-			return
-		}
-		seen := map[string]library.ItemSummary{}
-		for i := range page.Items {
-			if s, ok := library.Summary(&page.Items[i]); ok {
-				seen[s.ID] = s
-			}
-		}
-		for _, id := range ids { // in the index's order
-			if s, ok := seen["item_"+id]; ok {
-				out.Items = append(out.Items, s)
-			}
-		}
+	if out.Items, err = l.itemsByID(ctx, p, ids); err != nil {
+		l.upstreamError(w, err)
+		return
 	}
 	if offset == 0 {
 		jq.StartIndex, jq.Limit = 0, 0
@@ -134,4 +146,83 @@ func (l Library) indexPage(w http.ResponseWriter, r *http.Request, p *store.Prof
 		out.TotalCount = &total
 	}
 	writeOK(w, out)
+}
+
+// itemsByID reads items from Jellyfin as the profile, by their IDs, in that
+// order, with what Overfin keeps about the profile's titles: what the
+// profile may not see is left out.
+func (l Library) itemsByID(ctx context.Context, p *store.Profile, ids []string) ([]library.ItemSummary, error) {
+	out := []library.ItemSummary{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	page, err := l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jellyfin.ItemQuery{IDs: ids, Limit: len(ids)})
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]library.ItemSummary{}
+	for i := range page.Items {
+		if s, ok := library.Summary(&page.Items[i]); ok {
+			seen[s.ID] = s
+		}
+	}
+	for _, id := range ids {
+		if s, ok := seen["item_"+id]; ok {
+			out = append(out, s)
+		}
+	}
+	return out, l.withStates(ctx, p, out)
+}
+
+// idPage serves a page of item IDs from Overfin's own data, with Overfin's
+// paging; no total.
+func (l Library) idPage(w http.ResponseWriter, r *http.Request, p *store.Profile,
+	list func(ctx context.Context, offset, limit int) ([]string, error)) {
+	q := r.URL.Query()
+	limit, ok := parseLimit(q.Get("limit"))
+	if !ok {
+		problem.Send(w, problem.InvalidRequest, "")
+		return
+	}
+	binding := cursorBinding(r, p.ID)
+	offset := 0
+	if c := q.Get("cursor"); c != "" {
+		payload, err := cursor.Decode(l.CursorKey, binding, c)
+		if err != nil {
+			problem.Send(w, problem.InvalidCursor, "")
+			return
+		}
+		if offset, err = strconv.Atoi(string(payload)); err != nil || offset < 0 {
+			problem.Send(w, problem.InvalidCursor, "")
+			return
+		}
+	}
+	ids, err := list(r.Context(), offset, limit+1)
+	if err != nil {
+		l.storeError(w, err)
+		return
+	}
+	out := itemPage{}
+	if len(ids) > limit {
+		ids = ids[:limit]
+		if c, err := cursor.Encode(l.CursorKey, binding, []byte(strconv.Itoa(offset+limit))); err == nil {
+			out.NextCursor = c
+		}
+	}
+	if out.Items, err = l.itemsByID(r.Context(), p, ids); err != nil {
+		l.upstreamError(w, err)
+		return
+	}
+	writeOK(w, out)
+}
+
+// personalReady reports whether Overfin's own data can answer for the
+// profile: once the index has read the library and the profile's data was
+// brought over from Jellyfin.
+func (l Library) personalReady(r *http.Request, p *store.Profile) bool {
+	if !l.indexReady(r) {
+		return false
+	}
+	ok, err := l.Provisioner.Store.Imported(r.Context(), p.ID)
+	return err == nil && ok
 }

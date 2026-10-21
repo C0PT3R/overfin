@@ -108,6 +108,9 @@ func (s *Sync) Full(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := s.Store.RefreshTitleKeys(ctx); err != nil {
+		return err
+	}
 	st.Pass, st.FullAt, st.ChangesAt = pass, start, start
 	if err := s.Store.SetCatalogState(ctx, st); err != nil {
 		return err
@@ -126,6 +129,11 @@ func (s *Sync) Changes(ctx context.Context) error {
 	n, err := s.read(ctx, st.ChangesAt.Add(-margin), st.Pass)
 	if err != nil {
 		return err
+	}
+	if n > 0 {
+		if err := s.Store.RefreshTitleKeys(ctx); err != nil {
+			return err
+		}
 	}
 	st.ChangesAt = start
 	if err := s.Store.SetCatalogState(ctx, st); err != nil {

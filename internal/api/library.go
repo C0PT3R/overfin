@@ -53,6 +53,11 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/items/{id}":    l.item,
 		"GET /api/v1/people/{id}":   l.person,
 		"GET /api/v1/images/{id}":   l.image,
+		// What the profile does with titles (rule 40).
+		"PUT /api/v1/items/{id}/played":      l.markPlayed,
+		"DELETE /api/v1/items/{id}/played":   l.unmarkPlayed,
+		"PUT /api/v1/items/{id}/favorite":    l.markFavorite,
+		"DELETE /api/v1/items/{id}/favorite": l.unmarkFavorite,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
 			return err
@@ -168,6 +173,12 @@ func (l Library) item(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
+	one := []library.ItemSummary{it.ItemSummary}
+	if err := l.withStates(r.Context(), p, one); err != nil {
+		l.storeError(w, err)
+		return
+	}
+	it.ItemSummary = one[0]
 	writeOK(w, it)
 }
 
@@ -190,7 +201,8 @@ func (l Library) items(w http.ResponseWriter, r *http.Request) {
 		l.randomPage(w, r, p, jq)
 		return
 	}
-	if lq, ok := indexQuery(q, p); ok && l.indexReady(r) {
+	imported := (q.Has("played") || q.Has("favorite") || q.Has("inProgress")) && l.personalReady(r, p)
+	if lq, ok := indexQuery(q, p, imported); ok && l.indexReady(r) {
 		l.indexPage(w, r, p, lq, jq)
 		return
 	}
@@ -272,6 +284,10 @@ func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Pro
 			}
 		}
 	}
+	if err := l.withStates(r.Context(), p, out.Items); err != nil {
+		l.storeError(w, err)
+		return
+	}
 	writeOK(w, out)
 }
 
@@ -311,6 +327,14 @@ func (l Library) resume(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
+	// From Overfin's own data, once it has the profile's (rule 40).
+	if l.personalReady(r, p) {
+		kinds := r.URL.Query()["kind"]
+		l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
+			return l.Provisioner.Store.InProgress(ctx, p.ID, kinds, offset, limit)
+		})
+		return
+	}
 	l.page(w, r, p, func(ctx context.Context, start, limit int) (*jellyfin.ItemPage, error) {
 		return l.Jellyfin.Resume(ctx, auth(p), p.JellyfinUserID, types, start, limit)
 	})
@@ -330,6 +354,12 @@ func (l Library) nextUp(w http.ResponseWriter, r *http.Request) {
 	}
 	p := l.active(w, r)
 	if p == nil {
+		return
+	}
+	if l.personalReady(r, p) {
+		l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
+			return l.Provisioner.Store.NextUp(ctx, p.ID, seriesID, offset, limit)
+		})
 		return
 	}
 	l.page(w, r, p, func(ctx context.Context, start, limit int) (*jellyfin.ItemPage, error) {
@@ -365,6 +395,10 @@ func (l Library) latest(w http.ResponseWriter, r *http.Request) {
 		if s, ok := library.Summary(&raw[i]); ok {
 			out = append(out, s)
 		}
+	}
+	if err := l.withStates(r.Context(), p, out); err != nil {
+		l.storeError(w, err)
+		return
 	}
 	writeOK(w, map[string]any{"items": out})
 }
@@ -481,6 +515,10 @@ func (l Library) page(w http.ResponseWriter, r *http.Request, p *store.Profile,
 	if !res.NoCount {
 		total := res.TotalRecordCount
 		out.TotalCount = &total
+	}
+	if err := l.withStates(r.Context(), p, out.Items); err != nil {
+		l.storeError(w, err)
+		return
 	}
 	writeOK(w, out)
 }
