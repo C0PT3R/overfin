@@ -536,6 +536,13 @@ nothing beyond what that needs.
 
 - **Playback extras:** changing tracks or quality mid-playback (`PATCH`),
   queues and "advance".
+- **Playback info in the player:** `GET /playback/{id}/status`, read from
+  the profile's session in the media server and given in Overfin's own
+  words: how the playback is served (direct, repackaged, transcoded), why
+  in plain sentences, the target codec, bitrate, encoding speed and
+  whether the GPU does it, and how far ahead the server has prepared the
+  video, shown as the ready part of the seek bar. A "Playback info" panel
+  in overfin-web.
 
 - **Native-app login.** Today's login works in browsers (and webview apps).
   Native apps, including third-party ones, need:
