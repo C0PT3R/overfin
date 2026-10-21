@@ -5,8 +5,8 @@ server and its own apps, with your brand on all of it. The web app,
 [overfin-web](https://github.com/C0PT3R/overfin-web), comes first; mobile
 and TV apps will follow. This repository is the server.
 
-The server sits in front of Jellyfin and keeps it private, never exposed to
-the internet or to browsers. It holds everything that matters: who people
+The server sits in front of Jellyfin, which browsers never reach through
+it, and which can stay off the internet entirely (recommended). It holds everything that matters: who people
 are (logins through your identity provider, accounts and profiles,
 invitations), what each profile may see, limits, and a control panel to
 manage it all. The apps hold the experience, and nothing else.
@@ -106,7 +106,8 @@ are marked `x-status: planned`.
 one compose file, with Authentik set up for Overfin by a blueprint. A script
 asks a few questions and generates every secret.
 
-**By hand**, with your own reverse proxy and identity provider, you need a **Jellyfin 12** server that isn't reachable from the internet, an
+**By hand**, with your own reverse proxy and identity provider, you need a **Jellyfin 12** server, ideally not reachable from the internet
+(see [SECURITY.md](SECURITY.md), Deployment, for what exposing both means), an
 **OpenID Connect provider**, a **reverse proxy** with HTTPS, and **Docker**
 (or Go 1.26) to build Overfin.
 

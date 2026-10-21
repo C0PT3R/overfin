@@ -239,7 +239,7 @@ operators who manage servers as files.
 
 Running Overfin should take minutes, not an afternoon, without giving up
 what makes it worth running: the control panel never on the internet,
-Jellyfin never exposed, HTTPS required, passwords only ever at the identity
+Jellyfin kept private (recommended), HTTPS required, passwords only ever at the identity
 provider.
 
 1. ~~**Releases, with a ready-made image**~~ Done: signed,

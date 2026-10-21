@@ -285,9 +285,16 @@ comes from the internet, and media files can be written by anyone.
 
 ## Deployment
 
-Jellyfin must not be reachable from the internet. Ideally its port is reachable
-only from Overfin's host and the operator's admin network. Overfin's admin
-listener must not be either: publish it only on the LAN or a VPN, never
+Keeping Jellyfin off the internet is recommended, not required: ideally its
+port is reachable only from Overfin's host and the operator's admin network.
+An operator may expose both, for a transition or for good; then they should
+know that the two manage people differently and don't mix. Overfin's users
+appear in Jellyfin as opaque users; Jellyfin's own users get nothing of
+Overfin (profiles, limits, what Overfin keeps) unless they move over; moving
+an account to Overfin closes its Jellyfin login (migration's default); and
+Overfin's rules protect only what goes through Overfin, while whatever
+reaches Jellyfin directly is Jellyfin's own business. Overfin's admin
+listener, on the other hand, must not be reachable from the internet: publish it only on the LAN or a VPN, never
 through the reverse proxy that serves the site (rule 58). Overfin never offers
 a route to Jellyfin's dashboard; operators reach it privately (LAN, VPN, SSH
 tunnel).
