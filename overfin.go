@@ -262,6 +262,10 @@ func run(logger *slog.Logger) error {
 		Service:      &provision.Service{Provisioner: gw.Provisioner},
 		ChangesEvery: 5 * time.Minute, FullEvery: 6 * time.Hour}
 	go cat.Run(ctx)
+	// Discovery's lists, from Seerr when it's connected: 10 pages (200
+	// titles) per list, every hour.
+	sh.lists = catalog.NewLists(gw.currentSeerr, db, logger, time.Hour, 10)
+	go sh.lists.Run(ctx)
 
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
@@ -298,8 +302,7 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 		return nil, err
 	}
 	return &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
-		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour),
-		discovery: api.NewDiscoveryCache()}, nil
+		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour)}, nil
 }
 
 // runRecovery runs -recover-tokens. It needs Jellyfin: from the

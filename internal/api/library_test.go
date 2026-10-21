@@ -310,7 +310,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	if o.seerr != nil {
 		lib.Images = images.New(jf, 1<<20)
-		disc := &api.Discovery{Library: lib, Seerr: o.seerr, Store: st, Cache: api.NewDiscoveryCache()}
+		disc := &api.Discovery{Library: lib, Seerr: o.seerr, Store: st}
 		lib.Discovery = disc
 		extra = append(extra, disc)
 	}

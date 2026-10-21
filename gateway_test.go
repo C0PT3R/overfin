@@ -425,6 +425,7 @@ func TestSetSeerr(t *testing.T) {
 	if url, key, ok, _ := db.Seerr(ctx); !ok || url != seerrSrv.URL || key != "seerr-key" {
 		t.Errorf("saved: %q %q %v", url, key, ok)
 	}
+	db.PutTitles(ctx, []store.Title{{Kind: "movie", TMDB: "1", Name: "x"}}, time.Now())
 	// An empty key keeps the current one.
 	if _, err := g.SetSeerr(ctx, seerrSrv.URL, ""); err != nil {
 		t.Errorf("same key: %v", err)
@@ -435,5 +436,8 @@ func TestSetSeerr(t *testing.T) {
 	}
 	if _, _, ok, _ := db.Seerr(ctx); ok {
 		t.Error("settings kept after disconnecting")
+	}
+	if ti, _ := db.TitleByTMDB(ctx, "movie", "1"); ti != nil {
+		t.Error("TMDB's data kept after disconnecting")
 	}
 }

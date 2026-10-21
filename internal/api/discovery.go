@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
-	"sync"
 	"time"
 
+	"github.com/C0PT3R/overfin-gateway/internal/catalog"
 	"github.com/C0PT3R/overfin-gateway/internal/cursor"
 	"github.com/C0PT3R/overfin-gateway/internal/images"
 	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
@@ -19,9 +21,12 @@ import (
 )
 
 // Discovery serves the catalog's discovery: what's trending, popular or
-// upcoming, from Seerr, and a title's page, each with its place in the
-// library (from Overfin's index) and, when the library has it, the library
-// item itself, read with the profile's own token.
+// upcoming, and a title's page, each with its place in the library (from
+// Overfin's index) and, when the library has it, the library item itself,
+// read with the profile's own token. Lists and titles are answered from
+// Overfin's database, which keeps them from Seerr in the background
+// (catalog.Lists); only a title's page may ask Seerr, the first time it's
+// opened and once a week after.
 //
 // Kids profiles see none of it yet: discovery's titles carry no rating
 // Overfin has checked, so they're all hidden from them (rule 28).
@@ -29,7 +34,7 @@ type Discovery struct {
 	Library Library
 	Seerr   *seerr.Client
 	Store   *store.Store
-	Cache   *DiscoveryCache
+	now     func() time.Time
 }
 
 func (Discovery) Name() string { return "discovery" }
@@ -45,6 +50,17 @@ func (d Discovery) Register(r *plugin.Registrar) error {
 	}
 	return nil
 }
+
+func (d Discovery) clock() time.Time {
+	if d.now != nil {
+		return d.now()
+	}
+	return time.Now()
+}
+
+// detailsFor is how long a title's page is kept before Seerr is asked for
+// it again.
+const detailsFor = 7 * 24 * time.Hour
 
 // catalogTitle is a title as the API gives it (CatalogTitle).
 type catalogTitle struct {
@@ -77,14 +93,21 @@ type catalogDetail struct {
 	Seasons []catalogSeason `json:"seasons,omitempty"`
 }
 
+// storedDetails is a title's page as the catalog keeps it.
+type storedDetails struct {
+	Genres  []string        `json:"genres"`
+	Cast    []catalogPerson `json:"cast"`
+	Seasons []struct {
+		Number       int    `json:"number"`
+		Name         string `json:"name"`
+		EpisodeCount int    `json:"episodeCount"`
+	} `json:"seasons"`
+}
+
 type discoverPage struct {
 	Items      []catalogTitle `json:"items"`
 	NextCursor string         `json:"nextCursor,omitempty"`
 }
-
-// seerrPages is how many of Seerr's pages (20 titles each) one request
-// reads at most, to fill a page of limit titles, filtered or not.
-func seerrPages(limit int) int { return min(10, limit/20+2) }
 
 func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 	if !onlyParams(w, r, "list", "mediaKind", "availability", "limit", "cursor") {
@@ -96,11 +119,7 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 		avail = "all"
 	}
 	limit, ok := parseLimit(q.Get("limit"))
-	if !ok {
-		problem.Send(w, problem.InvalidRequest, "")
-		return
-	}
-	if (list != "trending" && list != "popular" && list != "upcoming") || (kind != "movie" && kind != "series") ||
+	if !ok || !slices.Contains(seerr.Lists, list) || (kind != "movie" && kind != "series") ||
 		(avail != "all" && avail != "library" && avail != "missing") {
 		problem.Send(w, problem.InvalidRequest, "")
 		return
@@ -114,47 +133,44 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, out)
 		return
 	}
-
 	binding := cursorBinding(r, p.ID)
-	page := 1
+	offset := 0
 	if c := q.Get("cursor"); c != "" {
 		payload, err := cursor.Decode(d.Library.CursorKey, binding, c)
 		if err != nil {
 			problem.Send(w, problem.InvalidCursor, "")
 			return
 		}
-		if page, err = strconv.Atoi(string(payload)); err != nil || page < 1 || page > 500 {
+		if offset, err = strconv.Atoi(string(payload)); err != nil || offset < 0 {
 			problem.Send(w, problem.InvalidCursor, "")
 			return
 		}
 	}
-	more := false
-	for read := 0; read < seerrPages(limit) && len(out.Items) < limit; read++ {
-		sp, err := d.Cache.page(r.Context(), d.Seerr, list, kind, page)
-		if err != nil {
-			d.seerrError(w, err)
-			return
-		}
-		titles, err := d.place(r.Context(), p, sp.Titles)
-		if err != nil {
-			d.Library.upstreamError(w, err)
-			return
-		}
-		for _, t := range titles {
-			if avail == "all" || (avail == "missing") == (t.Availability == "missing") {
-				out.Items = append(out.Items, t)
-			}
-		}
-		page++
-		more = page <= sp.TotalPages
-		if !more {
-			break
-		}
+	// One more than asked for, to know whether there are more.
+	titles, err := d.Store.ListTitles(r.Context(), list, kind, avail, offset, limit+1)
+	if err != nil {
+		d.Library.Logger.Error("reading the catalog failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
 	}
-	if more {
-		if c, err := cursor.Encode(d.Library.CursorKey, binding, []byte(strconv.Itoa(page))); err == nil {
+	if len(titles) > limit {
+		titles = titles[:limit]
+		if c, err := cursor.Encode(d.Library.CursorKey, binding, []byte(strconv.Itoa(offset+limit))); err == nil {
 			out.NextCursor = c
 		}
+	}
+	placed, err := d.place(r.Context(), p, titles)
+	if err != nil {
+		d.Library.upstreamError(w, err)
+		return
+	}
+	for _, t := range placed {
+		// The library has it, but not for this profile: not "in the
+		// library" here.
+		if avail == "library" && t.LibraryItem == nil {
+			continue
+		}
+		out.Items = append(out.Items, t)
 	}
 	writeOK(w, out)
 }
@@ -164,11 +180,12 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := r.PathValue("mediaKind")
-	tmdbID, err := strconv.Atoi(r.PathValue("tmdbId"))
-	if (kind != "movie" && kind != "series") || err != nil || tmdbID <= 0 {
+	n, err := strconv.Atoi(r.PathValue("tmdbId"))
+	if (kind != "movie" && kind != "series") || err != nil || n <= 0 {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
+	tmdb := strconv.Itoa(n)
 	p := d.Library.active(w, r)
 	if p == nil {
 		return
@@ -177,24 +194,45 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	det, err := d.Cache.details(r.Context(), d.Seerr, kind, tmdbID)
+	t, err := d.Store.TitleByTMDB(r.Context(), kind, tmdb)
 	if err != nil {
-		d.seerrError(w, err)
+		d.Library.Logger.Error("reading the catalog failed", "err", err)
+		problem.Send(w, problem.Internal, "")
 		return
 	}
-	titles, err := d.place(r.Context(), p, []seerr.Title{det.Title})
+	// The page, from Seerr the first time and once a week; a kept one is
+	// served when Seerr can't answer.
+	if t == nil || t.Details == nil || d.clock().Sub(t.DetailsAt) > detailsFor {
+		fresh, err := d.fetchDetails(r.Context(), kind, n)
+		switch {
+		case err == nil:
+			t = fresh
+		case errors.Is(err, seerr.ErrNotFound):
+			problem.Send(w, problem.NotFound, "")
+			return
+		case t == nil || t.Details == nil:
+			d.seerrError(w, err)
+			return
+		default:
+			d.Library.Logger.Warn("seerr call failed; the kept page is served", "err", err)
+		}
+	}
+	var det storedDetails
+	if err := json.Unmarshal(t.Details, &det); err != nil {
+		d.Library.Logger.Error("a title's kept page is unreadable", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	placed, err := d.place(r.Context(), p, []store.Title{*t})
 	if err != nil {
 		d.Library.upstreamError(w, err)
 		return
 	}
-	out := catalogDetail{catalogTitle: titles[0], Genres: det.Genres}
-	for _, c := range det.Cast {
-		out.Cast = append(out.Cast, catalogPerson{Name: c.Name, Character: c.Character})
-	}
+	out := catalogDetail{catalogTitle: placed[0], Genres: det.Genres, Cast: det.Cast}
 	// Each season's place, from the episodes the library has.
 	var have map[int]int
 	if out.LibraryItem != nil && kind == "series" {
-		if have, err = d.Store.CatalogEpisodes(r.Context(), out.LibraryItem.ID[len("item_"):]); err != nil {
+		if have, err = d.Store.CatalogEpisodes(r.Context(), t.ItemID); err != nil {
 			d.Library.Logger.Error("reading the catalog failed", "err", err)
 			problem.Send(w, problem.Internal, "")
 			return
@@ -213,28 +251,50 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, out)
 }
 
-// place gives titles their place in the library, as this profile sees it:
-// what the index has and Jellyfin shows the profile is in the library, with
-// the item itself; the rest is missing.
-func (d Discovery) place(ctx context.Context, p *store.Profile, titles []seerr.Title) ([]catalogTitle, error) {
-	if len(titles) == 0 {
-		return nil, nil
-	}
-	kind := titles[0].Kind
-	ids := make([]string, len(titles))
-	for i, t := range titles {
-		ids[i] = strconv.Itoa(t.TMDBID)
-	}
-	found, err := d.Store.CatalogByTMDB(ctx, kind, ids)
+// fetchDetails asks Seerr for a title's page and keeps it.
+func (d Discovery) fetchDetails(ctx context.Context, kind string, tmdbID int) (*store.Title, error) {
+	det, err := d.Seerr.Details(ctx, kind, tmdbID)
 	if err != nil {
 		return nil, err
 	}
-	items := map[string]library.ItemSummary{}
-	if len(found) > 0 {
-		var itemIDs []string
-		for _, id := range found {
-			itemIDs = append(itemIDs, id)
+	var sd storedDetails
+	sd.Genres = det.Genres
+	for _, c := range det.Cast {
+		sd.Cast = append(sd.Cast, catalogPerson{Name: c.Name, Character: c.Character})
+	}
+	for _, s := range det.Seasons {
+		sd.Seasons = append(sd.Seasons, struct {
+			Number       int    `json:"number"`
+			Name         string `json:"name"`
+			EpisodeCount int    `json:"episodeCount"`
+		}{s.Number, s.Name, s.EpisodeCount})
+	}
+	raw, err := json.Marshal(sd)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.Store.SetTitleDetails(ctx, catalog.StoreTitle(det.Title), raw, d.clock()); err != nil {
+		return nil, err
+	}
+	t, err := d.Store.TitleByTMDB(ctx, kind, strconv.Itoa(tmdbID))
+	if err == nil && t == nil {
+		err = errors.New("api: a title just kept is missing")
+	}
+	return t, err
+}
+
+// place gives titles their place in the library, as this profile sees it:
+// what the index has and Jellyfin shows the profile is in the library, with
+// the item itself; the rest is missing.
+func (d Discovery) place(ctx context.Context, p *store.Profile, titles []store.Title) ([]catalogTitle, error) {
+	var itemIDs []string
+	for _, t := range titles {
+		if t.ItemID != "" {
+			itemIDs = append(itemIDs, t.ItemID)
 		}
+	}
+	items := map[string]library.ItemSummary{}
+	if len(itemIDs) > 0 {
 		page, err := d.Library.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID,
 			jellyfin.ItemQuery{IDs: itemIDs, Limit: len(itemIDs)})
 		if err != nil {
@@ -248,15 +308,13 @@ func (d Discovery) place(ctx context.Context, p *store.Profile, titles []seerr.T
 	}
 	out := make([]catalogTitle, len(titles))
 	for i, t := range titles {
-		ct := catalogTitle{TMDBID: strconv.Itoa(t.TMDBID), MediaKind: t.Kind, Name: t.Name, Year: t.Year,
+		ct := catalogTitle{TMDBID: t.TMDB, MediaKind: t.Kind, Name: t.Name, Year: t.Year,
 			Overview: t.Overview, Images: tmdbImages(t), Availability: "missing"}
-		if id, ok := found[ct.TMDBID]; ok {
-			if s, ok := items["item_"+id]; ok {
-				ct.LibraryItem = &s
-				ct.Availability = "available"
-				if t.Status == 4 {
-					ct.Availability = "partiallyAvailable"
-				}
+		if s, ok := items["item_"+t.ItemID]; ok && t.ItemID != "" {
+			ct.LibraryItem = &s
+			ct.Availability = "available"
+			if t.Status == 4 {
+				ct.Availability = "partiallyAvailable"
 			}
 		}
 		out[i] = ct
@@ -264,12 +322,13 @@ func (d Discovery) place(ctx context.Context, p *store.Profile, titles []seerr.T
 	return out, nil
 }
 
-func tmdbImages(t seerr.Title) *library.Images {
+func tmdbImages(t store.Title) *library.Images {
+	n, _ := strconv.Atoi(t.TMDB)
 	var im library.Images
-	if id := images.TMDBImageID(t.Kind, t.TMDBID, "poster", t.Poster); id != "" {
+	if id := images.TMDBImageID(t.Kind, n, "poster", t.Poster); id != "" {
 		im.Primary = &library.ImageRef{URL: "/api/v1/images/" + id}
 	}
-	if id := images.TMDBImageID(t.Kind, t.TMDBID, "backdrop", t.Backdrop); id != "" {
+	if id := images.TMDBImageID(t.Kind, n, "backdrop", t.Backdrop); id != "" {
 		im.Backdrops = []library.ImageRef{{URL: "/api/v1/images/" + id}}
 	}
 	if im.Primary == nil && im.Backdrops == nil {
@@ -279,7 +338,7 @@ func tmdbImages(t seerr.Title) *library.Images {
 }
 
 // image serves a catalog title's TMDB image, for profiles that may see the
-// title, and only at the path Seerr gives for it.
+// title, and only at the path the catalog keeps for it.
 func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profile, id, size string) {
 	ref, err := images.ParseTMDB(id)
 	if err != nil {
@@ -290,14 +349,11 @@ func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profil
 		if p.Kind == "kids" {
 			return images.ErrHidden
 		}
-		det, err := d.Cache.details(ctx, d.Seerr, ref.Kind, ref.TMDBID)
-		if errors.Is(err, seerr.ErrNotFound) {
-			return images.ErrHidden
-		}
+		t, err := d.Store.TitleByTMDB(ctx, ref.Kind, strconv.Itoa(ref.TMDBID))
 		if err != nil {
 			return err
 		}
-		if (ref.Type == "poster" && det.Poster != ref.Path) || (ref.Type == "backdrop" && det.Backdrop != ref.Path) {
+		if t == nil || (ref.Type == "poster" && t.Poster != ref.Path) || (ref.Type == "backdrop" && t.Backdrop != ref.Path) {
 			return images.ErrInvalid
 		}
 		return nil
@@ -328,74 +384,4 @@ func (d Discovery) seerrError(w http.ResponseWriter, err error) {
 	}
 	d.Library.Logger.Error("seerr call failed", "err", err)
 	problem.Send(w, problem.Internal, "")
-}
-
-// ---- Cache ----------------------------------------------------------------------
-
-// DiscoveryCache keeps what Seerr said for a while, in memory only, so the
-// same list or title isn't asked for again and again: lists change by the
-// hour, titles more slowly.
-type DiscoveryCache struct {
-	mu    sync.Mutex
-	pages map[string]cached[*seerr.Page]
-	dets  map[string]cached[*seerr.Details]
-	now   func() time.Time
-}
-
-type cached[T any] struct {
-	value T
-	until time.Time
-}
-
-const (
-	pageFor     = 10 * time.Minute
-	detailsFor  = 6 * time.Hour
-	maxCacheLen = 5000
-)
-
-// NewDiscoveryCache returns an empty cache.
-func NewDiscoveryCache() *DiscoveryCache {
-	return &DiscoveryCache{pages: map[string]cached[*seerr.Page]{}, dets: map[string]cached[*seerr.Details]{}, now: time.Now}
-}
-
-func (c *DiscoveryCache) page(ctx context.Context, s *seerr.Client, list, kind string, page int) (*seerr.Page, error) {
-	key := list + "/" + kind + "/" + strconv.Itoa(page)
-	c.mu.Lock()
-	e, ok := c.pages[key]
-	c.mu.Unlock()
-	if ok && c.now().Before(e.until) {
-		return e.value, nil
-	}
-	v, err := s.Discover(ctx, list, kind, page)
-	if err != nil {
-		return nil, err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.pages) >= maxCacheLen {
-		clear(c.pages)
-	}
-	c.pages[key] = cached[*seerr.Page]{v, c.now().Add(pageFor)}
-	return v, nil
-}
-
-func (c *DiscoveryCache) details(ctx context.Context, s *seerr.Client, kind string, tmdbID int) (*seerr.Details, error) {
-	key := kind + "/" + strconv.Itoa(tmdbID)
-	c.mu.Lock()
-	e, ok := c.dets[key]
-	c.mu.Unlock()
-	if ok && c.now().Before(e.until) {
-		return e.value, nil
-	}
-	v, err := s.Details(ctx, kind, tmdbID)
-	if err != nil {
-		return nil, err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.dets) >= maxCacheLen {
-		clear(c.dets)
-	}
-	c.dets[key] = cached[*seerr.Details]{v, c.now().Add(detailsFor)}
-	return v, nil
 }

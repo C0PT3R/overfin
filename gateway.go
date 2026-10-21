@@ -17,6 +17,7 @@ import (
 
 	"github.com/C0PT3R/overfin-gateway/internal/admin"
 	"github.com/C0PT3R/overfin-gateway/internal/api"
+	"github.com/C0PT3R/overfin-gateway/internal/catalog"
 	"github.com/C0PT3R/overfin-gateway/internal/config"
 	"github.com/C0PT3R/overfin-gateway/internal/identity"
 	"github.com/C0PT3R/overfin-gateway/internal/images"
@@ -50,10 +51,11 @@ type shared struct {
 	jellyfinSaved bool
 	// seerr is Seerr, when the panel connected it (nil otherwise); with
 	// it, discovery is on. Changed under the gateway's lock.
-	seerr     *seerr.Client
-	seerrURL  string
-	seerrKey  string
-	discovery *api.DiscoveryCache
+	seerr    *seerr.Client
+	seerrURL string
+	seerrKey string
+	// lists keeps discovery's lists from Seerr, in the background.
+	lists *catalog.Lists
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -124,7 +126,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	// catalog's TMDB images.
 	var disc *api.Discovery
 	if sh.seerr != nil {
-		disc = &api.Discovery{Library: lib, Seerr: sh.seerr, Store: db, Cache: sh.discovery}
+		disc = &api.Discovery{Library: lib, Seerr: sh.seerr, Store: db}
 		lib.Discovery = disc
 	}
 	pb := api.Playback{Library: lib, Tickets: sh.tickets,
@@ -395,6 +397,13 @@ func (g *gateway) SetJellyfin(ctx context.Context, url, key string) (string, err
 	return found.summary, nil
 }
 
+// currentSeerr is Seerr, when it's connected, for the lists' keeper.
+func (g *gateway) currentSeerr() *seerr.Client {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sh.seerr
+}
+
 // Seerr is Seerr's address, when it's connected.
 func (g *gateway) Seerr() string {
 	g.mu.Lock()
@@ -436,7 +445,10 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 	b, err := build(g.cfg, g.sh)
 	if err == nil {
 		if client == nil {
-			err = g.sh.db.ForgetSeerr(ctx)
+			// TMDB's data (through Seerr) goes with it, as its terms ask.
+			if err = g.sh.db.ForgetSeerr(ctx); err == nil {
+				err = g.sh.db.ForgetTMDB(ctx)
+			}
 		} else {
 			err = g.sh.db.SetSeerr(ctx, url, key)
 		}
@@ -451,6 +463,9 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 		return "Seerr is disconnected: discovery is off.", nil
 	}
 	g.sh.logger.Info("Seerr connected in the control panel", "seerr", url)
+	if g.sh.lists != nil {
+		g.sh.lists.Wake() // discovery's lists, read now
+	}
 	return "Seerr, at " + url + ": its API key works. Discovery is on.", nil
 }
 

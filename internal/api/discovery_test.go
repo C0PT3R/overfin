@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/C0PT3R/overfin-gateway/internal/catalog"
 	"github.com/C0PT3R/overfin-gateway/internal/seerr"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
@@ -31,12 +35,20 @@ func fakeSeerr(t *testing.T) *seerr.Client {
 				film(949, "/poster949abcdef.jpg"), film(100, "../../etc/passwd"),
 				map[string]any{"id": 1399, "mediaType": "tv", "name": "A series"},
 			}})
-		case "/api/v1/movie/949":
-			d := film(949, "/poster949abcdef.jpg")
+		case "/api/v1/movie/949", "/api/v1/movie/555":
+			id := 949
+			if strings.HasSuffix(r.URL.Path, "555") {
+				id = 555 // in no list: opened from a link
+			}
+			d := film(id, "/poster949abcdef.jpg")
 			d["genres"] = []any{map[string]any{"name": "Crime"}}
 			d["credits"] = map[string]any{"cast": []any{map[string]any{"name": "Al Pacino", "character": "Hanna"}}}
 			json.NewEncoder(w).Encode(d)
 		default:
+			if strings.HasPrefix(r.URL.Path, "/api/v1/discover/") {
+				json.NewEncoder(w).Encode(map[string]any{"page": 1, "totalPages": 1, "results": []any{}})
+				return
+			}
 			http.NotFound(w, r)
 		}
 	}))
@@ -50,11 +62,17 @@ func fakeSeerr(t *testing.T) *seerr.Client {
 
 func TestDiscover(t *testing.T) {
 	var st *store.Store
-	srv, _ := newServerWith(t, options{seerr: fakeSeerr(t), store: &st})
+	s := fakeSeerr(t)
+	srv, _ := newServerWith(t, options{seerr: s, store: &st})
 	// The library has film 949: item 3 (which the fake Jellyfin serves).
 	if err := st.PutCatalog(context.Background(), []store.CatalogItem{
 		{ID: fmt.Sprintf("%032x", 3), Kind: "movie", Name: "Heat", SortName: "Heat", TMDB: "949"},
 	}, 1); err != nil {
+		t.Fatal(err)
+	}
+	// The lists, read in the background as Overfin does.
+	lists := catalog.NewLists(func() *seerr.Client { return s }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 1)
+	if err := lists.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,6 +127,13 @@ func TestDiscover(t *testing.T) {
 	}
 	if code := get(t, srv, "/api/v1/catalog/movie/12345", nil); code != 404 {
 		t.Errorf("unknown title: %d", code)
+	}
+	// A title in no list, opened from a link: asked of Seerr, then kept.
+	if code := get(t, srv, "/api/v1/catalog/movie/555", nil); code != 200 {
+		t.Errorf("a linked title: %d", code)
+	}
+	if kept, _ := st.TitleByTMDB(context.Background(), "movie", "555"); kept == nil || kept.Details == nil {
+		t.Errorf("not kept: %+v", kept)
 	}
 
 	// An image ID with a path Seerr never gave is refused before TMDB is

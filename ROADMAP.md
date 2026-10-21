@@ -471,8 +471,14 @@ nothing beyond what that needs.
   upcoming; all, in the library, missing) and `/catalog/{kind}/{tmdbId}`
   (genres, cast, each season's place from the index), the library item
   read as the profile, TMDB posters through the image pipeline (only at the
-  path Seerr gives), Seerr's answers cached in memory. Kids profiles see
-  none of it yet. Next: ratings for kids (Seerr's lists already filter by
+  path Seerr gives). Overfin keeps every TMDB title it comes across, and
+  the lists as ordered IDs read from Seerr in the background every hour
+  (200 titles each), so discovery is answered from its own database at
+  once, with its own paging; a title's page is asked of Seerr the first
+  time and once a week. TMDB's terms are kept: its data is kept five
+  months at most without being fetched again (six allowed), all of it is
+  deleted when Seerr is disconnected, and the site shows TMDB's
+  attribution. Kids profiles see none of it yet. Next: ratings for kids (Seerr's lists already filter by
   certification and country), search, curated lists, TMDB directly.
 - **Discovery**: trending, popular and upcoming titles, search, a title's
   page, curated lists, with each title's place in the library (available,
@@ -566,5 +572,4 @@ built on Overfin without changing it:
 - Step-up checks the login time in the ID token rather than trusting
   `prompt=login`. Confirm each supported identity provider updates it on a
   forced login (Authentik first).
-- How long do TMDB's terms allow catalog data to be cached?
 - Configuration format details: which settings exist, and their defaults.

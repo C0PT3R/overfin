@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -512,5 +513,59 @@ func TestJellyfinSettings(t *testing.T) {
 	other, _ := seal.New(bytes.Repeat([]byte{8}, 32))
 	if _, _, _, err := ReadJellyfin(ctx, path, other); err == nil {
 		t.Error("another secret key read Jellyfin's key")
+	}
+}
+
+func TestCatalogTitles(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := old.AddDate(0, 6, 0)
+	if err := s.PutTitles(ctx, []Title{{Kind: "movie", TMDB: "1", Name: "Old", Overview: ""}}, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutTitles(ctx, []Title{{Kind: "movie", TMDB: "2", Name: "Heat", Overview: "", Poster: "/abc12345.jpg"},
+		{Kind: "movie", TMDB: "3", Name: "Arrival", Overview: ""}}, now); err != nil {
+		t.Fatal(err)
+	}
+	// The library has film 2.
+	s.PutCatalog(ctx, []CatalogItem{{ID: "0123456789abcdef0123456789abcdef", Kind: "movie", Name: "Heat", SortName: "Heat", TMDB: "2"}}, 1)
+	if err := s.SetList(ctx, "trending", "movie", []string{"3", "2", "1"}); err != nil {
+		t.Fatal(err)
+	}
+	names := func(avail string) string {
+		got, err := s.ListTitles(ctx, "trending", "movie", avail, 0, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, ti := range got {
+			out = append(out, ti.Name)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := names("all"); got != "Arrival,Heat,Old" {
+		t.Errorf("all: %s", got)
+	}
+	if got := names("library"); got != "Heat" {
+		t.Errorf("library: %s", got)
+	}
+	if got := names("missing"); got != "Arrival,Old" {
+		t.Errorf("missing: %s", got)
+	}
+	if ti, _ := s.TitleByTMDB(ctx, "movie", "2"); ti == nil || ti.ItemID == "" || ti.Poster != "/abc12345.jpg" {
+		t.Errorf("title: %+v", ti)
+	}
+	// TMDB's data is kept six months at most: the old title goes, from
+	// the list too.
+	if n, err := s.PurgeTitles(ctx, now.Add(-150*24*time.Hour)); err != nil || n != 1 {
+		t.Errorf("purged %d, %v", n, err)
+	}
+	if got := names("all"); got != "Arrival,Heat" {
+		t.Errorf("after the purge: %s", got)
+	}
+	// Disconnected from Seerr: all of it goes.
+	if err := s.ForgetTMDB(ctx); err != nil || names("all") != "" {
+		t.Errorf("forgotten: %v %s", err, names("all"))
 	}
 }

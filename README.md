@@ -230,6 +230,12 @@ watchlist are always on; the rest is switched on in the control panel.
 | Migration | Bringing Jellyfin accounts over | Switch |
 | Catalog | The library's index, matched to TMDB | Always on |
 | Discovery | Trending, popular and upcoming titles, from Seerr | Once Seerr is connected; not for kids profiles yet |
+
+Discovery's data comes from TMDB, through Seerr: Overfin keeps it as
+TMDB's terms allow (six months at most, deleted when Seerr is
+disconnected), and overfin-web shows TMDB's attribution. TMDB's free
+licence covers non-commercial use; a site that charges for access needs
+TMDB's commercial terms.
 | Requests | Seerr requests | Planned |
 
 ## Building your own client

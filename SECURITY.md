@@ -218,7 +218,9 @@ comes from the internet, and media files can be written by anyone.
     details, are asked of Seerr (which asks TMDB) by the server, and their
     posters of TMDB's image server. Nothing about who's asking is sent;
     browsers never contact Seerr or TMDB (rule 43). Seerr's API key is kept
-    sealed, like every token.
+    sealed, like every token. TMDB's data is kept as its terms allow: five
+    months at most without being fetched again, and deleted entirely when
+    Seerr is disconnected.
 
 ### Administration
 58. Overfin's administration, its built-in control panel, is never exposed
