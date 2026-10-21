@@ -57,6 +57,8 @@ type Config struct {
 
 type Jellyfin struct {
 	// URL is where Overfin reaches Jellyfin, e.g. "http://192.0.2.10:8096".
+	// Optional: without it (and without OVERFIN_JELLYFIN_ADMIN_KEY), the
+	// control panel's setup page asks for both, and the database keeps them.
 	URL string `toml:"url"`
 }
 
@@ -442,8 +444,9 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 }
 
 func loadSecrets(s *Secrets, getenv func(string) string) error {
+	// Optional, with jellyfin.url: the setup page may ask for both.
 	adminKey, err := secret("OVERFIN_JELLYFIN_ADMIN_KEY", getenv)
-	if err != nil {
+	if err != nil && !errors.Is(err, errMissing) {
 		return err
 	}
 	s.JellyfinAdminKey = adminKey
@@ -547,8 +550,17 @@ func (c *Config) validate() error {
 		add("listen must not be empty")
 	}
 
-	if err := checkUpstreamURL(c.Jellyfin.URL); err != nil {
-		add("jellyfin.url: %v", err)
+	// Jellyfin is set here, both its address and its key, or in the setup
+	// page.
+	switch {
+	case c.Jellyfin.URL == "" && c.Secrets.JellyfinAdminKey != "":
+		add("OVERFIN_JELLYFIN_ADMIN_KEY is set but jellyfin.url isn't: set both, or neither and use the setup page")
+	case c.Jellyfin.URL != "" && c.Secrets.JellyfinAdminKey == "":
+		add("jellyfin.url is set but OVERFIN_JELLYFIN_ADMIN_KEY isn't: set both, or neither and use the setup page")
+	case c.Jellyfin.URL != "":
+		if err := CheckJellyfinURL(c.Jellyfin.URL); err != nil {
+			add("jellyfin.url: %v", err)
+		}
 	}
 
 	switch c.Identity.Mode {
@@ -719,9 +731,9 @@ func (c *Config) validate() error {
 	return errors.Join(errs...)
 }
 
-// checkUpstreamURL accepts only a plain http(s) base URL: no credentials,
+// CheckJellyfinURL accepts only a plain http(s) base URL: no credentials,
 // query or fragment, so nothing secret or surprising hides in the config.
-func checkUpstreamURL(raw string) error {
+func CheckJellyfinURL(raw string) error {
 	if raw == "" {
 		return errors.New("is required")
 	}

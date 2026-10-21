@@ -1015,6 +1015,67 @@ func (s *Store) SetFeatures(ctx context.Context, v []byte) error {
 	return err
 }
 
+// ---- Jellyfin -----------------------------------------------------------------
+
+// The Jellyfin server, as the setup page saved it: its address as is, its
+// administrator's key sealed, bound to its row.
+const jellyfinKeyContext = "jellyfin admin key"
+
+// Jellyfin returns the Jellyfin server's address and key, and false when the
+// setup page hasn't saved them yet.
+func (s *Store) Jellyfin(ctx context.Context) (url, key string, ok bool, err error) {
+	return jellyfinSettings(ctx, s.db, s.box)
+}
+
+// SetJellyfin saves the Jellyfin server's address and key.
+func (s *Store) SetJellyfin(ctx context.Context, url, key string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for name, value := range map[string][]byte{
+		"jellyfin-url": []byte(url),
+		"jellyfin-key": s.box.Seal([]byte(key), jellyfinKeyContext),
+	} {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES (?, ?)
+			ON CONFLICT (name) DO UPDATE SET value = excluded.value`, name, value); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ReadJellyfin is Jellyfin for the database at path, opened read-only so
+// nothing changes (for overfin -check).
+func ReadJellyfin(ctx context.Context, path string, box *seal.Box) (url, key string, ok bool, err error) {
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return "", "", false, fmt.Errorf("store: %w", err)
+	}
+	defer db.Close()
+	return jellyfinSettings(ctx, db, box)
+}
+
+func jellyfinSettings(ctx context.Context, db *sql.DB, box *seal.Box) (url, key string, ok bool, err error) {
+	var u, sealed []byte
+	err = db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'jellyfin-url'`).Scan(&u)
+	if err == nil {
+		err = db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'jellyfin-key'`).Scan(&sealed)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("store: reading Jellyfin's settings: %w", err)
+	}
+	k, err := box.Open(sealed, jellyfinKeyContext)
+	if err != nil {
+		return "", "", false, fmt.Errorf("store: Jellyfin's key can't be read with this secret key: %w", err)
+	}
+	return string(u), string(k), true, nil
+}
+
 // ---- Control panel: accounts --------------------------------------------------------
 
 // AccountByID finds an account by its ID.

@@ -19,6 +19,7 @@ package overfin
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -163,27 +165,8 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
-	jf, err := jellyfin.New(cfg.Jellyfin.URL, Version)
-	if err != nil {
-		return err
-	}
-	sh := &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
-		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour)}
-
 	if *recoverTokens {
-		return recoverTokensWith(context.Background(), logger, db, newProvisioner(cfg, sh), k.Check)
-	}
-
-	gw, err := newGateway(*configPath, cfg, sh)
-	if err != nil {
-		return err
-	}
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           gw,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-		// No WriteTimeout: video streams can legitimately run for hours.
+		return runRecovery(cfg, db, moduleDBs, k, logger)
 	}
 
 	// Stop cleanly on Ctrl+C or `docker stop`; reload the configuration on
@@ -193,30 +176,25 @@ func run(logger *slog.Logger) error {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 
-	// Playbacks outlive reloads, so their janitor runs for the whole run:
-	// it needs only the registry and Jellyfin.
-	janitor := api.Playback{Library: api.Library{Jellyfin: jf, Logger: logger}, Tickets: sh.tickets, Logger: logger}
-	go janitor.RunJanitor(ctx)
-	go purgeExpired(ctx, db, logger)
-
+	// The listeners start now, before Overfin is ready, so the setup page can
+	// come first: until then, the site says it's being set up.
+	site, panel := newSwap(settingUp), newSwap(http.NotFoundHandler())
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           site,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		// No WriteTimeout: video streams can legitimately run for hours.
+	}
 	errc := make(chan error, 2)
 	go func() {
 		logger.Info("listening", "addr", addr)
 		errc <- srv.ListenAndServe()
 	}()
-
 	// The control panel, on its own listener (rule 58).
 	var adminSrv *http.Server
 	if a := cfg.Admin; a.Enabled() {
-		o := cfg.OIDC
-		panel := &admin.Panel{Features: gw, Modules: gw, Group: a.Group, Logger: logger,
-			Store: db, Provisioner: newProvisioner(cfg, sh),
-			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
-				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
-		if cn := cfg.Connector; cn.Enabled() {
-			panel.Directory = &connector.Authentik{BaseURL: cn.URL, Token: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
-		}
-		adminSrv = &http.Server{Addr: a.Listen, Handler: panel.Handler(),
+		adminSrv = &http.Server{Addr: a.Listen, Handler: panel,
 			ReadHeaderTimeout: 10 * time.Second, WriteTimeout: time.Minute, IdleTimeout: 2 * time.Minute}
 		go func() {
 			logger.Info("control panel listening", "addr", a.Listen, "https", a.TLSCert != "")
@@ -227,8 +205,84 @@ func run(logger *slog.Logger) error {
 			}
 		}()
 	}
+	shutdown := func() error {
+		logger.Info("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if adminSrv != nil {
+			_ = adminSrv.Shutdown(shutdownCtx)
+		}
+		if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	}
 
-	for running := true; running; {
+	// Jellyfin: set in the configuration, saved by the setup page, or asked
+	// for now.
+	if cfg.Jellyfin.URL == "" {
+		url, key, ok, err := db.Jellyfin(ctx)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if adminSrv == nil {
+				return errors.New("Jellyfin isn't set up: set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY, " +
+					"or switch on the control panel ([admin]) and use its setup page")
+			}
+			saved := make(chan [2]string, 1)
+			setup := &admin.Setup{Code: admin.NewSetupCode(), Test: testJellyfin, Logger: logger,
+				Save: func(ctx context.Context, url, key string) error {
+					if err := db.SetJellyfin(ctx, url, key); err != nil {
+						return err
+					}
+					saved <- [2]string{url, key}
+					return nil
+				}}
+			panel.set(setup.Handler())
+			logger.Warn("Overfin isn't set up yet: open the control panel's address to connect Jellyfin, with this one-time code",
+				"code", setup.Code, "panel", cfg.Admin.Listen)
+			select {
+			case v := <-saved:
+				url, key = v[0], v[1]
+			case err := <-errc:
+				return err
+			case <-ctx.Done():
+				return shutdown()
+			}
+		}
+		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+	}
+
+	sh, err := newShared(cfg, db, moduleDBs, k, logger)
+	if err != nil {
+		return err
+	}
+	gw, err := newGateway(*configPath, cfg, sh)
+	if err != nil {
+		return err
+	}
+	site.set(gw)
+
+	// Playbacks outlive reloads, so their janitor runs for the whole run:
+	// it needs only the registry and Jellyfin.
+	janitor := api.Playback{Library: api.Library{Jellyfin: sh.jf, Logger: logger}, Tickets: sh.tickets, Logger: logger}
+	go janitor.RunJanitor(ctx)
+	go purgeExpired(ctx, db, logger)
+
+	if a := cfg.Admin; a.Enabled() {
+		o := cfg.OIDC
+		p := &admin.Panel{Features: gw, Modules: gw, Group: a.Group, Logger: logger,
+			Store: db, Provisioner: newProvisioner(cfg, sh),
+			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
+				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
+		if cn := cfg.Connector; cn.Enabled() {
+			p.Directory = &connector.Authentik{BaseURL: cn.URL, Token: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
+		}
+		panel.set(p.Handler())
+	}
+
+	for {
 		select {
 		case err := <-errc:
 			return err
@@ -239,21 +293,69 @@ func run(logger *slog.Logger) error {
 				logger.Info("configuration reloaded")
 			}
 		case <-ctx.Done():
-			running = false
+			return shutdown()
 		}
 	}
+}
 
-	logger.Info("shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if adminSrv != nil {
-		_ = adminSrv.Shutdown(shutdownCtx)
+// newShared makes what lives for the whole run, once Jellyfin is known.
+func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB, k *keys.Keys, logger *slog.Logger) (*shared, error) {
+	jf, err := jellyfin.New(cfg.Jellyfin.URL, Version)
+	if err != nil {
+		return nil, err
 	}
-	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	return &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
+		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour)}, nil
+}
+
+// runRecovery runs -recover-tokens. It needs Jellyfin: from the
+// configuration, or as the setup page saved it. Saved settings sealed with
+// the lost key can't be read, so then the configuration must give them, and
+// they're saved again with the new key.
+func runRecovery(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB, k *keys.Keys, logger *slog.Logger) error {
+	ctx := context.Background()
+	url, key, saved, err := db.Jellyfin(ctx)
+	switch {
+	case cfg.Jellyfin.URL != "":
+		if err != nil {
+			if err := db.SetJellyfin(ctx, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey); err != nil {
+				return err
+			}
+		}
+	case err != nil:
+		return fmt.Errorf("%w. For the recovery, set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY", err)
+	case !saved:
+		return errors.New("Jellyfin isn't set up yet: there's nothing to recover")
+	default:
+		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+	}
+	sh, err := newShared(cfg, db, moduleDBs, k, logger)
+	if err != nil {
 		return err
 	}
-	return nil
+	return recoverTokensWith(ctx, logger, db, newProvisioner(cfg, sh), k.Check)
 }
+
+// settingUp is what the site answers until Overfin is set up.
+var settingUp = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", "30")
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "This site is being set up. Come back in a moment.", http.StatusServiceUnavailable)
+})
+
+// swap serves whichever handler it holds, which can change while serving:
+// a notice or the setup page first, then Overfin itself.
+type swap struct{ h atomic.Pointer[http.Handler] }
+
+func newSwap(h http.Handler) *swap {
+	s := &swap{}
+	s.set(h)
+	return s
+}
+
+func (s *swap) set(h http.Handler) { s.h.Store(&h) }
+
+func (s *swap) ServeHTTP(w http.ResponseWriter, r *http.Request) { (*s.h.Load()).ServeHTTP(w, r) }
 
 // purgeExpired deletes expired sessions and logins every hour. They are
 // already refused when expired; this only keeps the database small.

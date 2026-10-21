@@ -17,6 +17,7 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
 	"github.com/C0PT3R/overfin-gateway/internal/keys"
 	"github.com/C0PT3R/overfin-gateway/internal/oidc"
+	"github.com/C0PT3R/overfin-gateway/internal/seal"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
@@ -122,36 +123,84 @@ func (c *checker) writable(dir, what string) {
 }
 
 func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
-	jf, err := jellyfin.New(cfg.Jellyfin.URL, Version)
+	url, key := cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey
+	if url == "" {
+		// Not in the configuration: as the setup page saved it, if it did.
+		if cfg.Secrets.Key == nil {
+			c.ok("Jellyfin: not set up yet; the control panel's setup page asks for it")
+			return
+		}
+		k, err := keys.Derive(cfg.Secrets.Key)
+		if err != nil {
+			return // already said, with the secret key
+		}
+		box, err := seal.New(k.TokenEncryption)
+		if err != nil {
+			c.fail("Jellyfin: %v", err)
+			return
+		}
+		ok := false
+		if fileExists(cfg.Storage.Path) {
+			url, key, ok, err = store.ReadJellyfin(ctx, cfg.Storage.Path, box)
+			if err != nil {
+				c.fail("Jellyfin: %v", err)
+				return
+			}
+		}
+		if !ok {
+			c.ok("Jellyfin: not set up yet; the control panel's setup page asks for it")
+			return
+		}
+	}
+	summary, err := testJellyfin(ctx, url, key)
 	if err != nil {
-		c.fail("Jellyfin: %v", err)
+		c.fail("%v", err)
 		return
+	}
+	c.ok("%s", summary)
+}
+
+// testJellyfin tells whether Overfin can work with the Jellyfin server at
+// url with key: reachable, version 12, an administrator's key, at least one
+// library. Its error says what's wrong in plain words; the setup page shows
+// it as is.
+func testJellyfin(ctx context.Context, url, key string) (string, error) {
+	if err := config.CheckJellyfinURL(url); err != nil {
+		return "", fmt.Errorf("Jellyfin's address %s", err)
+	}
+	jf, err := jellyfin.New(url, Version)
+	if err != nil {
+		return "", fmt.Errorf("Jellyfin's address: %v", err)
 	}
 	v, err := jf.Version(ctx)
 	if err != nil {
-		c.fail("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
-			"in a container, localhost is the container itself", cfg.Jellyfin.URL, err)
-		return
+		return "", fmt.Errorf("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
+			"in a container, localhost is the container itself", url, err)
 	}
 	if !strings.HasPrefix(v, "12.") {
-		c.fail("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
-		return
+		return "", fmt.Errorf("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
 	}
-	c.ok("Jellyfin %s, at %s", v, cfg.Jellyfin.URL)
-
-	n, err := jf.CountLibraries(ctx, jellyfin.Auth{Token: cfg.Secrets.JellyfinAdminKey, DeviceID: "overfin-check"})
+	n, err := jf.CountLibraries(ctx, jellyfin.Auth{Token: key, DeviceID: "overfin-check"})
 	switch {
 	case jellyfin.IsStatus(err, http.StatusUnauthorized):
-		c.fail("Jellyfin's API key (OVERFIN_JELLYFIN_ADMIN_KEY): Jellyfin refuses it. Make one in its dashboard, under API Keys")
+		return "", errors.New("Jellyfin refuses its API key. Make one in its dashboard, under API Keys")
 	case jellyfin.IsStatus(err, http.StatusForbidden):
-		c.fail("Jellyfin's API key (OVERFIN_JELLYFIN_ADMIN_KEY): it isn't an administrator's. Make one in the dashboard, under API Keys")
+		return "", errors.New("Jellyfin's API key isn't an administrator's. Make one in its dashboard, under API Keys")
 	case err != nil:
-		c.fail("Jellyfin's API key: %v", err)
+		return "", fmt.Errorf("Jellyfin's API key: %v", err)
 	case n == 0:
-		c.fail("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
-	default:
-		c.ok("Jellyfin's API key works; %d libraries", n)
+		return "", errors.New("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
 	}
+	libraries := "libraries"
+	if n == 1 {
+		libraries = "library"
+	}
+	return fmt.Sprintf("Jellyfin %s, at %s; its API key works; %d %s", v, url, n, libraries), nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (c *checker) identity(ctx context.Context, cfg *config.Config) {

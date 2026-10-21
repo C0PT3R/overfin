@@ -251,3 +251,45 @@ func TestFirstKey(t *testing.T) {
 		t.Errorf("recovering: %v", err)
 	}
 }
+
+// Jellyfin saved by the setup page isn't in the file: a reload keeps it.
+func TestReloadKeepsSavedJellyfin(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "overfin.db")
+	cfgPath := filepath.Join(dir, "overfin.toml")
+	content := strings.ReplaceAll(baseConfig, "%DB%", dbPath)
+	content = strings.Replace(content, "[jellyfin]\nurl = \"http://192.0.2.10:8096\"\n", "", 1)
+	os.WriteFile(cfgPath, []byte(content), 0o600)
+	noAdminKey := func(name string) string {
+		if name == "OVERFIN_JELLYFIN_ADMIN_KEY" {
+			return ""
+		}
+		return env("a")(name)
+	}
+	cfg, err := config.Load(cfgPath, noAdminKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = "http://192.0.2.10:8096", "saved-key"
+	k, _ := keys.Derive(cfg.Secrets.Key)
+	box, _ := seal.New(k.TokenEncryption)
+	db, err := store.Open(context.Background(), dbPath, box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sh, err := newShared(cfg, db, nil, k, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := newGateway(cfgPath, cfg, sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.reload(noAdminKey); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if g.cfg.Jellyfin.URL != "http://192.0.2.10:8096" || g.cfg.Secrets.JellyfinAdminKey != "saved-key" {
+		t.Errorf("after reload: %q", g.cfg.Jellyfin.URL)
+	}
+}

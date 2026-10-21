@@ -295,6 +295,10 @@ func (g *gateway) reload(getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
+	// Jellyfin saved by the setup page isn't in the file: it stays.
+	if cfg.Jellyfin.URL == "" {
+		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = g.cfg.Jellyfin.URL, g.cfg.Secrets.JellyfinAdminKey
+	}
 	if cfg, err = effective(context.Background(), cfg, g.sh.db, g.sh.logger); err != nil {
 		return err
 	}

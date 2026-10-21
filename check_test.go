@@ -108,7 +108,7 @@ func TestCheck(t *testing.T) {
 		{"old Jellyfin", fakeJellyfin(t, "10.11.11").URL, newDB, env("a"), "FAIL  Jellyfin: it runs version 10.11.11"},
 		{"Jellyfin unreachable", "http://127.0.0.1:1", newDB, env("a"), "FAIL  Jellyfin: can't reach it"},
 		{"refused key", jf, newDB, withAdminKey("nope"), "Jellyfin refuses it"},
-		{"not an admin's key", jf, newDB, withAdminKey("user"), "it isn't an administrator's"},
+		{"not an admin's key", jf, newDB, withAdminKey("user"), "isn't an administrator's"},
 	}
 	for _, tc := range cases {
 		out, err := runCheck(t, tc.jellyfin, tc.db, tc.getenv)

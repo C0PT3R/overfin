@@ -223,7 +223,11 @@ comes from the internet, and media files can be written by anyone.
     admins reach it (LAN, VPN, SSH tunnel) is the operator's choice. Admins
     sign in through the identity provider with a fresh login every time,
     and must belong to the configured admin group; a session ends after 30
-    minutes without activity, and after 12 hours at most.
+    minutes without activity, and after 12 hours at most. Until Jellyfin is
+    set up, the same listener, with the same guards, serves only the setup
+    page instead: it saves nothing without the one-time code from Overfin's
+    log, stops answering after 10 wrong codes until a restart, and saves
+    once only; Jellyfin's key is kept sealed, like every token.
 
 ### Code supply
 59. No code copied or ported from other projects. Dependencies are few, chosen

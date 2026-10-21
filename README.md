@@ -107,6 +107,9 @@ asks a few questions and generates every secret.
 
 **1. A Jellyfin API key**, made in Jellyfin's dashboard. Overfin uses it only
 to manage the Jellyfin users behind its profiles, never to browse or play.
+Jellyfin's address and this key can also be left out of the configuration:
+with the control panel switched on (`[admin]`), its setup page asks for
+both, tests them and keeps them, the key sealed.
 
 **2. A client at your identity provider**: a confidential OpenID client with
 the redirect URL `https://example.org/api/v1/auth/callback`, allowed to issue
@@ -139,7 +142,7 @@ the control panel.
 
 | Variable | |
 | --- | --- |
-| `OVERFIN_JELLYFIN_ADMIN_KEY` | The Jellyfin API key |
+| `OVERFIN_JELLYFIN_ADMIN_KEY` | The Jellyfin API key, with `[jellyfin]` (or neither, with the setup page) |
 | `OVERFIN_SECRET_KEY` | Optional: without it, Overfin generates one on its first start, in `/secrets/overfin.key`. Either way, back it up: it seals what Overfin stores |
 | `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
 

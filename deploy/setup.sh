@@ -1,7 +1,8 @@
 #!/bin/sh
 # Prepares this folder to run Overfin with Caddy and Authentik: asks a few
 # questions, generates every secret, and writes .env (secrets, readable by
-# you only) and overfin.toml. Then: docker compose up -d
+# you only) and overfin.toml. Then: docker compose up -d, and Overfin's
+# setup page connects Jellyfin.
 #
 # Run it again to fix an answer: it asks the same questions with the
 # current answers as defaults, and keeps every secret.
@@ -54,11 +55,12 @@ domain='[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+'
 site=$(current OVERFIN_DOMAIN)
 auth=$(current AUTH_DOMAIN)
 name=$(current OVERFIN_SITE_NAME)
-jellyfin=""
-[ -e overfin.toml ] && jellyfin=$(sed -n 's/^url = "\(http[^"]*\)"$/\1/p' overfin.toml | head -n 1)
 old_email=$(current AUTHENTIK_BOOTSTRAP_EMAIL)
 email=$old_email
-jfkey=$(current OVERFIN_JELLYFIN_ADMIN_KEY)
+# Jellyfin is connected in Overfin's setup page. Installs made before that
+# have it here, and keep it.
+jellyfin=""
+[ -e overfin.toml ] && jellyfin=$(sed -n '/^\[jellyfin\]/,/^\[/s/^url = "\(http[^"]*\)"$/\1/p' overfin.toml | head -n 1)
 
 while :; do
 	echo "Both names below must point to this machine (DNS), with ports 80 and 443 open." >&2
@@ -70,32 +72,6 @@ while :; do
 	fi
 	auth=$(ask "The sign-in's domain" "$domain" "$auth")
 	name=$(ask "Your site's name, as people will see it" "[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}" "${name:-Movies}")
-	# Overfin runs in a container: "localhost" there is Overfin itself, never
-	# the machine, so Jellyfin is reached by an address on the network.
-	while :; do
-		jellyfin=$(ask "Jellyfin's address on your network (e.g. http://192.168.1.10:8096), not localhost" \
-			"https?://[A-Za-z0-9.:-]+(/[A-Za-z0-9._/-]*)?" "$jellyfin")
-		case "$jellyfin" in
-		*://localhost* | *://127.* | *://0.0.0.0*)
-			echo "  Inside Overfin's container, that's Overfin itself. Use this machine's address on your network instead." >&2 ;;
-		*) break ;;
-		esac
-	done
-	kept_key=$jfkey
-	while :; do
-		if [ -n "$kept_key" ]; then
-			printf 'A Jellyfin API key (Dashboard > API Keys), not shown as you type [Enter keeps the current one]: ' >&2
-		else
-			printf 'A Jellyfin API key (Dashboard > API Keys), not shown as you type: ' >&2
-		fi
-		stty -echo 2>/dev/null || true
-		read -r jfkey || exit 1
-		stty echo 2>/dev/null || true
-		echo >&2
-		[ -z "$jfkey" ] && jfkey=$kept_key
-		printf '%s' "$jfkey" | grep -Eq '^[A-Za-z0-9]{16,128}$' && break
-		echo "  That doesn't look like a Jellyfin API key; try again." >&2
-	done
 	email=$(ask "Your email, for the sign-in's admin account" "[A-Za-z0-9._%+-]+@$domain" "$email")
 
 	# Where the names point, so a typo or a missing DNS record shows now,
@@ -107,7 +83,6 @@ while :; do
   Site:           https://$site (points to ${site_ip:-nothing})
   Sign-in:        https://$auth (points to ${auth_ip:-nothing})
   Site's name:    $name
-  Jellyfin:       $jellyfin
   Admin's email:  $email
 EOF
 	if [ -z "$site_ip" ] || [ -z "$auth_ip" ]; then
@@ -156,7 +131,6 @@ EDGE_SUBNET=${edge_subnet:-172.29.250.0/28}
 EDGE_RANGE=${edge_range:-172.29.250.8/29}
 CADDY_IP=${caddy_ip:-172.29.250.2}
 
-OVERFIN_JELLYFIN_ADMIN_KEY=$jfkey
 OVERFIN_OIDC_CLIENT_SECRET=$(keep OVERFIN_OIDC_CLIENT_SECRET "$(secret 32)")
 OVERFIN_CONNECTOR_TOKEN=$(keep OVERFIN_CONNECTOR_TOKEN "$(secret 32)")
 
@@ -166,21 +140,27 @@ PG_PASS=$(keep PG_PASS "$(secret 24)")
 AUTHENTIK_BOOTSTRAP_PASSWORD=$admin_password
 AUTHENTIK_BOOTSTRAP_EMAIL=$email
 EOF
-# An older install's own secret key, set in .env, stays.
-if [ -n "$(current OVERFIN_SECRET_KEY)" ]; then
-	printf 'OVERFIN_SECRET_KEY=%s\n' "$(current OVERFIN_SECRET_KEY)" >> .env.new
-fi
+# An older install's own secret key and Jellyfin key, set in .env, stay.
+for v in OVERFIN_SECRET_KEY OVERFIN_JELLYFIN_ADMIN_KEY; do
+	if [ -n "$(current $v)" ]; then
+		printf '%s=%s\n' "$v" "$(current $v)" >> .env.new
+	fi
+done
 caddy_ip=$(sed -n 's/^CADDY_IP=//p' .env.new)
 mv .env.new .env
 
 umask 022
 [ -e overfin.toml ] && cp overfin.toml overfin.toml.bak
-cat > overfin.toml <<EOF
-# Written by setup.sh. What Overfin needs to start; features are switched in
-# its control panel. Every setting: overfin.example.toml in the repository.
-
-[jellyfin]
-url = "$jellyfin"
+{
+cat <<EOF
+# Written by setup.sh. What Overfin needs to start; Jellyfin is connected in
+# its setup page, and features are switched in its control panel. Every
+# setting: overfin.example.toml in the repository.
+EOF
+if [ -n "$jellyfin" ]; then
+	printf '\n[jellyfin]\nurl = "%s"\n' "$jellyfin"
+fi
+cat <<EOF
 
 [identity]
 mode = "oidc"
@@ -203,6 +183,7 @@ url = "https://$auth"
 [plugins]
 enable = ["library", "playback"]
 EOF
+} > overfin.toml
 
 if $again; then
 	cat >&2 <<EOF
@@ -221,10 +202,13 @@ cat >&2 <<EOF
 Done. Next:
   docker compose up -d
 Then, after a minute or two:
+  - connect Jellyfin, in Overfin's setup page: ssh -L 8081:localhost:8081
+    <this machine>, then http://localhost:8081, with the setup code from
+    docker compose logs overfin;
   - https://$auth : sign in as akadmin, password $admin_password
     (change it), and create the people who'll use the site;
   - https://$site : the site;
-  - the control panel: ssh -L 8081:localhost:8081 <this machine>, then
-    http://localhost:8081, signed in as akadmin.
+  - the control panel, later: same address as the setup page, signed in as
+    akadmin.
 If something's off: docker compose run --rm --no-deps overfin -check
 EOF

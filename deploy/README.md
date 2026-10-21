@@ -24,14 +24,12 @@ cd overfin-gateway/deploy
 docker compose up -d
 ```
 
-`setup.sh` asks for the two names, your site's name, Jellyfin's address and
-API key, and your email. Jellyfin's address is the one Overfin's container
-reaches it by: its address on your network, never `localhost` (inside the
-container, that's Overfin itself), even when Jellyfin runs on this machine. Before writing
-anything, it shows a summary, with where each name points, to confirm.
-Made a mistake? Run `./setup.sh` again: it asks the same questions with
-your answers as defaults and keeps every secret; then `docker compose up -d`. It generates every secret into `.env` (readable by
-you only: keep a copy somewhere safe) and writes `overfin.toml`. The site
+`setup.sh` asks for the two names, your site's name and your email. Before
+writing anything, it shows a summary, with where each name points, to
+confirm. It generates every secret into `.env` (readable by you only: keep
+a copy somewhere safe) and writes `overfin.toml`. Made a mistake? Run
+`./setup.sh` again: it asks the same questions with your answers as
+defaults and keeps every secret; then `docker compose up -d`. The site
 people use is overfin-web, Overfin's own web client, served by Overfin
 itself; to serve your own client instead, see `[site]` in Overfin's
 README.
@@ -42,12 +40,21 @@ instead.
 
 After a minute or two:
 
-1. **Sign in at `https://auth.example.org`** as `akadmin`, with the password
+1. **Connect Jellyfin**, in Overfin's setup page, on the control panel's
+   address (see below: `ssh -L 8081:localhost:8081 your-server`, then
+   `http://localhost:8081`). It asks for the setup code, printed in
+   `docker compose logs overfin`, Jellyfin's address and an API key made in
+   its dashboard. Jellyfin's address is the one Overfin's container reaches
+   it by: its address on your network, never `localhost` (inside the
+   container, that's Overfin itself). Everything is tested before it's
+   saved, and Overfin starts right after. Until then, the site says it's
+   being set up.
+2. **Sign in at `https://auth.example.org`** as `akadmin`, with the password
    `setup.sh` printed (it's also `AUTHENTIK_BOOTSTRAP_PASSWORD` in `.env`).
    Change it, and set up a second factor if you like.
-2. **Create the people** who'll use the site, in Authentik's *Directory →
+3. **Create the people** who'll use the site, in Authentik's *Directory →
    Users*, or switch on Overfin's invitations.
-3. **Open `https://example.org`** and log in.
+4. **Open `https://example.org`** and log in.
 
 ## The control panel
 

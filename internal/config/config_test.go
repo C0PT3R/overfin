@@ -379,3 +379,18 @@ func TestSite(t *testing.T) {
 		}
 	}
 }
+
+func TestJellyfinBothOrNeither(t *testing.T) {
+	noJellyfin := strings.Replace(goodFile, "[jellyfin]\nurl = \"http://192.0.2.10:8096\"\n", "", 1)
+	withoutKey := map[string]string{"OVERFIN_SECRET_KEY": testKey}
+	// Neither: the setup page asks for both.
+	if cfg, err := Load(writeFile(t, noJellyfin), env(withoutKey)); err != nil || cfg.Jellyfin.URL != "" {
+		t.Errorf("neither: %v", err)
+	}
+	if _, err := Load(writeFile(t, goodFile), env(withoutKey)); err == nil || !strings.Contains(err.Error(), "set both, or neither") {
+		t.Errorf("address without key: %v", err)
+	}
+	if _, err := Load(writeFile(t, noJellyfin), env(goodEnv())); err == nil || !strings.Contains(err.Error(), "set both, or neither") {
+		t.Errorf("key without address: %v", err)
+	}
+}

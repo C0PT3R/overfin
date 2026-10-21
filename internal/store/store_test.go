@@ -476,3 +476,38 @@ func TestAccountTemplates(t *testing.T) {
 		t.Errorf("deleting an unused template: %v", err)
 	}
 }
+
+func TestJellyfinSettings(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "test.db")
+	box, _ := seal.New(bytes.Repeat([]byte{9}, 32))
+	s, err := Open(ctx, path, box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, _, ok, err := s.Jellyfin(ctx); ok || err != nil {
+		t.Fatalf("before setup: ok %v, err %v", ok, err)
+	}
+	if err := s.SetJellyfin(ctx, "http://192.0.2.10:8096", "admin-key"); err != nil {
+		t.Fatal(err)
+	}
+	url, key, ok, err := s.Jellyfin(ctx)
+	if !ok || err != nil || url != "http://192.0.2.10:8096" || key != "admin-key" {
+		t.Errorf("after setup: %q %q %v %v", url, key, ok, err)
+	}
+	// The key is sealed: never stored as is.
+	var raw []byte
+	s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'jellyfin-key'`).Scan(&raw)
+	if bytes.Contains(raw, []byte("admin-key")) {
+		t.Error("Jellyfin's key is stored in clear")
+	}
+	// Read-only, for -check; another secret key can't read it.
+	if _, key, ok, err := ReadJellyfin(ctx, path, box); !ok || err != nil || key != "admin-key" {
+		t.Errorf("read-only: %q %v %v", key, ok, err)
+	}
+	other, _ := seal.New(bytes.Repeat([]byte{8}, 32))
+	if _, _, _, err := ReadJellyfin(ctx, path, other); err == nil {
+		t.Error("another secret key read Jellyfin's key")
+	}
+}

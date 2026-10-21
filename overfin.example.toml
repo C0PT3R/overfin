@@ -20,7 +20,9 @@ listen = ":8080"
 
 [jellyfin]
 # Where Overfin reaches Jellyfin. Jellyfin itself must not be reachable from
-# the internet.
+# the internet. With OVERFIN_JELLYFIN_ADMIN_KEY, or neither: then the control
+# panel's setup page asks for both, with a one-time code from the log, tests
+# them and keeps them in the database (the key sealed).
 url = "http://192.0.2.10:8096"
 
 [identity]
