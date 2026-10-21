@@ -273,9 +273,11 @@ provider.
    without a restart. ~~Changing Jellyfin from the panel later~~ done: a
    new address or key for the same server (its server ID is checked:
    another server has none of the users behind the profiles), tested and
-   applied at once. Next: the identity provider and the site address (with the compose bundle,
-   `setup.sh` already gives Caddy and Authentik those, so it writes them
-   for Overfin too).
+   applied at once. The identity provider and the site address stay in
+   the configuration: with the compose bundle, `setup.sh` gives Caddy and
+   Authentik those anyway and writes them for Overfin too, and by hand the
+   page could verify neither the client secret nor the reverse proxy's
+   address.
 4. ~~**Overfin serves the site itself**~~ Done: the core serves the site
    its build includes; the official build bundles overfin-web (the former
    demo site, now
