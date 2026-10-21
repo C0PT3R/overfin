@@ -93,7 +93,7 @@ Jellyfin server, using only the public API.
 1. ~~Configuration reload without restart.~~ Done: SIGHUP.
 2. ~~Adoption extras.~~ Done: claiming is a one-way move by default
    (opaque name, lock-down, new password), or "link" for a transition, moved
-   later (now from the migration module's tab). No matching by name or email: only the
+   later (now from migration's tab). No matching by name or email: only the
    username and password prove an account.
 3. ~~Kids profiles (rating ceilings enforced by Jellyfin) and PINs.~~ Done.
 4. ~~Step-up for destructive actions.~~ Done, over OpenID Connect: changing
@@ -102,40 +102,30 @@ Jellyfin server, using only the public API.
 5. ~~A minimal demo site in plain HTML and JavaScript.~~ Done; it has
    since become overfin-web ([its own repository](https://github.com/C0PT3R/overfin-web)).
 
-## Next: the core and its modules
+## The core and its features
 
-Overfin is becoming more than a gateway, so it splits in two: a small
-**gateway core** that stays the security boundary (the server and its
-guards, identity, sessions and step-up, accounts and profiles, access to the
-media backend as a profile, the module system), and **modules** grafted onto
-it (library, playback, watchlist, invites, catalog, requests, lists…). The
-core never imports a module.
+Overfin is one program: a **core** that stays the security boundary (the
+server and its guards, identity, sessions and step-up, accounts and
+profiles, access to the media backend as a profile), and **features** on top
+(library, playback, watchlist, invites, migration, later the catalog and
+requests). Everything is built in: nothing is added or loaded while
+running. Pluggable modules that others could write, with custom builds, were
+the plan for a while and were dropped: every Overfin offers the same
+features, so every app can count on them.
 
-Modules are compiled in, the way Caddy's are: the official build includes
-the official modules; an operator who wants their own builds Overfin with a
-few-line `main.go` that adds it. Nothing is ever loaded while running. The
-module API becomes a public, versioned promise. Official modules carry
-Overfin's guarantees; a third-party module is its developer's
-responsibility, as with any program, and the operator's for running it.
-
-1. ~~The module contract~~ (the `module` package): routes behind the
-   core's guards, the calling profile, the backend as that profile only
-   (never the admin key), the module's own tables and migrations, problems,
+1. ~~The feature contract~~ (`internal/feature`): routes behind the core's
+   guards, the calling profile, the backend as that profile only (never
+   the admin key), the feature's own tables and migrations, problems,
    logging, and a hook for the data export. Since: control panel tabs and
-   routes, module settings, account gates, visitor routes, setup offers
-   and invitation links.
-2. ~~The watchlist moved onto it, as the pilot~~ (`modules/watchlist`,
-   built only on the public contract); then library and playback.
-2b. ~~Overfin's startup as an importable package
-   (`overfin.Main(modules…)`), so an operator's own build is a few
-   lines.~~ Done.
-3. ~~Invites, the first module written against the contract.~~ Done,
-   after migration.
-4. ~~A "Writing a module" guide with a small example.~~ Done:
-   [MODULES.md](MODULES.md), with an example compiled and tested with
-   Overfin.
+   routes, settings, account gates, visitor routes, setup offers and
+   invitation links.
+2. ~~The watchlist on it, as the pilot~~; then migration and invites.
+   Library and playback stay in the core.
+3. ~~Everything built in~~ Done: no custom builds and no public module
+   contract anymore. Library, playback and the watchlist are always on;
+   invites and migration are switched in the control panel.
 
-**Media backends as modules.** The backend becomes an interface written in
+**Media backends behind an interface.** The backend becomes an interface written in
 terms of what Overfin needs, with each backend declaring what it can do;
 Overfin fails closed (a backend that can't enforce a rating ceiling offers
 no kids profiles). Jellyfin 12 is extracted as the first implementation, the
@@ -149,18 +139,18 @@ across all. Item IDs are ready for it: `item_<id>` means the default
 backend, and any other backend's IDs will name it (`item_<backend>_<id>`), so
 nothing stored today ever breaks.
 
-**The core has authority over modules**, like a kernel: a module talks only
-to the core (never to another module, the media server or the core's data),
-and what several modules need becomes a core service. **Overfin's own
+**The core has authority over features**, like a kernel: a feature talks
+only to the core (never to another feature, the media server or the core's
+data), and what several features need becomes a core service. **Overfin's own
 catalog** of titles (stable TMDB or IMDb IDs, metadata, ratings normalized
 through TMDB's certifications for the operator's country) is the first such
-service: kids limits, the TMDB catalog module, requests, the watchlist's
+service: kids limits, the TMDB catalog, requests, the watchlist's
 titles not in the library and federation all rest on it, fed by Jellyfin's
 data and enriched by TMDB when the operator gives a key. ~~A database per
-module~~ Done: each module has its own SQLite file, so it only ever sees
-its own tables and reaches the core's data through its host; the core
-tells modules of deleted profiles and accounts (`module.Forgetter`), and
-existing installs' module tables moved there once.
+feature~~ Done: each one on the contract has its own SQLite file, so it
+only ever sees its own tables and reaches the core's data through its host;
+the core tells them of deleted profiles and accounts (`feature.Forgetter`),
+and existing installs' tables moved there once.
 
 **Connectors to sibling tools**, later: for example Stewarr (storage
 intelligence for the *arr stack), which could read what Overfin knows
@@ -193,18 +183,18 @@ Everything is off by default.
    PIN-lock resets, sessions.~~ Done, with labels; real names come with a
    connector.
 2c. ~~Account templates~~ Done: what an account may do (streams,
-   profiles; later, which modules), followed live, so editing a template
+   profiles; later, which features), followed live, so editing a template
    changes every account on it. A Default exists from the start, so
    accounts can be opened at once; it starts minimal, is edited like any
    other, and only can't be deleted. Operators make their own. Access length stays individual. A template only sets
    how many profiles an account may have: every account starts with its
    owner profile alone, never a kids one, and its owner creates the rest.
-2d. ~~Migration as a module~~ Done (`migration`): bringing old accounts and
+2d. ~~Migration as a feature of its own~~ Done (`migration`): bringing old accounts and
    their history over, the same on every backend. Claiming an old account
    with its username and password (move or link), and moving linked
    accounts from its own panel tab. How an existing user is checked and
    adopted is the backend's capability (Jellyfin has it); a backend without
-   it makes the module say so instead of offering it. A new server, or one
+   it makes migration say so instead of offering it. A new server, or one
    done migrating, simply doesn't use it. An old account is one person and
    one history: migrating it creates the account with its owner profile
    only (Jellyfin and Emby have no profiles to bring). Later:
@@ -212,7 +202,7 @@ Everything is off by default.
    exported from whatever tool the operator used): one single-use invite
    per old account, tied to it, so receiving the email is the proof and no
    old password is needed. Overfin integrates with no user manager.
-3. ~~Invites~~ Done (the `invites` module): made in the panel from invite
+3. ~~Invites~~ Done (`invites`): made in the panel from invite
    templates (an account template, how long access lasts, how long the
    link works, how many uses), each for someone; the link is shown once
    and only its hash kept. Opening it keeps the invitation in a cookie,
@@ -252,12 +242,8 @@ what makes it worth running: the control panel never on the internet,
 Jellyfin never exposed, HTTPS required, passwords only ever at the identity
 provider.
 
-1. **Releases, with a ready-made image** (done, waiting for the first
-   version tag): signed, multi-architecture, on
-   GitHub's registry, holding the core and the official modules (each off
-   until switched on). Custom builds stay as easy: a builder image takes a
-   list of modules (`--build-arg MODULES=…`), writes the few lines of
-   `main.go` and compiles, like `xcaddy`.
+1. ~~**Releases, with a ready-made image**~~ Done: signed,
+   multi-architecture, on GitHub's registry, with every feature built in.
 2. **The identity provider made easy**: ~~an Authentik blueprint and a
    compose bundle~~ done ([deploy/](deploy)): Overfin, Caddy and Authentik
    in one compose, Authentik set up by a blueprint (login client, a login
@@ -317,14 +303,14 @@ own do), so a title looks the same wherever it is.
    episode numbers; an item with none keeps an ID tied to its server), and
    stored in Overfin's database. Listings, search, filters and counts become
    queries on it, so pages and cursors stay right whatever the rules hide;
-   Jellyfin is asked for streams and images only. The library module changes
+   Jellyfin is asked for streams and images only. The library changes
    the most.
 2. **Personal data in Overfin, for every title:** resume points, watched
    marks and counts, favorites, personal ratings, history, and titles
    hidden from "Continue Watching", kept by title, so the same film on two
    servers has one state. Overfin computes "Continue Watching", "Next Up"
    and the unwatched filters. Jellyfin's existing data comes over once,
-   through the migration module. History belongs to its profile: only its
+   through migration. History belongs to its profile: only its
    owner sees it, never admins; it's in the data download, its owner can
    clear it, and it goes with the profile (a new SECURITY.md rule).
 3. **Overfin enforces the rules**, on the catalog, for every title wherever

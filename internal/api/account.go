@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 	"github.com/C0PT3R/overfin-gateway/internal/identity"
 	"github.com/C0PT3R/overfin-gateway/internal/images"
 	"github.com/C0PT3R/overfin-gateway/internal/pin"
@@ -14,7 +15,6 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/problem"
 	"github.com/C0PT3R/overfin-gateway/internal/provision"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
-	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 // Account serves the current account.
@@ -95,7 +95,7 @@ func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store
 // accountResult maps provisioning results to the API. Errors never carry
 // details.
 func accountResult(w http.ResponseWriter, sessions *Sessions, logger *slog.Logger, acct *store.Account, prof *store.Profile, err error, status int) {
-	var refusal *module.Refusal // a module refused the account
+	var refusal *feature.Refusal // a module refused the account
 	switch {
 	case err == nil:
 		w.Header().Set("Content-Type", "application/json")

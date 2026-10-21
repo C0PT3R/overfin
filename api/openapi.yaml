@@ -142,7 +142,7 @@ paths:
       description: |
         On the first visit, this creates the account, its owner profile and
         the matching media server user. When the operator offers bringing an
-        existing account (the migration module), it doesn't: it answers
+        existing account (migration), it doesn't: it answers
         `account-setup-required` with a `claim` member, and the site offers
         to start fresh (`POST /me`) or to bring an existing account
         (`POST /me/claim`).
@@ -243,7 +243,7 @@ paths:
       operationId: claimAccount
       summary: Bring an existing media server account, with its history
       description: |
-        Only when the operator switches the migration module on. The username
+        Only when the operator switches migration on. The username
         and password of
         the existing Jellyfin account prove ownership; the password is used
         for that one check and never stored or logged. Administrator accounts
@@ -309,7 +309,7 @@ paths:
       operationId: openInvitation
       summary: Where an invitation link leads
       description: |
-        Only when the operator switches the invites module on. Invitation
+        Only when the operator switches invitations on. Invitation
         links are made in the control panel and point here; sites never
         call it themselves. A working invitation is kept in a cookie for a
         day, and the browser is sent to the site, where logging in and

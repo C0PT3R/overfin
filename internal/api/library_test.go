@@ -22,8 +22,10 @@ import (
 
 	"github.com/C0PT3R/overfin-gateway/internal/api"
 	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 	"github.com/C0PT3R/overfin-gateway/internal/identity"
 	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/migration"
 	"github.com/C0PT3R/overfin-gateway/internal/oidc"
 	"github.com/C0PT3R/overfin-gateway/internal/pin"
 	"github.com/C0PT3R/overfin-gateway/internal/playback"
@@ -33,9 +35,7 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/server"
 	"github.com/C0PT3R/overfin-gateway/internal/site"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
-	"github.com/C0PT3R/overfin-gateway/module"
-	"github.com/C0PT3R/overfin-gateway/modules/migration"
-	"github.com/C0PT3R/overfin-gateway/modules/watchlist"
+	"github.com/C0PT3R/overfin-gateway/internal/watchlist"
 	web "github.com/C0PT3R/overfin-web"
 )
 
@@ -228,7 +228,7 @@ type options struct {
 	provider *oidc.Provider
 	login    bool
 	// modules are extra modules to mount, as an operator's build would.
-	modules []module.Module
+	modules []feature.Feature
 	// settings are the modules' settings, by module name.
 	settings map[string]map[string]string
 	// admin, when set, receives the modules' control panel routes.
@@ -309,7 +309,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	// mounts them, each with a database of its own; migration brings
 	// accounts over in "move" mode.
 	dbs := map[string]*sql.DB{}
-	moduleDB := func(m module.Module) *sql.DB {
+	moduleDB := func(m feature.Feature) *sql.DB {
 		db, err := store.OpenModule(context.Background(), m.Info().Name,
 			filepath.Join(t.TempDir(), m.Info().Name+".db"), m.Info().Migrations)
 		if err != nil {
@@ -319,10 +319,10 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		dbs[m.Info().Name] = db
 		return db
 	}
-	all := append([]module.Module{watchlist.Module{}, migration.Module{}}, o.modules...)
+	all := append([]feature.Feature{watchlist.Feature{}, migration.Feature{}}, o.modules...)
 	mounts := []api.Mount{
-		{Module: watchlist.Module{}, Library: lib, DB: moduleDB(watchlist.Module{}), Logger: logger},
-		{Module: migration.Module{}, Library: lib, DB: moduleDB(migration.Module{}), Logger: logger, Settings: map[string]string{"mode": "move"}},
+		{Module: watchlist.Feature{}, Library: lib, DB: moduleDB(watchlist.Feature{}), Logger: logger},
+		{Module: migration.Feature{}, Library: lib, DB: moduleDB(migration.Feature{}), Logger: logger, Settings: map[string]string{"mode": "move"}},
 	}
 	for _, m := range o.modules {
 		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: moduleDB(m), Logger: logger,
@@ -794,13 +794,13 @@ func TestPerson(t *testing.T) {
 // testForgetter tells the modules of deleted profiles and accounts, as the
 // real program does.
 type testForgetter struct {
-	modules []module.Module
+	modules []feature.Feature
 	dbs     map[string]*sql.DB
 }
 
 func (f testForgetter) ForgetProfiles(ctx context.Context, ids []string) {
 	for _, m := range f.modules {
-		if mf, ok := m.(module.Forgetter); ok {
+		if mf, ok := m.(feature.Forgetter); ok {
 			mf.ForgetProfiles(ctx, f.dbs[m.Info().Name], ids)
 		}
 	}
@@ -808,7 +808,7 @@ func (f testForgetter) ForgetProfiles(ctx context.Context, ids []string) {
 
 func (f testForgetter) ForgetAccount(ctx context.Context, id string) {
 	for _, m := range f.modules {
-		if mf, ok := m.(module.Forgetter); ok {
+		if mf, ok := m.(feature.Forgetter); ok {
 			mf.ForgetAccount(ctx, f.dbs[m.Info().Name], id)
 		}
 	}

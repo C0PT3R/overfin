@@ -10,17 +10,34 @@ import (
 	"regexp"
 
 	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
+	"github.com/C0PT3R/overfin-gateway/internal/invites"
+	"github.com/C0PT3R/overfin-gateway/internal/migration"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
-	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/internal/watchlist"
 )
 
-// modules are the modules compiled into this build, given to Main.
-var modules []module.Module
+// modules are Overfin's features built on the internal feature contract,
+// each in a package of its own, with its own database.
+var modules = []feature.Feature{
+	invites.Feature{},
+	migration.Feature{},
+	watchlist.Feature{},
+}
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
 
-// registerModules makes the modules known to the configuration, so
-// operators can switch them on. It runs before the configuration loads.
+// The features are built in, so they're known to the configuration from the
+// start, before anything loads it. A mistake in their names is Overfin's
+// own, caught by any test.
+func init() {
+	if err := registerModules(); err != nil {
+		panic(err)
+	}
+}
+
+// registerModules makes the features known to the configuration, so
+// operators can switch them on.
 func registerModules() error {
 	for _, m := range modules {
 		info := m.Info()
@@ -93,7 +110,7 @@ type forgetter struct {
 
 func (f forgetter) ForgetProfiles(ctx context.Context, profileIDs []string) {
 	for _, m := range modules {
-		if mf, ok := m.(module.Forgetter); ok {
+		if mf, ok := m.(feature.Forgetter); ok {
 			if err := mf.ForgetProfiles(ctx, f.dbs[m.Info().Name], profileIDs); err != nil {
 				f.logger.Error("a module couldn't forget deleted profiles", "module", m.Info().Name, "err", err)
 			}
@@ -103,7 +120,7 @@ func (f forgetter) ForgetProfiles(ctx context.Context, profileIDs []string) {
 
 func (f forgetter) ForgetAccount(ctx context.Context, accountID string) {
 	for _, m := range modules {
-		if mf, ok := m.(module.Forgetter); ok {
+		if mf, ok := m.(feature.Forgetter); ok {
 			if err := mf.ForgetAccount(ctx, f.dbs[m.Info().Name], accountID); err != nil {
 				f.logger.Error("a module couldn't forget a deleted account", "module", m.Info().Name, "err", err)
 			}

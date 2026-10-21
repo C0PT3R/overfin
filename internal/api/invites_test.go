@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0PT3R/overfin-gateway/module"
-	"github.com/C0PT3R/overfin-gateway/modules/invites"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
+	"github.com/C0PT3R/overfin-gateway/internal/invites"
 )
 
 // The invites module: a link from the panel opens the way to an account,
@@ -19,7 +19,7 @@ import (
 func TestInvites(t *testing.T) {
 	var tmpl string
 	panel := http.NewServeMux()
-	srv, fake := newServerWith(t, options{modules: []module.Module{invites.Module{}}, template: &tmpl, admin: panel,
+	srv, fake := newServerWith(t, options{modules: []feature.Feature{invites.Feature{}}, template: &tmpl, admin: panel,
 		settings: map[string]map[string]string{"invites": {"required": "on"}}})
 	admin := func(method, path string, body any) (int, map[string]any) {
 		b, _ := json.Marshal(body)

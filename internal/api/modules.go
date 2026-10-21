@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/C0PT3R/overfin-gateway/internal/creation"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 	"github.com/C0PT3R/overfin-gateway/internal/identity"
 	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
 	"github.com/C0PT3R/overfin-gateway/internal/library"
@@ -19,14 +20,13 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/problem"
 	"github.com/C0PT3R/overfin-gateway/internal/provision"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
-	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 // Mount grafts a module onto the core: its routes go through the same
 // registrar, and so the same guards, as the core's own, and each request
 // reaches it as the calling profile.
 type Mount struct {
-	Module  module.Module
+	Module  feature.Feature
 	Library Library
 	DB      *sql.DB
 	Logger  *slog.Logger
@@ -48,7 +48,7 @@ func (m Mount) Register(r *plugin.Registrar) error {
 	return m.Module.Setup(&host{mount: m, reg: r})
 }
 
-// host is the core's side of module.Host.
+// host is the core's side of feature.Host.
 type host struct {
 	mount Mount
 	reg   *plugin.Registrar
@@ -60,14 +60,14 @@ func (h *host) Setting(key string) string { return h.mount.Settings[key] }
 
 func (h *host) SiteURL() string { return h.mount.SiteURL }
 
-func (h *host) Templates(ctx context.Context) ([]module.AccountTemplate, error) {
+func (h *host) Templates(ctx context.Context) ([]feature.AccountTemplate, error) {
 	ts, err := h.mount.Library.Provisioner.Store.Templates(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]module.AccountTemplate, len(ts))
+	out := make([]feature.AccountTemplate, len(ts))
 	for i, t := range ts {
-		out[i] = module.AccountTemplate{ID: t.ID, Name: t.Name, MaxStreams: t.MaxStreams, MaxProfiles: t.MaxProfiles}
+		out[i] = feature.AccountTemplate{ID: t.ID, Name: t.Name, MaxStreams: t.MaxStreams, MaxProfiles: t.MaxProfiles}
 	}
 	return out, nil
 }
@@ -77,7 +77,7 @@ func (h *host) HandleLink(pattern string, fn http.HandlerFunc) error {
 }
 
 // Adoption is Jellyfin's: it can bring its existing users over.
-func (h *host) Adoption() module.Adoption { return adoption{h.mount.Library.Provisioner} }
+func (h *host) Adoption() feature.Adoption { return adoption{h.mount.Library.Provisioner} }
 
 type adoption struct{ prov *provision.Provisioner }
 
@@ -109,7 +109,7 @@ func (h *host) HandleAdmin(pattern string, fn http.HandlerFunc) error {
 	return nil
 }
 
-func (h *host) Handle(pattern string, fn module.Handler) error {
+func (h *host) Handle(pattern string, fn feature.Handler) error {
 	l := h.mount.Library
 	return h.reg.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		c := l.Sessions.Current(w, r)
@@ -120,7 +120,7 @@ func (h *host) Handle(pattern string, fn module.Handler) error {
 	})
 }
 
-func (h *host) HandleVisitor(pattern string, fn module.VisitorHandler) error {
+func (h *host) HandleVisitor(pattern string, fn feature.VisitorHandler) error {
 	l := h.mount.Library
 	return h.reg.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		id, _ := identity.FromContext(r.Context()) // the registrar guarantees one
@@ -136,7 +136,7 @@ func (h *host) HandleVisitor(pattern string, fn module.VisitorHandler) error {
 	})
 }
 
-// visitor is the core's side of module.Visitor.
+// visitor is the core's side of feature.Visitor.
 type visitor struct {
 	mount Mount
 	r     *http.Request
@@ -163,7 +163,7 @@ var offerName = regexp.MustCompile(`^[a-z][A-Za-z0-9]{0,31}$`)
 func SetupOffers(mounts []Mount) (map[string]string, error) {
 	offers := map[string]string{}
 	for _, m := range mounts {
-		so, ok := m.Module.(module.SetupOffer)
+		so, ok := m.Module.(feature.SetupOffer)
 		if !ok {
 			continue
 		}
@@ -183,8 +183,8 @@ func SetupOffers(mounts []Mount) (map[string]string, error) {
 }
 
 // CallerFor is the module's view of a caller.
-func CallerFor(l Library, c *Caller) *module.Caller {
-	return &module.Caller{
+func CallerFor(l Library, c *Caller) *feature.Caller {
+	return &feature.Caller{
 		AccountID: c.Account.ID, ProfileID: c.Profile.ID, Kind: c.Profile.Kind, Owner: c.IsOwner(),
 		Backend: profileBackend{l: l, p: c.Profile},
 	}
@@ -197,33 +197,33 @@ type profileBackend struct {
 	p *store.Profile
 }
 
-func (b profileBackend) Item(ctx context.Context, id string) (module.Item, error) {
+func (b profileBackend) Item(ctx context.Context, id string) (feature.Item, error) {
 	jfID, ok := library.Unwrap(library.ItemPrefix, id)
 	if !ok {
-		return module.Item{}, module.ErrNotFound
+		return feature.Item{}, feature.ErrNotFound
 	}
 	raw, err := b.l.Jellyfin.Item(ctx, auth(b.p), b.p.JellyfinUserID, jfID)
 	if jellyfin.IsStatus(err, http.StatusNotFound) {
-		return module.Item{}, module.ErrNotFound
+		return feature.Item{}, feature.ErrNotFound
 	}
 	if err != nil {
-		return module.Item{}, err
+		return feature.Item{}, err
 	}
 	s, ok := library.Summary(raw)
 	if !ok {
-		return module.Item{}, module.ErrNotFound
+		return feature.Item{}, feature.ErrNotFound
 	}
 	return s, nil
 }
 
-func (b profileBackend) Items(ctx context.Context, ids []string) ([]module.Item, error) {
+func (b profileBackend) Items(ctx context.Context, ids []string) ([]feature.Item, error) {
 	var jfIDs []string
 	for _, id := range ids {
 		if jfID, ok := library.Unwrap(library.ItemPrefix, id); ok {
 			jfIDs = append(jfIDs, jfID)
 		}
 	}
-	out := []module.Item{}
+	out := []feature.Item{}
 	for start := 0; start < len(jfIDs); start += 100 {
 		raw, err := b.l.Jellyfin.ItemsByID(ctx, auth(b.p), b.p.JellyfinUserID, jfIDs[start:min(start+100, len(jfIDs))])
 		if err != nil {
@@ -241,7 +241,7 @@ func (b profileBackend) Items(ctx context.Context, ids []string) ([]module.Item,
 // Export asks the module, if it holds data about profiles, for this
 // caller's: ok is false when it holds none.
 func (m Mount) Export(ctx context.Context, c *Caller) (data any, ok bool, err error) {
-	ex, ok := m.Module.(module.Exporter)
+	ex, ok := m.Module.(feature.Exporter)
 	if !ok {
 		return nil, false, nil
 	}
@@ -255,14 +255,14 @@ func (m Mount) Export(ctx context.Context, c *Caller) (data any, ok bool, err er
 func creationHooks(r *http.Request, mounts []Mount, prov *provision.Provisioner) *provision.Hooks {
 	type say struct {
 		mount Mount
-		gate  module.AccountGate
-		plan  *module.AccountPlan
+		gate  feature.AccountGate
+		plan  *feature.AccountPlan
 	}
 	var said []say
 	return &provision.Hooks{
 		Before: func(ctx context.Context) error {
 			for _, m := range mounts {
-				g, ok := m.Module.(module.AccountGate)
+				g, ok := m.Module.(feature.AccountGate)
 				if !ok {
 					continue
 				}
@@ -295,7 +295,7 @@ func creationHooks(r *http.Request, mounts []Mount, prov *provision.Provisioner)
 
 // applyPlan shapes a new account: its template, when its access ends, and
 // its label.
-func applyPlan(ctx context.Context, db *store.Store, accountID string, plan *module.AccountPlan) error {
+func applyPlan(ctx context.Context, db *store.Store, accountID string, plan *feature.AccountPlan) error {
 	if plan.Template != "" {
 		if err := db.SetAccountTemplate(ctx, accountID, plan.Template); err != nil {
 			return fmt.Errorf("plan: template %q: %w", plan.Template, err)

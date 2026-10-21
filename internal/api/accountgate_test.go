@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 )
 
 // gate is a module with a say in creating accounts: it wants an
@@ -21,17 +21,17 @@ type gate struct {
 	failAfter bool
 }
 
-func (*gate) Info() module.Info       { return module.Info{Name: "gate"} }
-func (*gate) Setup(module.Host) error { return nil }
+func (*gate) Info() feature.Info       { return feature.Info{Name: "gate"} }
+func (*gate) Setup(feature.Host) error { return nil }
 
-func (g *gate) NewAccount(_ context.Context, _ module.Host, r *http.Request) (*module.AccountPlan, error) {
+func (g *gate) NewAccount(_ context.Context, _ feature.Host, r *http.Request) (*feature.AccountPlan, error) {
 	if r.Header.Get("X-Invitation") != "yes" {
-		return nil, &module.Refusal{Type: module.InvitationRequired}
+		return nil, &feature.Refusal{Type: feature.InvitationRequired}
 	}
-	return &module.AccountPlan{Label: "Bob", Ref: "inv-1", Template: g.template}, nil
+	return &feature.AccountPlan{Label: "Bob", Ref: "inv-1", Template: g.template}, nil
 }
 
-func (g *gate) AccountCreated(_ context.Context, _ module.Host, _ *http.Request, id string, plan *module.AccountPlan) error {
+func (g *gate) AccountCreated(_ context.Context, _ feature.Host, _ *http.Request, id string, plan *feature.AccountPlan) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.failAfter {
@@ -43,7 +43,7 @@ func (g *gate) AccountCreated(_ context.Context, _ module.Host, _ *http.Request,
 
 func TestAccountGate(t *testing.T) {
 	g := &gate{}
-	srv, _ := newServerWith(t, options{modules: []module.Module{g}, template: &g.template})
+	srv, _ := newServerWith(t, options{modules: []feature.Feature{g}, template: &g.template})
 	const newcomer = "newcomer"
 	ask := func(method, path string, invited bool) (int, string) {
 		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader("{}"))

@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 )
 
 //go:embed migrations/*.sql
@@ -27,11 +27,11 @@ var files embed.FS
 const Max = 1000
 
 // Module is the watchlist module.
-type Module struct{}
+type Feature struct{}
 
-func (Module) Info() module.Info {
+func (Feature) Info() feature.Info {
 	migrations, _ := fs.Sub(files, "migrations")
-	return module.Info{
+	return feature.Info{
 		Name:        "watchlist",
 		Needs:       []string{"library"},
 		Description: "Each profile's own list of movies, shows, seasons and episodes to watch",
@@ -39,9 +39,9 @@ func (Module) Info() module.Info {
 	}
 }
 
-func (Module) Setup(h module.Host) error {
+func (Feature) Setup(h feature.Host) error {
 	w := handlers{db: h.DB(), log: h.Logger()}
-	for pattern, fn := range map[string]module.Handler{
+	for pattern, fn := range map[string]feature.Handler{
 		"GET /api/v1/me/watchlist":         w.list,
 		"GET /api/v1/me/watchlist/{id}":    w.has,
 		"PUT /api/v1/me/watchlist/{id}":    w.add,
@@ -55,7 +55,7 @@ func (Module) Setup(h module.Host) error {
 }
 
 // ForgetProfiles deletes deleted profiles' watchlists.
-func (Module) ForgetProfiles(ctx context.Context, db *sql.DB, profileIDs []string) error {
+func (Feature) ForgetProfiles(ctx context.Context, db *sql.DB, profileIDs []string) error {
 	for _, id := range profileIDs {
 		if _, err := db.ExecContext(ctx, `DELETE FROM watchlist WHERE profile_id = ?`, id); err != nil {
 			return err
@@ -65,10 +65,10 @@ func (Module) ForgetProfiles(ctx context.Context, db *sql.DB, profileIDs []strin
 }
 
 // ForgetAccount has nothing to do: watchlists belong to profiles.
-func (Module) ForgetAccount(context.Context, *sql.DB, string) error { return nil }
+func (Feature) ForgetAccount(context.Context, *sql.DB, string) error { return nil }
 
 // Export includes the profile's watchlist in "Download my data".
-func (Module) Export(ctx context.Context, h module.Host, c *module.Caller) (any, error) {
+func (Feature) Export(ctx context.Context, h feature.Host, c *feature.Caller) (any, error) {
 	return items(ctx, h.DB(), c)
 }
 
@@ -100,7 +100,7 @@ func ids(ctx context.Context, db *sql.DB, profileID string) ([]string, error) {
 
 // items reads the watchlist's titles through the backend as the caller, in
 // the list's order: what the profile can't see, or what's gone, is left out.
-func items(ctx context.Context, db *sql.DB, c *module.Caller) ([]module.Item, error) {
+func items(ctx context.Context, db *sql.DB, c *feature.Caller) ([]feature.Item, error) {
 	list, err := ids(ctx, db, c.ProfileID)
 	if err != nil {
 		return nil, err
@@ -109,11 +109,11 @@ func items(ctx context.Context, db *sql.DB, c *module.Caller) ([]module.Item, er
 	if err != nil {
 		return nil, err
 	}
-	byID := map[string]module.Item{}
+	byID := map[string]feature.Item{}
 	for _, it := range found {
 		byID[it.ID] = it
 	}
-	out := []module.Item{}
+	out := []feature.Item{}
 	for _, id := range list {
 		if it, ok := byID[id]; ok {
 			out = append(out, it)
@@ -122,87 +122,87 @@ func items(ctx context.Context, db *sql.DB, c *module.Caller) ([]module.Item, er
 	return out, nil
 }
 
-func (w handlers) list(c *module.Caller, rw http.ResponseWriter, r *http.Request) {
+func (w handlers) list(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
 	out, err := items(r.Context(), w.db, c)
 	if err != nil {
 		w.log.Error("reading a watchlist failed", "err", err)
-		module.Problem(rw, module.Internal, "")
+		feature.Problem(rw, feature.Internal, "")
 		return
 	}
-	module.JSON(rw, map[string]any{"items": out})
+	feature.JSON(rw, map[string]any{"items": out})
 }
 
-func (w handlers) has(c *module.Caller, rw http.ResponseWriter, r *http.Request) {
-	id, ok := module.ItemID(r.PathValue("id"))
+func (w handlers) has(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
+	id, ok := feature.ItemID(r.PathValue("id"))
 	if !ok {
-		module.Problem(rw, module.NotFound, "")
+		feature.Problem(rw, feature.NotFound, "")
 		return
 	}
 	var one int
 	err := w.db.QueryRowContext(r.Context(), `SELECT 1 FROM watchlist WHERE profile_id = ? AND item_id = ?`, c.ProfileID, id).Scan(&one)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		module.Problem(rw, module.NotFound, "")
+		feature.Problem(rw, feature.NotFound, "")
 	case err != nil:
-		module.Problem(rw, module.Internal, "")
+		feature.Problem(rw, feature.Internal, "")
 	default:
-		module.NoContent(rw)
+		feature.NoContent(rw)
 	}
 }
 
-func (w handlers) add(c *module.Caller, rw http.ResponseWriter, r *http.Request) {
+func (w handlers) add(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	id, ok := module.ItemID(r.PathValue("id"))
+	id, ok := feature.ItemID(r.PathValue("id"))
 	if !ok {
-		module.Problem(rw, module.NotFound, "")
+		feature.Problem(rw, feature.NotFound, "")
 		return
 	}
 	// Only a title this profile can see, and only kinds one watches.
 	it, err := c.Backend.Item(ctx, id)
-	if errors.Is(err, module.ErrNotFound) {
-		module.Problem(rw, module.NotFound, "")
+	if errors.Is(err, feature.ErrNotFound) {
+		feature.Problem(rw, feature.NotFound, "")
 		return
 	} else if err != nil {
 		w.log.Error("looking up a title failed", "err", err)
-		module.Problem(rw, module.Internal, "")
+		feature.Problem(rw, feature.Internal, "")
 		return
 	}
 	if !watchable[it.Kind] {
-		module.Problem(rw, module.InvalidRequest, "only movies, shows, seasons, episodes and videos go on a watchlist")
+		feature.Problem(rw, feature.InvalidRequest, "only movies, shows, seasons, episodes and videos go on a watchlist")
 		return
 	}
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
-		module.Problem(rw, module.Internal, "")
+		feature.Problem(rw, feature.Internal, "")
 		return
 	}
 	defer tx.Rollback()
 	var n int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM watchlist WHERE profile_id = ?`, c.ProfileID).Scan(&n); err != nil {
-		module.Problem(rw, module.Internal, "")
+		feature.Problem(rw, feature.Internal, "")
 		return
 	}
 	if n >= Max {
-		module.Problem(rw, module.InvalidRequest, "the watchlist is full")
+		feature.Problem(rw, feature.InvalidRequest, "the watchlist is full")
 		return
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO watchlist (profile_id, item_id, added_at) VALUES (?, ?, ?)
 		ON CONFLICT DO NOTHING`, c.ProfileID, id, time.Now().Unix()); err != nil || tx.Commit() != nil {
-		module.Problem(rw, module.Internal, "")
+		feature.Problem(rw, feature.Internal, "")
 		return
 	}
-	module.NoContent(rw)
+	feature.NoContent(rw)
 }
 
-func (w handlers) remove(c *module.Caller, rw http.ResponseWriter, r *http.Request) {
-	id, ok := module.ItemID(r.PathValue("id"))
+func (w handlers) remove(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
+	id, ok := feature.ItemID(r.PathValue("id"))
 	if !ok {
-		module.Problem(rw, module.NotFound, "")
+		feature.Problem(rw, feature.NotFound, "")
 		return
 	}
 	if _, err := w.db.ExecContext(r.Context(), `DELETE FROM watchlist WHERE profile_id = ? AND item_id = ?`, c.ProfileID, id); err != nil {
-		module.Problem(rw, module.Internal, "")
+		feature.Problem(rw, feature.Internal, "")
 		return
 	}
-	module.NoContent(rw)
+	feature.NoContent(rw)
 }

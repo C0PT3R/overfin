@@ -234,7 +234,7 @@ comes from the internet, and media files can be written by anyone.
     on purpose, and pinned.
 
 ### Adoption
-60. Bringing an existing Jellyfin account (the migration module) is off by
+60. Bringing an existing Jellyfin account (migration) is off by
     default. When enabled, the account's password is used once to prove
     ownership and is never stored or logged; failed attempts are limited per user, and wrong usernames and
     wrong passwords get the same answer. Administrator accounts are never
@@ -251,20 +251,17 @@ comes from the internet, and media files can be written by anyone.
     concurrency and bounded caches, so a burst of requests can't exhaust the
     server's memory.
 
-### Modules
-62. Modules are compiled in; nothing is loaded while Overfin runs. A
-    module's routes go through the same registrar as the core's (no
-    catch-alls, a login required), it acts only as the calling profile (or,
-    on a visitor's route, can only have the core set the visitor's account
-    up), and it never gets the media server's admin key. That keeps well-behaved
-    modules safe, but it's a convention, not a sandbox: a module runs with
-    Overfin's full power. These rules cover the core and the official
-    modules; a third-party module is its developer's responsibility, and the
-    operator's for running it. The core has authority over modules, like a
-    kernel: a module talks only to the core, never to another module, the
-    media server or the core's own data (each module has a database of its
-    own, holding only its tables), and what modules share is a core service
-    the core governs. The core tells modules of deleted profiles and
+### Features
+62. Every feature is built in; nothing is added or loaded while Overfin
+    runs, and there's no way to plug code of one's own into it. Features
+    written on the internal feature contract (the watchlist, invitations,
+    migration) go through the same registrar as the rest (no catch-alls, a
+    login required), act only as the calling profile (or, on a visitor's
+    route, can only have Overfin set the visitor's account up), and never
+    get the media server's admin key. Each talks only to Overfin's core,
+    never to another feature, the media server or the core's own data: it
+    has a database of its own, holding only its tables, and what features
+    share is a core service. The core tells them of deleted profiles and
     accounts, and they delete what they hold about them.
 
 ### Invitations

@@ -1,20 +1,6 @@
-// Package overfin is Overfin's core: the gateway, ready to run with the
-// modules it's given.
-//
-// The official build (cmd/overfin) is Main with the official modules. An
-// operator's own build adds theirs:
-//
-//	package main
-//
-//	import (
-//		"github.com/C0PT3R/overfin-gateway"
-//		"github.com/C0PT3R/overfin-gateway/modules/watchlist"
-//		"example.org/mymodule"
-//	)
-//
-//	func main() { overfin.Main(watchlist.Module{}, mymodule.Module{}) }
-//
-// See the module package for writing one.
+// Package overfin is Overfin: the server between its apps and Jellyfin,
+// with every feature built in. The official build (cmd/overfin) runs it
+// with overfin-web, Overfin's own web client, as the site it serves.
 package overfin
 
 import (
@@ -44,7 +30,6 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/provision"
 	"github.com/C0PT3R/overfin-gateway/internal/seal"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
-	"github.com/C0PT3R/overfin-gateway/module"
 )
 
 // builtinSite is the web client this build includes, if any.
@@ -54,26 +39,11 @@ var builtinSite fs.FS
 // -ldflags "-X github.com/C0PT3R/overfin-gateway.Version=…".
 var Version = "dev"
 
-// Main runs Overfin with the given modules compiled in, and no site of its
-// own, and exits when it stops. Command-line flags are parsed here.
-func Main(mods ...module.Module) {
-	Run(Build{Modules: mods})
-}
-
-// Build is what a build of Overfin includes besides its core, the gateway.
-type Build struct {
-	// Modules are compiled in, each switched on or off in the control panel.
-	Modules []module.Module
-	// Site is the web client this build serves at the site's root, when the
-	// configuration leaves [site] serve at "builtin"; nil for none. The
-	// official build includes overfin-web.
-	Site fs.FS
-}
-
-// Run runs Overfin as b describes, and exits when it stops. Command-line
-// flags are parsed here.
-func Run(b Build) {
-	modules, builtinSite = b.Modules, b.Site
+// Run runs Overfin, serving site as its web client when the configuration
+// leaves [site] serve at "builtin" (nil for none), and exits when it stops.
+// Command-line flags are parsed here.
+func Run(site fs.FS) {
+	builtinSite = site
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); errors.Is(err, errCheckFailed) {
 		os.Exit(1) // what's wrong is already said, in plain words
@@ -120,9 +90,6 @@ func run(logger *slog.Logger) error {
 		"test the configuration, the secret key, Jellyfin and the identity provider, say what's wrong, then exit; changes nothing")
 	flag.Parse()
 
-	if err := registerModules(); err != nil {
-		return err
-	}
 	if *check {
 		return checkSetup(*configPath, os.Getenv, os.Stdout)
 	}

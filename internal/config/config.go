@@ -165,13 +165,18 @@ type Accounts struct {
 }
 
 type Plugins struct {
-	// Enable lists the plugins this instance offers. None are on by
-	// default: without any, Overfin only manages accounts and profiles.
+	// Enable lists the features switched on besides those always on.
 	Enable []string `toml:"enable" json:"enable"`
 }
 
-// KnownPlugins are the plugins an operator may enable, and what each one
-// needs enabled with it. Modules add themselves with RegisterPlugin.
+// AlwaysOn are the features every Overfin has. They can't be switched off,
+// and listing them in plugins.enable, as older settings do, changes
+// nothing.
+var AlwaysOn = []string{"library", "playback", "watchlist"}
+
+// KnownPlugins are Overfin's features, and what each one needs on with it.
+// The features built on the feature contract add themselves with
+// RegisterPlugin.
 var KnownPlugins = map[string][]string{
 	"library":  nil,
 	"playback": {"library"},
@@ -226,9 +231,9 @@ func RegisterPlugin(name string, needs []string, description string, settings []
 	PluginSettings[name] = settings
 }
 
-// Enabled reports whether the operator enabled a plugin.
+// Enabled reports whether a feature is on: always, or switched on.
 func (p Plugins) Enabled(name string) bool {
-	return slices.Contains(p.Enable, name)
+	return slices.Contains(AlwaysOn, name) || slices.Contains(p.Enable, name)
 }
 
 // Features are the settings the control panel switches on and off. They

@@ -27,7 +27,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 )
 
 //go:embed migrations/*.sql ui/panel.js
@@ -40,15 +40,15 @@ const cookieName = "__Host-overfin-invite"
 var codePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
 
 // Module is the invites module.
-type Module struct{}
+type Feature struct{}
 
-func (Module) Info() module.Info {
+func (Feature) Info() feature.Info {
 	migrations, _ := fs.Sub(files, "migrations")
 	ui, _ := fs.Sub(files, "ui")
-	return module.Info{
+	return feature.Info{
 		Name:        "invites",
 		Description: "Invitation links that let people set up an account, made from invite templates",
-		Settings: []module.Setting{{
+		Settings: []feature.Setting{{
 			Key:   "required",
 			Label: "Accounts only by invitation",
 			Hint:  "Without one, nobody can set up an account; bringing a previous account still works",
@@ -58,7 +58,7 @@ func (Module) Info() module.Info {
 	}
 }
 
-func (Module) Setup(h module.Host) error {
+func (Feature) Setup(h feature.Host) error {
 	a := admin{h: h, db: h.DB()}
 	if err := h.HandleLink("GET /api/v1/invite", a.open); err != nil {
 		return err
@@ -108,7 +108,7 @@ func (a admin) open(w http.ResponseWriter, r *http.Request) {
 
 // NewAccount shapes a new account by the visitor's invitation, or refuses
 // it when invitations are required and there's none.
-func (Module) NewAccount(ctx context.Context, h module.Host, r *http.Request) (*module.AccountPlan, error) {
+func (Feature) NewAccount(ctx context.Context, h feature.Host, r *http.Request) (*feature.AccountPlan, error) {
 	var inv *invite
 	if c, err := r.Cookie(cookieName); err == nil {
 		if inv, err = usable(ctx, h.DB(), c.Value); err != nil {
@@ -126,12 +126,12 @@ func (Module) NewAccount(ctx context.Context, h module.Host, r *http.Request) (*
 		}
 	}
 	if inv == nil {
-		if h.Setting("required") == "on" && !module.Adopting(ctx) {
-			return nil, &module.Refusal{Type: module.InvitationRequired}
+		if h.Setting("required") == "on" && !feature.Adopting(ctx) {
+			return nil, &feature.Refusal{Type: feature.InvitationRequired}
 		}
 		return nil, nil
 	}
-	plan := &module.AccountPlan{Template: inv.AccountTemplate, Label: inv.Label, Ref: inv.ID}
+	plan := &feature.AccountPlan{Template: inv.AccountTemplate, Label: inv.Label, Ref: inv.ID}
 	if inv.AccessDays > 0 {
 		plan.Expires = time.Now().AddDate(0, 0, inv.AccessDays)
 	}
@@ -140,7 +140,7 @@ func (Module) NewAccount(ctx context.Context, h module.Host, r *http.Request) (*
 
 // AccountCreated counts the invitation as used. It runs under the core's
 // account-creation lock, so a single-use invitation can't be used twice.
-func (Module) AccountCreated(ctx context.Context, h module.Host, _ *http.Request, accountID string, plan *module.AccountPlan) error {
+func (Feature) AccountCreated(ctx context.Context, h feature.Host, _ *http.Request, accountID string, plan *feature.AccountPlan) error {
 	if plan == nil {
 		return nil
 	}
@@ -160,11 +160,11 @@ func (Module) AccountCreated(ctx context.Context, h module.Host, _ *http.Request
 }
 
 // ForgetProfiles has nothing to do: invitations belong to accounts.
-func (Module) ForgetProfiles(context.Context, *sql.DB, []string) error { return nil }
+func (Feature) ForgetProfiles(context.Context, *sql.DB, []string) error { return nil }
 
 // ForgetAccount cuts a deleted account's link to the invitation it used; the
 // use stays counted, so a used single-use link never works again.
-func (Module) ForgetAccount(ctx context.Context, db *sql.DB, accountID string) error {
+func (Feature) ForgetAccount(ctx context.Context, db *sql.DB, accountID string) error {
 	_, err := db.ExecContext(ctx, `UPDATE invites_uses SET account_id = NULL WHERE account_id = ?`, accountID)
 	return err
 }
@@ -215,7 +215,7 @@ func usable(ctx context.Context, db *sql.DB, code string) (*invite, error) {
 	return inv, nil
 }
 
-func templateExists(ctx context.Context, h module.Host, id string) (bool, error) {
+func templateExists(ctx context.Context, h feature.Host, id string) (bool, error) {
 	ts, err := h.Templates(ctx)
 	if err != nil {
 		return false, err
@@ -236,13 +236,13 @@ func hash(code string) string {
 // ---- The control panel ------------------------------------------------------
 
 type admin struct {
-	h  module.Host
+	h  feature.Host
 	db *sql.DB
 }
 
 func (a admin) fail(w http.ResponseWriter, err error) {
 	a.h.Logger().Error("invites: request failed", "err", err)
-	module.Problem(w, module.Internal, "")
+	feature.Problem(w, feature.Internal, "")
 }
 
 func (a admin) accountTemplates(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +261,7 @@ func (a admin) accountTemplates(w http.ResponseWriter, r *http.Request) {
 	for _, t := range ts {
 		out = append(out, tj{t.ID, t.Name, t.MaxStreams, t.MaxProfiles})
 	}
-	module.JSON(w, map[string]any{"items": out})
+	feature.JSON(w, map[string]any{"items": out})
 }
 
 type template struct {
@@ -294,7 +294,7 @@ func (a admin) templates(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	module.JSON(w, map[string]any{"items": out})
+	feature.JSON(w, map[string]any{"items": out})
 }
 
 // saveTemplate creates an invite template (POST) or changes one (PUT).
@@ -310,19 +310,19 @@ func (a admin) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case !plain(t.Name, 64) || t.Name == "":
-		module.Problem(w, module.InvalidRequest, "a name is plain text, 1 to 64 characters")
+		feature.Problem(w, feature.InvalidRequest, "a name is plain text, 1 to 64 characters")
 		return
 	case !exists:
-		module.Problem(w, module.InvalidRequest, "unknown account template")
+		feature.Problem(w, feature.InvalidRequest, "unknown account template")
 		return
 	case t.AccessDays < 0 || t.AccessDays > 3650:
-		module.Problem(w, module.InvalidRequest, "access: 0 (no end) to 3650 days")
+		feature.Problem(w, feature.InvalidRequest, "access: 0 (no end) to 3650 days")
 		return
 	case t.ValidDays < 1 || t.ValidDays > 365:
-		module.Problem(w, module.InvalidRequest, "a link works 1 to 365 days")
+		feature.Problem(w, feature.InvalidRequest, "a link works 1 to 365 days")
 		return
 	case t.MaxUses < 1 || t.MaxUses > 1000:
-		module.Problem(w, module.InvalidRequest, "uses: 1 to 1000")
+		feature.Problem(w, feature.InvalidRequest, "uses: 1 to 1000")
 		return
 	}
 	if id := r.PathValue("id"); id != "" {
@@ -332,7 +332,7 @@ func (a admin) saveTemplate(w http.ResponseWriter, r *http.Request) {
 			WHERE id = ?`, t.Name, t.AccountTemplate, t.AccessDays, t.ValidDays, t.MaxUses, id)
 		if err == nil {
 			if n, _ := res.RowsAffected(); n == 0 {
-				module.Problem(w, module.NotFound, "")
+				feature.Problem(w, feature.NotFound, "")
 				return
 			}
 		}
@@ -344,14 +344,14 @@ func (a admin) saveTemplate(w http.ResponseWriter, r *http.Request) {
 			VALUES (?, ?, ?, ?, ?, ?)`, t.ID, t.Name, t.AccountTemplate, t.AccessDays, t.ValidDays, t.MaxUses)
 	}
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
-		module.Problem(w, module.InvalidRequest, "another invite template has that name")
+		feature.Problem(w, feature.InvalidRequest, "another invite template has that name")
 		return
 	}
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	module.JSON(w, t)
+	feature.JSON(w, t)
 }
 
 func (a admin) deleteTemplate(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +359,7 @@ func (a admin) deleteTemplate(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	module.NoContent(w)
+	feature.NoContent(w)
 }
 
 func (a admin) invites(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +382,7 @@ func (a admin) invites(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	module.JSON(w, map[string]any{"items": out})
+	feature.JSON(w, map[string]any{"items": out})
 }
 
 // createInvite makes an invitation from a template, for someone. Its link
@@ -396,7 +396,7 @@ func (a admin) createInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !plain(req.Label, 64) {
-		module.Problem(w, module.InvalidRequest, "who it's for is plain text, 64 characters at most")
+		feature.Problem(w, feature.InvalidRequest, "who it's for is plain text, 64 characters at most")
 		return
 	}
 	var t template
@@ -404,7 +404,7 @@ func (a admin) createInvite(w http.ResponseWriter, r *http.Request) {
 		SELECT account_template, access_days, valid_days, max_uses FROM invites_templates WHERE id = ?`, req.Template).
 		Scan(&t.AccountTemplate, &t.AccessDays, &t.ValidDays, &t.MaxUses)
 	if errors.Is(err, sql.ErrNoRows) {
-		module.Problem(w, module.InvalidRequest, "unknown invite template")
+		feature.Problem(w, feature.InvalidRequest, "unknown invite template")
 		return
 	}
 	if err != nil {
@@ -427,7 +427,7 @@ func (a admin) createInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	module.JSON(w, map[string]any{"invite": inv, "link": a.h.SiteURL() + "/api/v1/invite?code=" + code})
+	feature.JSON(w, map[string]any{"invite": inv, "link": a.h.SiteURL() + "/api/v1/invite?code=" + code})
 }
 
 func (a admin) deleteInvite(w http.ResponseWriter, r *http.Request) {
@@ -435,7 +435,7 @@ func (a admin) deleteInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	module.NoContent(w)
+	feature.NoContent(w)
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -445,7 +445,7 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		module.Problem(w, module.InvalidRequest, "")
+		feature.Problem(w, feature.InvalidRequest, "")
 		return false
 	}
 	return true

@@ -14,24 +14,24 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 )
 
 //go:embed ui/panel.js
 var files embed.FS
 
 // Module is the migration module.
-type Module struct{}
+type Feature struct{}
 
-func (Module) Info() module.Info {
+func (Feature) Info() feature.Info {
 	ui, _ := fs.Sub(files, "ui")
-	return module.Info{
+	return feature.Info{
 		Name:        "migration",
 		Description: "People bring their previous account and its history, with its username and password",
-		Settings: []module.Setting{{
+		Settings: []feature.Setting{{
 			Key:   "mode",
 			Label: "When an account is brought",
-			Choices: []module.Choice{
+			Choices: []feature.Choice{
 				{Value: "move", Label: "Move it (old login stops working)"},
 				{Value: "link", Label: "Link it (old login keeps working)"},
 			},
@@ -40,14 +40,14 @@ func (Module) Info() module.Info {
 	}
 }
 
-func (Module) Setup(h module.Host) error {
+func (Feature) Setup(h feature.Host) error {
 	a := h.Adoption()
 	if a == nil {
 		h.Logger().Warn("the media backend can't bring existing accounts over; nothing to offer")
 		return nil
 	}
 	keepLogin := h.Setting("mode") == "link"
-	if err := h.HandleVisitor("POST /api/v1/me/claim", func(v module.Visitor, w http.ResponseWriter, r *http.Request) {
+	if err := h.HandleVisitor("POST /api/v1/me/claim", func(v feature.Visitor, w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
@@ -55,7 +55,7 @@ func (Module) Setup(h module.Host) error {
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
-			module.Problem(w, module.InvalidRequest, "")
+			feature.Problem(w, feature.InvalidRequest, "")
 			return
 		}
 		v.Adopt(w, req.Username, req.Password, keepLogin)
@@ -66,10 +66,10 @@ func (Module) Setup(h module.Host) error {
 		n, err := a.Linked(r.Context())
 		if err != nil {
 			h.Logger().Error("counting linked accounts failed", "err", err)
-			module.Problem(w, module.Internal, "")
+			feature.Problem(w, feature.Internal, "")
 			return
 		}
-		module.JSON(w, map[string]any{"linked": n, "mode": h.Setting("mode")})
+		feature.JSON(w, map[string]any{"linked": n, "mode": h.Setting("mode")})
 	}); err != nil {
 		return err
 	}
@@ -78,18 +78,18 @@ func (Module) Setup(h module.Host) error {
 		left, lerr := a.Linked(r.Context())
 		if lerr != nil {
 			h.Logger().Error("counting linked accounts failed", "err", lerr)
-			module.Problem(w, module.Internal, "")
+			feature.Problem(w, feature.Internal, "")
 			return
 		}
 		if err != nil {
 			h.Logger().Error("moving linked accounts failed", "err", err)
 		}
-		module.JSON(w, map[string]int{"moved": moved, "linked": left})
+		feature.JSON(w, map[string]int{"moved": moved, "linked": left})
 	})
 }
 
 // Offer tells visitors they can bring their account, and how it's brought.
-func (Module) Offer(h module.Host) (name, value string, ok bool) {
+func (Feature) Offer(h feature.Host) (name, value string, ok bool) {
 	if h.Adoption() == nil {
 		return "", "", false
 	}

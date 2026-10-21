@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -22,8 +21,6 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/playback"
 	"github.com/C0PT3R/overfin-gateway/internal/seal"
 	"github.com/C0PT3R/overfin-gateway/internal/store"
-	"github.com/C0PT3R/overfin-gateway/module"
-	"github.com/C0PT3R/overfin-gateway/modules/migration"
 )
 
 const baseConfig = `
@@ -44,6 +41,16 @@ func env(key string) func(string) string {
 		"OVERFIN_SECRET_KEY":         base64.StdEncoding.EncodeToString([]byte(strings.Repeat(key, 32))),
 	}
 	return func(name string) string { return vars[name] }
+}
+
+// switchedOn tells whether a feature is on, from its control panel tab.
+func switchedOn(g *gateway, name string) bool {
+	for _, tab := range g.Tabs() {
+		if tab.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // status asks the gateway for path, as a logged-out visitor.
@@ -84,31 +91,33 @@ func TestReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The first start imported the file's feature settings (none): no
-	// plugins, so the library route doesn't exist.
-	if code := status(g, "/api/v1/libraries"); code != 404 {
-		t.Fatalf("library before enabling: %d", code)
+	// The library is always on; invites are off until switched on.
+	if code := status(g, "/api/v1/libraries"); code != 401 {
+		t.Fatalf("library: %d", code)
+	}
+	if switchedOn(g, "invites") {
+		t.Fatal("invites on before switching them on")
 	}
 
-	// The panel enables a plugin: it applies at once, and is saved.
+	// The panel switches invites on: it applies at once, and is saved.
 	f := g.Features()
-	f.Plugins.Enable = []string{"library"}
+	f.Plugins.Enable = []string{"invites"}
 	if err := g.SetFeatures(context.Background(), f); err != nil {
 		t.Fatalf("set features: %v", err)
 	}
-	if code := status(g, "/api/v1/libraries"); code != 401 {
-		t.Fatalf("library after enabling: %d", code)
+	if !switchedOn(g, "invites") {
+		t.Fatal("invites off after switching them on")
 	}
-	if raw, _, _ := db.Features(context.Background()); !strings.Contains(string(raw), `"library"`) {
+	if raw, _, _ := db.Features(context.Background()); !strings.Contains(string(raw), `"invites"`) {
 		t.Errorf("not saved: %s", raw)
 	}
 	// Invalid settings change nothing.
-	f.Plugins.Enable = []string{"playback"} // needs library
+	f.Plugins.Enable = []string{"requests"} // no such feature
 	if err := g.SetFeatures(context.Background(), f); err == nil {
 		t.Error("invalid features accepted")
 	}
-	if code := status(g, "/api/v1/libraries"); code != 401 {
-		t.Errorf("running settings lost: %d", code)
+	if !switchedOn(g, "invites") {
+		t.Error("running settings lost")
 	}
 
 	// Reloading the file keeps the database's features, even if the file
@@ -117,8 +126,8 @@ func TestReload(t *testing.T) {
 	if err := g.reload(env("a")); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if code := status(g, "/api/v1/libraries"); code != 401 {
-		t.Errorf("the file overrode the panel: %d", code)
+	if !switchedOn(g, "invites") {
+		t.Error("the file overrode the panel")
 	}
 
 	// What can't change live, or can't load, is refused as a whole.
@@ -134,8 +143,8 @@ func TestReload(t *testing.T) {
 		if err := g.reload(env("a")); err == nil {
 			t.Errorf("%s: reloaded", name)
 		}
-		if code := status(g, "/api/v1/libraries"); code != 401 {
-			t.Errorf("%s: running configuration lost (%d)", name, code)
+		if !switchedOn(g, "invites") {
+			t.Errorf("%s: running configuration lost", name)
 		}
 	}
 	write("")
@@ -177,19 +186,9 @@ func must(b []byte, err error) []byte {
 	return b
 }
 
-// registerMigration compiles the migration module in, as the official
-// build does, once for all tests.
-var registerMigration = sync.OnceValue(func() error {
-	modules = []module.Module{migration.Module{}}
-	return registerModules()
-})
-
 // Settings saved when bringing accounts over was the core's are carried over
 // to the migration module, once.
 func TestAdoptionMovesToTheMigrationModule(t *testing.T) {
-	if err := registerMigration(); err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "overfin.db")
 	cfgPath := filepath.Join(dir, "overfin.toml")

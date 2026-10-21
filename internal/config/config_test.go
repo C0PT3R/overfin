@@ -207,10 +207,16 @@ func TestPlugins(t *testing.T) {
 	if len(cfg.Plugins.Enable) != 0 {
 		t.Errorf("plugins on by default: %v", cfg.Plugins.Enable)
 	}
+	// Library, playback and the watchlist are always on; older settings
+	// that list them still load.
+	for _, name := range AlwaysOn {
+		if !cfg.Plugins.Enabled(name) {
+			t.Errorf("%s isn't on", name)
+		}
+	}
 	for file, ok := range map[string]bool{
 		`enable = ["library", "playback"]`: true,
-		`enable = ["library"]`:             true,
-		`enable = ["playback"]`:            false,
+		`enable = ["playback"]`:            true,
 		`enable = ["requests"]`:            false,
 	} {
 		_, err := Load(writeFile(t, goodFile+"\n[plugins]\n"+file+"\n"), env(goodEnv()))

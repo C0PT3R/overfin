@@ -141,16 +141,16 @@ pin_attempts = 5
 # oldest stream (that device is told why), "refuse" refuses the new one.
 on_limit = "replace-oldest"
 
-# Modules' own settings, each under its name. The migration module lets
-# people bring an existing Jellyfin account, with its watch history, by
-# entering its username and password once (switch it on in [plugins]).
-# Administrator accounts can never be brought over.
+# Features' own settings, each under its name. Migration lets people bring
+# an existing Jellyfin account, with its watch history, by entering its
+# username and password once (switch it on in [plugins]). Administrator
+# accounts can never be brought over.
 [modules.migration]
 # "move": bringing an account is one-way. The Jellyfin account gets an opaque
 #   name, the lock-down and a new password nobody knows; its old login and
 #   Jellyfin apps stop working. When you overfin, you don't fin.
 # "link": it keeps its name and password, for a transition period. Move
-#   these accounts later from the module's tab in the control panel, once
+#   these accounts later from migration's tab in the control panel, once
 #   the old way to Jellyfin is closed.
 mode = "move"
 
@@ -161,11 +161,8 @@ mode = "move"
 on_delete = "delete"
 
 [plugins]
-# What this instance offers besides accounts and profiles, which are always
-# on. Nothing is enabled by default.
-#   library    browse libraries, items, "continue watching", posters
-#   playback   play items, with subtitles (needs library)
-#   watchlist  each profile's own watchlist (needs library)
+# The features switched on, besides those always on (accounts and profiles,
+# the library, playback, the watchlist). Off by default:
 #   migration  people bring their previous account and its history
 #   invites    invitation links, made in the control panel
 enable = []

@@ -179,9 +179,6 @@ redirect_url = "http://localhost:8081/admin/auth/callback"
 [connector]
 kind = "authentik"
 url = "https://$auth"
-
-[plugins]
-enable = ["library", "playback"]
 EOF
 } > overfin.toml
 

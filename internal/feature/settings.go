@@ -1,4 +1,4 @@
-package module
+package feature
 
 // Setting is one of a module's settings, shown with the module in the
 // control panel and changed there, live, like the core's own. When it

@@ -127,7 +127,7 @@ function render(state, draft) {
 
   const sections = [
     jellyfinSection(state.jellyfin),
-    h('section', {}, h('h2', {}, 'Plugins'),
+    h('section', {}, h('h2', {}, 'Features'),
       ...state.plugins.flatMap((p) => [listToggle(p.name,
         (p.description || '') +
         (p.needs ? ` (needs ${p.needs.join(', ')})` : ''), 'plugins.enable', p.name),

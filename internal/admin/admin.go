@@ -468,6 +468,9 @@ type pluginInfo struct {
 func (p *Panel) features(w http.ResponseWriter, r *http.Request, s *session) {
 	var plugins []pluginInfo
 	for name, needs := range config.KnownPlugins {
+		if slices.Contains(config.AlwaysOn, name) {
+			continue // nothing to switch
+		}
 		plugins = append(plugins, pluginInfo{Name: name, Needs: needs, Description: config.PluginDescriptions[name],
 			Settings: config.PluginSettings[name]})
 	}

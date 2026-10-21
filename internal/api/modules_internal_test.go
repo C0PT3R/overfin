@@ -5,13 +5,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/C0PT3R/overfin-gateway/module"
+	"github.com/C0PT3R/overfin-gateway/internal/feature"
 )
 
 type demoModule struct{}
 
-func (demoModule) Info() module.Info       { return module.Info{Name: "demo"} }
-func (demoModule) Setup(module.Host) error { return nil }
+func (demoModule) Info() feature.Info       { return feature.Info{Name: "demo"} }
+func (demoModule) Setup(feature.Host) error { return nil }
 
 func TestModuleAdminRoutes(t *testing.T) {
 	mux := http.NewServeMux()

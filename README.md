@@ -1,23 +1,28 @@
-# Overfin gateway
+# Overfin
 
-Overfin is your own streaming service on top of a Jellyfin server: its
-gateway, its own clients, and your brand on all of it. This repository is
-the **gateway**, the part everything goes through, made to be reusable on
-its own.
+Overfin is your own streaming service on top of a Jellyfin server: a
+server and its own apps, with your brand on all of it. The web app,
+[overfin-web](https://github.com/C0PT3R/overfin-web), comes first; mobile
+and TV apps will follow. This repository is the server.
 
-The gateway sits in front of Jellyfin and keeps it private, never exposed to
-the internet or to browsers. It takes care of the people using your server
-(logins through your identity provider, accounts and profiles, invitations,
-and a control panel to manage it all), and offers clients a small,
-documented API. It serves Overfin's own web client,
-[overfin-web](https://github.com/C0PT3R/overfin-web), by default; you can
-serve a changed copy, or a client of your own, instead.
+The server sits in front of Jellyfin and keeps it private, never exposed to
+the internet or to browsers. It holds everything that matters: who people
+are (logins through your identity provider, accounts and profiles,
+invitations), what each profile may see, limits, and a control panel to
+manage it all. The apps hold the experience, and nothing else.
+
+Every app, official or not, talks to the server through the same public,
+documented API. That's what lets the official apps connect to any Overfin
+server, someone else's included, and what lets anyone build a site or an
+app of their own: since the server enforces the rules, a client of your own
+can do everything the official ones do, with total freedom on looks and
+feel.
 
 ```
 browser ──▶ the site (overfin-web, or your own)
-   └──▶ /api/v1/*  ──▶  Overfin gateway  ──▶  Jellyfin (private)
-                              │
-                              └──▶  your identity provider (login)
+   └──▶ /api/v1/*  ──▶  Overfin  ──▶  Jellyfin (private)
+                          │
+                          └──▶  your identity provider (login)
 ```
 
 ## Where it stands
@@ -132,12 +137,10 @@ issuer = "https://auth.example.org/application/o/site/"
 client_id = "overfin"
 redirect_url = "https://example.org/api/v1/auth/callback"
 
-[plugins]
-enable = ["library", "playback"]
 ```
 
-`[plugins]` only seeds a new instance; after that, features are switched in
-the control panel.
+Features that can be switched (invitations, migration) are switched in the
+control panel.
 
 **4. Secrets**, as environment variables (or `NAME_FILE` pointing to a file):
 
@@ -202,38 +205,32 @@ allowed only to **view users**.
 
 ### Moving people over from Jellyfin
 
-Switch the `migration` module on, give everyone a login at your identity
+Switch migration on in the control panel, give everyone a login at your identity
 provider, and announce a date. On their first visit, people choose to bring
 their previous account and enter its old username and password once. By
 default that's a move: the old login and Jellyfin apps stop working for them
 at once. Mode "link" keeps the old login working until you press "Move
-linked accounts" in the module's tab. Nobody loses anything by being late.
+linked accounts" in its tab. Nobody loses anything by being late.
 
 Overfin never names Jellyfin to the people using your site: speak of their
 "previous account", or your old service's name.
 
-## Modules
+## Features
 
-Overfin is a core (logins, accounts, profiles, sessions, the control panel
-and the guards around them) with features grafted on as modules, Caddy-style:
-compiled in, each off until switched on.
+Everything is built in. Accounts and profiles, the library, playback and the
+watchlist are always on; the rest is switched on in the control panel.
 
-| Module | Offers | Status |
+| Feature | Offers | |
 | --- | --- | --- |
-| `library` | Browsing, images | Works; still part of the core |
-| `playback` | Watching, subtitles, limits (needs `library`) | Works; still part of the core |
-| `watchlist` | Each profile's watchlist (needs `library`) | Works |
-| `invites` | Invitations and invite templates | Works |
-| `migration` | Bringing Jellyfin accounts over | Works |
-| `catalog` | TMDB discovery and lists | Planned |
-| `requests` | Seerr requests | Planned |
+| Library | Browsing, images | Always on |
+| Playback | Watching, subtitles, limits | Always on |
+| Watchlist | Each profile's watchlist | Always on |
+| Invitations | Invitations and invite templates | Switch |
+| Migration | Bringing Jellyfin accounts over | Switch |
+| Catalog | TMDB discovery and lists | Planned |
+| Requests | Seerr requests | Planned |
 
-You can write your own and build Overfin with it in one command
-(`docker build --build-arg MODULES="example.org/mymodule" -t overfin .`):
-[MODULES.md](MODULES.md) describes the contract, with a working example. A
-module you add is your responsibility, as with any code you run.
-
-## Building on it
+## Building your own client
 
 - **The API**, specified in [api/openapi.yaml](api/openapi.yaml), with its
   conventions at the top. Errors are typed problem details.
@@ -242,9 +239,9 @@ module you add is your responsibility, as with any code you run.
   takeovers.
 - **overfin-web**, in
   [its own repository](https://github.com/C0PT3R/overfin-web): Overfin's own
-  client, plain HTML, CSS and JavaScript on the SDK, no build step, bundled
-  by the official build and served by default. It's what the real server
-  runs. Examples of other clients will come later.
+  web app, in Svelte and TypeScript on the SDK, bundled by the official
+  build and served by default. It's what the real server runs, and it uses
+  nothing but the public API, like any client.
 
 ## Security
 

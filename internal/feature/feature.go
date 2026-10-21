@@ -1,24 +1,16 @@
-// Package module is the contract between Overfin's core and the modules
-// grafted onto it.
+// Package feature is the internal contract between Overfin's core and some
+// of its features (the watchlist, invitations, migration).
 //
-// The core is the gateway: the server and its guards, identity, sessions,
-// accounts and profiles, and access to the media backend as a profile. A
-// module adds a feature on top (a watchlist, invites, a catalog…) through
-// what this package offers, and nothing else: routes that act as the
-// calling profile, the backend as that profile only, its own tables, and
-// errors in the API's standard form.
+// The core is the server and its guards, identity, sessions, accounts and
+// profiles, and access to the media backend as a profile. A feature written
+// on this contract adds to it through what this package offers, and
+// nothing else: routes that act as the calling profile, the backend as that
+// profile only, its own tables in its own database, and errors in the
+// API's standard form. That keeps each one isolated, so it can't reach
+// another feature, the media server or the core's data.
 //
-// Modules are compiled in. The official build includes the official
-// modules; an operator who wants their own builds Overfin with a few-line
-// main package that adds it. Nothing is loaded while running.
-//
-// Official modules carry Overfin's guarantees. A module runs inside Overfin
-// with its full power: this contract keeps a well-behaved module safe (the
-// core refuses catch-all routes, requires a login, and hands a module only
-// the calling profile's access to the backend), but it's a convention, not
-// a sandbox. A third-party module is its developer's responsibility, and the
-// operator's for running it, as with any program.
-package module
+// Every feature is built in: there's no way to add one of one's own.
+package feature
 
 import (
 	"context"
@@ -29,7 +21,7 @@ import (
 )
 
 // Module is one feature grafted onto the core.
-type Module interface {
+type Feature interface {
 	// Info describes the module. The core reads it once, at startup.
 	Info() Info
 	// Setup registers the module's routes. It runs each time the module is
