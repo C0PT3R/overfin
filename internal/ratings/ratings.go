@@ -3,8 +3,9 @@
 // title in the library or in discovery, in Overfin's database, refreshed
 // in the background. Kids profiles are held to them (SECURITY.md rule 28).
 //
-// TMDB is reached through a Source: Seerr today, TMDB itself with
-// Overfin's own key, later on, without anything else changing.
+// TMDB is reached through Seerr, which needs no TMDB key: Overfin never
+// asks operators for one. Without Seerr, no title is rated, and kids
+// profiles see nothing.
 package ratings
 
 import (

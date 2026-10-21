@@ -360,8 +360,8 @@ own do), so a title looks the same wherever it is.
    from kids, and a playback for anything not in the catalog is refused.
    Jellyfin's own parental limits are no longer used: its ratings come from
    other sources and would disagree with Overfin's.
-   *Ratings: done.* Overfin's own, from TMDB (through Seerr, behind an
-   interface so TMDB can be reached directly with Overfin's own key later):
+   *Ratings: done.* Overfin's own, from TMDB (through Seerr: Overfin never
+   asks operators for a TMDB key; without Seerr, kids profiles see nothing):
    the operator picks the ratings country, each kids profile has a film
    ceiling and a series ceiling on that country's scales, and every
    certification a title has there must be within it. Libraries per profile
@@ -517,13 +517,13 @@ nothing beyond what that needs.
   time and once a week. TMDB's terms are kept: its data is kept five
   months at most without being fetched again (six allowed), all of it is
   deleted when Seerr is disconnected, and the site shows TMDB's
-  attribution. Kids profiles see none of it yet. Next: ratings for kids (Seerr's lists already filter by
-  certification and country), search, curated lists, TMDB directly.
+  attribution. Kids profiles see what their ceilings allow (milestone 4,
+  step 3). Next: search, curated lists.
 - **Discovery**: trending, popular and upcoming titles, search, a title's
   page, curated lists, with each title's place in the library (available,
-  partly, requested, missing). From Seerr (no TMDB key needed, and it
-  already knows what's available) or from TMDB directly with the
-  operator's key, behind one interface. Images are TMDB paths, fetched from
+  partly, requested, missing). From Seerr, which needs no TMDB key and
+  already knows what's available: Overfin never asks operators for a TMDB
+  key, and without Seerr there's no discovery. Images are TMDB paths, fetched from
   TMDB's fixed image server only (rules 5 and 43). Lists carry no ratings,
   so a title is shown to a kids profile only once its rating, in the
   operator's country, is read from its details and kept; without one it

@@ -1715,7 +1715,7 @@ paths:
   # ---- Catalog (TMDB plugin) -------------------------------------------------
   #
   # These exist only when the operator enables the TMDB catalog (`catalog` in
-  # `Info.features`). Overfin fetches TMDB itself and caches the results;
+  # `Info.features`). Overfin reads TMDB's data through Seerr and keeps it;
   # browsers never contact TMDB. Kids profiles only see titles within their
   # rating ceiling.
 
