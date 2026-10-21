@@ -365,6 +365,10 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		l.upstreamError(w, err)
 		return
 	}
+	if may, err := l.mayOpen(ctx, p, raw); err != nil || !may {
+		l.hidden(w, err)
+		return
+	}
 	summary, ok := library.Summary(raw)
 	if !ok {
 		problem.Send(w, problem.NotFound, "")

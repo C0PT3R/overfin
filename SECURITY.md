@@ -126,9 +126,11 @@ comes from the internet, and media files can be written by anyone.
     what it belongs to (a library item, a catalog title, or a profile of the
     same account), also when it comes from Overfin's cache.
 28. Kids profiles can request only titles rated at or below their ceiling, in
-    the operator's chosen ratings country. A missing or unreadable rating means
+    the operator's chosen ratings country. The ratings are Overfin's own, from
+    TMDB, never the media server's; a title's every certification there must
+    be within the ceiling. A missing, unknown, unrated or expired rating means
     the request is refused. Everywhere in the catalog (search, discover, lists,
-    title details), titles above the ceiling are hidden.
+    title details, images, playback), titles above the ceiling are hidden.
 29. Every entry of a play queue is checked against the active profile, when the
     queue is set and again when it advances.
 30. Stream tickets are short-lived and bound to the session that created them.

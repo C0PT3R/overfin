@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/C0PT3R/overfin-server/internal/catalog"
+	"github.com/C0PT3R/overfin-server/internal/ratings"
 	"github.com/C0PT3R/overfin-server/internal/seerr"
 	"github.com/C0PT3R/overfin-server/internal/store"
 )
@@ -41,9 +42,19 @@ func fakeSeerr(t *testing.T) *seerr.Client {
 				id = 555 // in no list: opened from a link
 			}
 			d := film(id, "/poster949abcdef.jpg")
+			d["releases"] = map[string]any{"results": []any{map[string]any{"iso_3166_1": "US",
+				"release_dates": []any{map[string]any{"certification": "G"}, map[string]any{"certification": ""}}}}}
 			d["genres"] = []any{map[string]any{"name": "Crime"}}
 			d["credits"] = map[string]any{"cast": []any{map[string]any{"name": "Al Pacino", "character": "Hanna"}}}
 			json.NewEncoder(w).Encode(d)
+		case "/api/v1/movie/100":
+			json.NewEncoder(w).Encode(map[string]any{"id": 100, "releases": map[string]any{"results": []any{
+				map[string]any{"iso_3166_1": "US", "release_dates": []any{map[string]any{"certification": "PG"}}}}}})
+		case "/api/v1/certifications/movie":
+			io.WriteString(w, `{"certifications":{"US":[{"certification":"G","meaning":"All ages","order":1},
+				{"certification":"PG","order":2}],"bad":[{"certification":"X","order":1}]}}`)
+		case "/api/v1/certifications/tv":
+			io.WriteString(w, `{"certifications":{"US":[{"certification":"TV-Y","order":1}]}}`)
 		default:
 			if strings.HasPrefix(r.URL.Path, "/api/v1/discover/") {
 				json.NewEncoder(w).Encode(map[string]any{"page": 1, "totalPages": 1, "results": []any{}})
@@ -63,7 +74,8 @@ func fakeSeerr(t *testing.T) *seerr.Client {
 func TestDiscover(t *testing.T) {
 	var st *store.Store
 	s := fakeSeerr(t)
-	srv, _ := newServerWith(t, options{seerr: s, store: &st})
+	srv, fake := newServerWith(t, options{seerr: s, store: &st})
+	fake.partnerSeesAll = true // the kids profile below
 	// The library has film 949: item 3 (which the fake Jellyfin serves).
 	if err := st.PutCatalog(context.Background(), []store.CatalogItem{
 		{ID: fmt.Sprintf("%032x", 3), Kind: "movie", Name: "Heat", SortName: "Heat", TMDB: "949"},
@@ -142,8 +154,10 @@ func TestDiscover(t *testing.T) {
 		t.Errorf("invented image path: %d", code)
 	}
 
-	// A kids profile sees none of it.
-	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","ratingCeiling":"G"}`)
+	// A kids profile sees only what's rated within its ceilings: 949 is G,
+	// 100 is PG, the series has no rating. Before any rating is fetched, it
+	// sees nothing.
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","movieCeiling":"G","seriesCeiling":"TV-Y"}`)
 	var kid struct{ ID string }
 	json.Unmarshal([]byte(body), &kid)
 	if code, body := post(t, srv, "/api/v1/profiles/"+kid.ID+"/activate", `{}`); code != 200 {
@@ -151,12 +165,40 @@ func TestDiscover(t *testing.T) {
 	}
 	out.Items = nil
 	if code := get(t, srv, "/api/v1/discover?list=trending&mediaKind=movie", &out); code != 200 || len(out.Items) != 0 {
+		t.Errorf("kids discover, nothing rated yet: %d %+v", code, out.Items)
+	}
+	keeper := ratings.NewKeeper(func() ratings.Source { return ratings.Seerr{Client: s} }, st,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 0)
+	if err := keeper.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out.Items = nil
+	if code := get(t, srv, "/api/v1/discover?list=trending&mediaKind=movie", &out); code != 200 ||
+		len(out.Items) != 1 || out.Items[0].TMDBID != "949" || out.Items[0].LibraryItem == nil {
 		t.Errorf("kids discover: %d %+v", code, out.Items)
 	}
-	if code := get(t, srv, "/api/v1/catalog/movie/949", nil); code != 404 {
-		t.Errorf("kids title: %d", code)
+	if code := get(t, srv, "/api/v1/catalog/movie/949", nil); code != 200 {
+		t.Errorf("kids title 949: %d", code)
 	}
-	if code := get(t, srv, "/api/v1/images/tmdb_movie_949_poster_poster949abcdef_jpg", nil); code != 404 {
-		t.Errorf("kids image: %d", code)
+	if code := get(t, srv, "/api/v1/catalog/movie/100", nil); code != 404 {
+		t.Errorf("kids title 100: %d", code)
+	}
+	// The library: only item 3 (film 949); every other item is unrated.
+	var page struct {
+		Items      []struct{ ID string }
+		TotalCount *int
+	}
+	if code := get(t, srv, "/api/v1/items?kind=movie", &page); code != 200 || len(page.Items) != 1 ||
+		page.Items[0].ID != fmt.Sprintf("item_%032x", 3) || page.TotalCount != nil {
+		t.Errorf("kids listing: %d %+v", code, page)
+	}
+	if code := get(t, srv, fmt.Sprintf("/api/v1/items/item_%032x", 3), nil); code != 200 {
+		t.Errorf("kids item 3: %d", code)
+	}
+	if code := get(t, srv, fmt.Sprintf("/api/v1/items/item_%032x", 4), nil); code != 404 {
+		t.Errorf("kids item 4: %d", code)
+	}
+	if code, body := post(t, srv, "/api/v1/playback", fmt.Sprintf(`{"itemId":"item_%032x"}`, 4)); code != 404 {
+		t.Errorf("kids playback of item 4: %d %s", code, body)
 	}
 }

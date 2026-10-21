@@ -21,20 +21,18 @@ import (
 // see is left out (which also brings each item's progress), and the total
 // is Jellyfin's own count for the profile (rule 56).
 //
-// What the index can't answer yet goes to Jellyfin as before: kids
-// profiles (their ceiling is Jellyfin's), personal filters (watched,
-// favorites, in progress), a person's titles, shuffling, last played, and
-// item kinds it doesn't index.
+// What the index can't answer yet goes to Jellyfin as before: personal
+// filters before the profile's data is Overfin's, a person's titles,
+// shuffling, last played, and item kinds it doesn't index. Kids profiles'
+// listings keep only what their ceiling allows, and their totals are
+// Overfin's own count.
 
 var indexKinds = []string{"movie", "series", "season", "episode"}
 
 // indexQuery is the listing as the index answers it, when it can.
 // imported says whether the profile's own data is Overfin's yet (else
 // personal filters go to Jellyfin).
-func indexQuery(q url.Values, p *store.Profile, imported bool) (store.ListQuery, bool) {
-	if p.Kind == "kids" {
-		return store.ListQuery{}, false
-	}
+func indexQuery(q url.Values, imported bool) (store.ListQuery, bool) {
 	for _, other := range []string{"person", "seed"} {
 		if q.Has(other) {
 			return store.ListQuery{}, false
@@ -72,7 +70,6 @@ func indexQuery(q url.Values, p *store.Profile, imported bool) (store.ListQuery,
 		lq.ParentID, _ = library.Unwrap(library.ItemPrefix, s)
 	}
 	if personal {
-		lq.ProfileID = p.ID
 		// Watched and in progress mean "every episode" for a series or a
 		// season, which the index doesn't count yet: those go to Jellyfin.
 		if q.Has("played") || q.Has("inProgress") {
@@ -135,7 +132,14 @@ func (l Library) indexPage(w http.ResponseWriter, r *http.Request, p *store.Prof
 		l.upstreamError(w, err)
 		return
 	}
-	if offset == 0 {
+	if offset == 0 && lq.Ceiling != nil {
+		total, err := l.Provisioner.Store.CountCatalog(ctx, lq)
+		if err != nil {
+			l.storeError(w, err)
+			return
+		}
+		out.TotalCount = &total
+	} else if offset == 0 {
 		jq.StartIndex, jq.Limit = 0, 0
 		count, err := l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jq)
 		if err != nil {
@@ -153,8 +157,9 @@ func (l Library) indexPage(w http.ResponseWriter, r *http.Request, p *store.Prof
 // profile may not see is left out.
 func (l Library) itemsByID(ctx context.Context, p *store.Profile, ids []string) ([]library.ItemSummary, error) {
 	out := []library.ItemSummary{}
-	if len(ids) == 0 {
-		return out, nil
+	ids, err := l.allowedIDs(ctx, p, ids)
+	if err != nil || len(ids) == 0 {
+		return out, err
 	}
 	page, err := l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jellyfin.ItemQuery{IDs: ids, Limit: len(ids)})
 	if err != nil {

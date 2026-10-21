@@ -56,8 +56,10 @@ yet.
   auth), re-checked every few minutes. Deleting things, changing a PIN or
   downloading one's data asks for a fresh login.
 - Accounts with Netflix-style profiles, each with its own watch history and
-  optional PIN. Kids profiles have a rating ceiling enforced by Jellyfin
-  itself, so titles above it are hidden everywhere, even from direct links.
+  optional PIN. Kids profiles have ceilings, one for films and one for
+  series, on Overfin's own ratings from TMDB in the country the operator
+  picks: titles above them, or with no rating there, are hidden everywhere,
+  even from direct links, and can't be played.
 - People can download what's held about them and delete their account.
 
 **Watching** (through the API, the SDK and overfin-web)

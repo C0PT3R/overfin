@@ -28,7 +28,23 @@ export interface Profile {
   kind: 'standard' | 'kids' | string;
   owner: boolean;
   hasPin: boolean;
-  ratingCeiling?: string;
+  /** A kids profile's highest allowed certifications, for films and series. */
+  movieCeiling?: string;
+  seriesCeiling?: string;
+  /** A kids profile without ceilings yet: it sees nothing until its owner picks them. */
+  ceilingsNeeded?: boolean;
+}
+
+export interface RatingLevel {
+  name: string;
+  meaning?: string;
+}
+
+/** The certifications a kids profile's ceilings can be, least mature first; empty while the server has no ratings. */
+export interface Ratings {
+  country: string;
+  movie: RatingLevel[];
+  series: RatingLevel[];
 }
 
 export interface Me {
@@ -279,13 +295,13 @@ export class Overfin {
 
   profiles(): Promise<Profile[]>;
   profile(id: string): Promise<Profile>;
-  createProfile(profile: { name: string; kind?: 'standard' | 'kids'; ratingCeiling?: string; language?: string }): Promise<Profile>;
-  updateProfile(id: string, changes: { name?: string; language?: string; kind?: 'standard' | 'kids'; ratingCeiling?: string; pin?: string }): Promise<Profile>;
+  createProfile(profile: { name: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; language?: string }): Promise<Profile>;
+  updateProfile(id: string, changes: { name?: string; language?: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; pin?: string }): Promise<Profile>;
   deleteProfile(id: string): Promise<null>;
   activateProfile(id: string, pin?: string): Promise<Profile>;
   setPin(id: string, pin: string, ownerPin?: string): Promise<null>;
   removePin(id: string): Promise<null>;
-  ratings(): Promise<string[]>;
+  ratings(): Promise<Ratings>;
   sessions(): Promise<Session[]>;
   endSession(id: string): Promise<null>;
   endOtherSessions(): Promise<null>;

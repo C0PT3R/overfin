@@ -116,6 +116,48 @@ function seerrSection(sr) {
     h('div', { class: 'row' }, msg, h('span', {}, sr.url ? off : null, ' ', save)));
 }
 
+// Ratings: Overfin's own, from TMDB, which kids profiles are held to. The
+// country is picked here; changing it clears kids profiles' ceilings.
+function ratingsSection(rt) {
+  if (!rt) return null;
+  let names = null;
+  try { names = new Intl.DisplayNames([navigator.language, 'en'], { type: 'region' }); } catch { names = null; }
+  const label = (cc) => (names && names.of(cc)) || cc;
+  const countries = rt.countries.length ? rt.countries : [rt.country];
+  const select = h('select', {}, countries.map((cc) => h('option', { value: cc }, `${label(cc)} (${cc})`)));
+  select.value = rt.country;
+  const status = (r) => {
+    if (!r.source) return 'Seerr isn\'t connected: no title can be rated, so kids profiles see nothing.';
+    if (!r.countries.length) return 'Fetching the scales from TMDB… Kids profiles see nothing until titles are rated.';
+    return `${r.fetched} of the library's ${r.total} films and series rated. Kids profiles see only rated titles within their limits.`;
+  };
+  const msg = h('span', { class: 'muted' }, status(rt));
+  const save = h('button', { type: 'button', disabled: !rt.countries.length }, 'Save');
+  save.onclick = async () => {
+    if (select.value === rt.country) return;
+    if (!confirm('Every kids profile will need new limits from its account\'s owner, and sees nothing until then. Change the country?')) {
+      select.value = rt.country;
+      return;
+    }
+    save.disabled = true;
+    try {
+      const out = await api('PUT', '/admin/api/ratings', { country: select.value });
+      rt.country = out.country;
+      msg.className = 'muted';
+      msg.textContent = status(out);
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    } finally {
+      save.disabled = false;
+    }
+  };
+  return h('section', {}, h('h2', {}, 'Ratings'),
+    h('div', { class: 'row' }, h('div', {}, 'Ratings country',
+      h('div', { class: 'hint' }, "Kids profiles' limits use this country's ratings, from TMDB. A title with none there is hidden from them.")), select),
+    h('div', { class: 'row' }, msg, save));
+}
+
 // The catalog's index: read only, where it stands.
 function catalogSection(c) {
   if (!c) return null;
@@ -186,6 +228,7 @@ function render(state, draft) {
     jellyfinSection(state.jellyfin),
     catalogSection(state.catalog),
     seerrSection(state.seerr),
+    ratingsSection(state.ratings),
     h('section', {}, h('h2', {}, 'Features'),
       ...state.plugins.flatMap((p) => [listToggle(p.name,
         (p.description || '') +
@@ -359,7 +402,7 @@ function accountDetail(a, templates, reload) {
   const profiles = a.profiles.map((p) => h('li', {},
     h('div', {}, h('strong', {}, p.name), p.owner ? h('span', { class: 'hint' }, ' owner') : null),
     h('div', { class: 'hint' }, [
-      p.kind === 'kids' ? `Kids, up to ${p.ratingCeiling}` : 'Standard',
+      p.kind === 'kids' ? (p.movieCeiling && p.seriesCeiling ? `Kids: films up to ${p.movieCeiling}, series up to ${p.seriesCeiling}` : 'Kids, limits not chosen yet') : 'Standard',
       p.hasPin ? (p.pinLocked ? 'PIN locked' : 'PIN set') : 'No PIN',
       p.linked ? 'old login still works (linked)' : '',
     ].filter(Boolean).join(' · ')),
@@ -465,6 +508,7 @@ async function route() {
   state.jellyfin = await api('GET', '/admin/api/jellyfin').catch(() => null);
   state.catalog = await api('GET', '/admin/api/catalog').catch(() => null);
   state.seerr = await api('GET', '/admin/api/seerr').catch(() => null);
+  state.ratings = await api('GET', '/admin/api/ratings').catch(() => null);
   let draft = null;
   try { draft = JSON.parse(sessionStorage.getItem(DRAFT) || 'null'); } catch { draft = null; }
   render(state, draft);

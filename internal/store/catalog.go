@@ -395,6 +395,8 @@ type ListQuery struct {
 	Played     *bool
 	Favorite   *bool
 	InProgress bool
+	// Ceiling, when set, keeps only what it allows (kids profiles).
+	Ceiling *Ceiling
 	// Sort is "name", "premiereDate", "addedAt" or "communityRating".
 	Sort       string
 	Descending bool
@@ -416,6 +418,26 @@ func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) 
 	if !ok {
 		return nil, fmt.Errorf("store: unknown sort %q", q.Sort)
 	}
+	where, args := q.where()
+	dir := "ASC"
+	if q.Descending {
+		dir = "DESC"
+	}
+	query := `SELECT id FROM catalog_items WHERE ` + strings.Join(where, " AND ") +
+		` ORDER BY ` + order + ` IS NULL, ` + order + ` ` + dir + `, sort_name COLLATE NOCASE, id LIMIT ? OFFSET ?`
+	return s.ids(ctx, query, append(args, q.Limit, q.Offset)...)
+}
+
+// CountCatalog counts what a listing has in all.
+func (s *Store) CountCatalog(ctx context.Context, q ListQuery) (int, error) {
+	where, args := q.where()
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM catalog_items WHERE `+strings.Join(where, " AND "), args...).Scan(&n)
+	return n, err
+}
+
+// where is the listing's conditions on catalog_items.
+func (q ListQuery) where() ([]string, []any) {
 	where := []string{"1 = 1"}
 	var args []any
 	if q.LibraryID != "" {
@@ -472,24 +494,9 @@ func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) 
 	if q.YearTo > 0 {
 		where, args = append(where, "year <= ?"), append(args, q.YearTo)
 	}
-	dir := "ASC"
-	if q.Descending {
-		dir = "DESC"
+	if q.Ceiling != nil {
+		cond, a := q.Ceiling.itemAllowed("catalog_items")
+		where, args = append(where, cond), append(args, a...)
 	}
-	query := `SELECT id FROM catalog_items WHERE ` + strings.Join(where, " AND ") +
-		` ORDER BY ` + order + ` IS NULL, ` + order + ` ` + dir + `, sort_name COLLATE NOCASE, id LIMIT ? OFFSET ?`
-	rows, err := s.db.QueryContext(ctx, query, append(args, q.Limit, q.Offset)...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+	return where, args
 }

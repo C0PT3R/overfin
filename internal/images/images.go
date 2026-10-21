@@ -80,6 +80,9 @@ type Viewer struct {
 	ProfileID string
 	UserID    string
 	Auth      jellyfin.Auth
+	// May, when set, says whether the viewer may see an item Jellyfin
+	// shows it (Overfin's own ratings, for kids profiles).
+	May func(ctx context.Context, it *jellyfin.RawItem) (bool, error)
 }
 
 // Pipeline fetches, checks, re-encodes and caches images.
@@ -181,6 +184,13 @@ func (p *Pipeline) checkAccess(ctx context.Context, v Viewer, itemID string) (ma
 			return nil, ErrHidden
 		}
 		return nil, err
+	}
+	if v.May != nil {
+		if ok, err := v.May(ctx, item); err != nil {
+			return nil, err
+		} else if !ok {
+			return nil, ErrHidden
+		}
 	}
 	tags := imageTags(item)
 	p.access.allow(key, tags, time.Now())

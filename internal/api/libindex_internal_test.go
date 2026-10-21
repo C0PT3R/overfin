@@ -3,13 +3,10 @@ package api
 import (
 	"net/url"
 	"testing"
-
-	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // What the index answers, and what goes to Jellyfin.
 func TestIndexQuery(t *testing.T) {
-	standard, kids := &store.Profile{Kind: "standard"}, &store.Profile{Kind: "kids"}
 	for query, want := range map[string][2]bool{ // [not imported, imported]
 		"kind=movie":                            {true, true},
 		"kind=movie&sort=addedAt&order=desc":    {true, true},
@@ -29,12 +26,8 @@ func TestIndexQuery(t *testing.T) {
 	} {
 		q, _ := url.ParseQuery(query)
 		for i, imported := range []bool{false, true} {
-			if _, got := indexQuery(q, standard, imported); got != want[i] {
+			if _, got := indexQuery(q, imported); got != want[i] {
 				t.Errorf("%q, imported %v: %v, want %v", query, imported, got, want[i])
-			}
-			// Kids profiles: Jellyfin, always.
-			if _, got := indexQuery(q, kids, imported); got {
-				t.Errorf("kids, %q: answered by the index", query)
 			}
 		}
 	}

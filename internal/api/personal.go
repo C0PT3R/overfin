@@ -80,6 +80,10 @@ func (l Library) mark(w http.ResponseWriter, r *http.Request, on, favorite bool)
 		l.upstreamError(w, err)
 		return
 	}
+	if may, err := l.mayOpen(ctx, p, raw); err != nil || !may {
+		l.hidden(w, err)
+		return
+	}
 	item, ok := library.Summary(raw)
 	if !ok {
 		problem.Send(w, problem.NotFound, "")
@@ -113,7 +117,7 @@ func (l Library) mark(w http.ResponseWriter, r *http.Request, on, favorite bool)
 		return
 	}
 	// Jellyfin is told too, while some listings still read what it keeps
-	// (kids profiles, until Overfin applies their rules).
+	// (before a profile's data is brought over).
 	if favorite {
 		err = l.Jellyfin.SetFavorite(ctx, auth(p), p.JellyfinUserID, id, on)
 	} else {
@@ -202,8 +206,13 @@ func (l Library) forgetProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if _, err := l.Jellyfin.Item(ctx, auth(p), p.JellyfinUserID, id); err != nil {
+	raw, err := l.Jellyfin.Item(ctx, auth(p), p.JellyfinUserID, id)
+	if err != nil {
 		l.upstreamError(w, err)
+		return
+	}
+	if may, err := l.mayOpen(ctx, p, raw); err != nil || !may {
+		l.hidden(w, err)
 		return
 	}
 	st := l.Provisioner.Store

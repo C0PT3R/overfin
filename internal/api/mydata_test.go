@@ -107,7 +107,7 @@ func TestExportFromAnotherProfile(t *testing.T) {
 
 func TestKidsCantExport(t *testing.T) {
 	srv, _ := newServer(t)
-	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","ratingCeiling":"G"}`)
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Kid","kind":"kids","movieCeiling":"G","seriesCeiling":"TV-Y"}`)
 	kid := between(body, `"id":"`, `"`)
 	post(t, srv, "/api/v1/profiles/"+kid+"/activate", `{}`)
 	if code, body := post(t, srv, "/api/v1/me/export", `{}`); code != 403 || !strings.Contains(body, "owner-only") {

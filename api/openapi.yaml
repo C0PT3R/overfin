@@ -573,28 +573,32 @@ paths:
   /ratings:
     get:
       operationId: listRatings
-      summary: List the age ratings a kids profile's ceiling can be
-      description: The media server's ratings for its configured country,
-        least mature first.
+      summary: List the certifications a kids profile's ceilings can be
+      description: TMDB's certifications in the instance's ratings country,
+        for films and for series, least mature first ("not rated" is never
+        one). Both lists are empty while the instance has no ratings.
       tags: [profiles]
       responses:
         "200":
-          description: The ratings.
+          description: The scales.
           content:
             application/json:
               schema:
                 type: object
-                required: [items]
+                required: [country, movie, series]
                 properties:
-                  items:
+                  country:
+                    type: string
+                    description: ISO 3166-1 country code.
+                    examples: [US]
+                  movie:
                     type: array
                     items:
-                      type: object
-                      required: [name]
-                      properties:
-                        name:
-                          type: string
-                          examples: [PG]
+                      $ref: "#/components/schemas/RatingLevel"
+                  series:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RatingLevel"
 
   /profiles/{profileId}:
     parameters:
@@ -616,7 +620,7 @@ paths:
       operationId: updateProfile
       summary: Change some of a profile's settings
       description: Owner profile only. Changing a kids profile's
-        `ratingCeiling`, or turning it into a standard profile with `kind`,
+        ceilings, or turning it into a standard profile with `kind`,
         needs the PIN when the owner profile has one.
       tags: [profiles]
       requestBody:
@@ -2293,11 +2297,32 @@ components:
           description: Preferred metadata language (BCP 47), overriding
             `Accept-Language`.
           examples: [fr-CA]
-        ratingCeiling:
+        movieCeiling:
           type: string
-          description: For kids profiles, the highest age rating allowed, in
-            the instance's ratings country.
+          description: For kids profiles, the highest certification allowed
+            for films, in the instance's ratings country.
           examples: [PG]
+        seriesCeiling:
+          type: string
+          description: For kids profiles, the same for series (their seasons
+            and episodes included).
+          examples: [TV-Y7]
+        ceilingsNeeded:
+          type: boolean
+          description: A kids profile without ceilings (they were never
+            picked, or the ratings country changed). It sees nothing until
+            the owner picks them.
+
+    RatingLevel:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          examples: [PG-13]
+        meaning:
+          type: string
+          description: What the certification means, in English, from TMDB.
 
     ProfileCreate:
       type: object
@@ -2311,11 +2336,17 @@ components:
           default: standard
         language:
           type: string
-        ratingCeiling:
+        movieCeiling:
           type: string
           description: Required for a kids profile, refused for any other;
-            one of the names from `GET /ratings`. Items above it, and unrated
-            items, are hidden from the profile by the media server itself.
+            one of the films' names from `GET /ratings`. The profile sees
+            only titles with certifications in the ratings country, all
+            within its ceilings; everything else is hidden from it,
+            discovery and images included, and can't be played.
+        seriesCeiling:
+          type: string
+          description: Required for a kids profile, refused for any other;
+            one of the series' names from `GET /ratings`.
 
     ProfileUpdate:
       description: Only the fields sent are changed.
@@ -2327,16 +2358,18 @@ components:
         kind:
           type: string
           description: Turning a kids profile into a standard one ("it grew
-            up") lifts its restrictions, so it needs the PIN like
-            `ratingCeiling`.
+            up") lifts its restrictions, so it needs the PIN like the
+            ceilings. Turning a profile into a kids one needs both ceilings.
           enum: [standard, kids]
         language:
           type: string
-        ratingCeiling:
+        movieCeiling:
+          type: string
+        seriesCeiling:
           type: string
         pin:
-          description: The owner profile's PIN, required when changing
-            `ratingCeiling` or `kind` while the owner profile has one.
+          description: The owner profile's PIN, required when changing the
+            ceilings or `kind` while the owner profile has one.
           $ref: "#/components/schemas/Pin"
 
     TransferCode:

@@ -37,7 +37,8 @@ type adminProfile struct {
 	Name          string `json:"name"`
 	Kind          string `json:"kind"`
 	Owner         bool   `json:"owner"`
-	RatingCeiling string `json:"ratingCeiling,omitempty"`
+	MovieCeiling  string `json:"movieCeiling,omitempty"`
+	SeriesCeiling string `json:"seriesCeiling,omitempty"`
 	HasPIN        bool   `json:"hasPin"`
 	PINLocked     bool   `json:"pinLocked"`
 	// Linked: adopted in "link" mode, so its Jellyfin login still works.
@@ -82,7 +83,7 @@ func (p *Panel) accountJSON(r *http.Request, a *store.Account) (accountJSON, err
 			ownerName = pr.Name
 		}
 		out.Profiles = append(out.Profiles, adminProfile{ID: pr.ID, Name: pr.Name, Kind: pr.Kind, Owner: pr.Owner,
-			RatingCeiling: pr.RatingCeiling, HasPIN: pr.HasPIN, PINLocked: locks[pr.ID],
+			MovieCeiling: pr.MovieCeiling, SeriesCeiling: pr.SeriesCeiling, HasPIN: pr.HasPIN, PINLocked: locks[pr.ID],
 			Linked: !strings.HasPrefix(pr.JellyfinUsername, "of-")})
 	}
 	sessions, err := p.Store.Sessions(ctx, a.ID)

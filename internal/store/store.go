@@ -184,9 +184,12 @@ type Profile struct {
 	JellyfinUsername string
 	JellyfinToken    string
 	Language         string
-	RatingCeiling    string
-	HasPIN           bool
-	Created          time.Time
+	// MovieCeiling and SeriesCeiling are a kids profile's highest allowed
+	// certifications, on the ratings country's scales; empty until chosen.
+	MovieCeiling  string
+	SeriesCeiling string
+	HasPIN        bool
+	Created       time.Time
 }
 
 // NewOwner describes the owner profile created with an account.
@@ -231,10 +234,10 @@ func insertProfile(ctx context.Context, tx *sql.Tx, box *seal.Box, p *Profile, n
 	sealed := box.Seal([]byte(p.JellyfinToken), p.ID)
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO profiles (id, account_id, name, kind, owner, jellyfin_user_id,
-			jellyfin_username, jellyfin_token, language, rating_ceiling, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			jellyfin_username, jellyfin_token, language, movie_ceiling, series_ceiling, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.AccountID, p.Name, p.Kind, boolInt(p.Owner), p.JellyfinUserID,
-		p.JellyfinUsername, sealed, nullable(p.Language), nullable(p.RatingCeiling), now.Unix())
+		p.JellyfinUsername, sealed, nullable(p.Language), nullable(p.MovieCeiling), nullable(p.SeriesCeiling), now.Unix())
 	if err != nil {
 		return fmt.Errorf("store: creating profile: %w", err)
 	}
@@ -282,7 +285,7 @@ func (s *Store) Profiles(ctx context.Context, accountID string) ([]*Profile, err
 
 const profileSelect = `
 	SELECT id, account_id, name, kind, owner, jellyfin_user_id, jellyfin_username,
-		jellyfin_token, language, rating_ceiling, pin_hash IS NOT NULL, created_at
+		jellyfin_token, language, movie_ceiling, series_ceiling, pin_hash IS NOT NULL, created_at
 	FROM profiles`
 
 // scanner is what *sql.Row and *sql.Rows have in common.
@@ -292,10 +295,10 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	var p Profile
 	var owner int
 	var sealed []byte
-	var language, ceiling sql.NullString
+	var language, movie, series sql.NullString
 	var created int64
 	err := sc.Scan(&p.ID, &p.AccountID, &p.Name, &p.Kind, &owner, &p.JellyfinUserID,
-		&p.JellyfinUsername, &sealed, &language, &ceiling, &p.HasPIN, &created)
+		&p.JellyfinUsername, &sealed, &language, &movie, &series, &p.HasPIN, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -310,7 +313,7 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	p.Owner = owner == 1
 	p.JellyfinToken = string(token)
 	p.Language = language.String
-	p.RatingCeiling = ceiling.String
+	p.MovieCeiling, p.SeriesCeiling = movie.String, series.String
 	p.Created = time.Unix(created, 0).UTC()
 	return &p, nil
 }
@@ -430,7 +433,8 @@ type NewProfile struct {
 	Name             string
 	Kind             string // "standard" or "kids"
 	Language         string
-	RatingCeiling    string
+	MovieCeiling     string
+	SeriesCeiling    string
 	JellyfinUserID   string
 	JellyfinUsername string
 	JellyfinToken    string
@@ -459,7 +463,7 @@ func (s *Store) AddProfile(ctx context.Context, accountID string, np NewProfile,
 	p := &Profile{
 		ID: ids.New(ids.Profile), AccountID: accountID, Name: np.Name, Kind: np.Kind,
 		JellyfinUserID: np.JellyfinUserID, JellyfinUsername: np.JellyfinUsername, JellyfinToken: np.JellyfinToken,
-		Language: np.Language, RatingCeiling: np.RatingCeiling,
+		Language: np.Language, MovieCeiling: np.MovieCeiling, SeriesCeiling: np.SeriesCeiling,
 	}
 	if err := insertProfile(ctx, tx, s.box, p, s.now().UTC()); err != nil {
 		return nil, err
@@ -583,10 +587,11 @@ func scanSession(sc scanner) (*Session, error) {
 // changing an existing PIN needs a fresh login (rule 21).
 var ErrPINExists = errors.New("store: profile already has a PIN")
 
-// SetKind changes a profile's kind and rating ceiling, within its account.
-func (s *Store) SetKind(ctx context.Context, accountID, profileID, kind, ceiling string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET kind = ?, rating_ceiling = ? WHERE id = ? AND account_id = ?`,
-		kind, nullable(ceiling), profileID, accountID)
+// SetKind changes a profile's kind and ceilings, within its account.
+func (s *Store) SetKind(ctx context.Context, accountID, profileID, kind, movieCeiling, seriesCeiling string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET kind = ?, movie_ceiling = ?, series_ceiling = ?
+		WHERE id = ? AND account_id = ?`,
+		kind, nullable(movieCeiling), nullable(seriesCeiling), profileID, accountID)
 	if err != nil {
 		return err
 	}

@@ -54,10 +54,13 @@ type fakeJellyfin struct {
 	mu        sync.Mutex
 	badAuth   int
 	lastQury  url.Values
-	calls     []string          // playstate and encoding calls, in order
-	lastToken string            // the token of the last library call
-	policy    map[string]any    // the last policy set by the admin
-	users     map[string]string // created users: name -> ID (the first gets partnerJF)
+	calls     []string       // playstate and encoding calls, in order
+	lastToken string         // the token of the last library call
+	policy    map[string]any // the last policy set by the admin
+	// partnerSeesAll gives the second profile the same library as the
+	// first, instead of an empty one.
+	partnerSeesAll bool
+	users          map[string]string // created users: name -> ID (the first gets partnerJF)
 }
 
 func (f *fakeJellyfin) called(prefix string) int {
@@ -104,8 +107,6 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			f.users[in.Name] = id
 			json.NewEncoder(w).Encode(map[string]string{"Id": id})
-		case "GET /Localization/ParentalRatings":
-			io.WriteString(w, `[{"Name":"PG-13","RatingScore":{"score":13}},{"Name":"G","RatingScore":{"score":0}},{"Name":"PG","Value":10}]`)
 		default:
 			switch {
 			case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/Users/"):
@@ -119,7 +120,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		return
-	case strings.Contains(authz, `Token="`+partnerToken+`"`):
+	case strings.Contains(authz, `Token="`+partnerToken+`"`) && !f.partnerSeesAll:
 		f.lastToken = partnerToken
 		if r.URL.Query().Get("userId") != partnerJF && r.URL.Path != "/UserViews" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -127,7 +128,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"Items": []any{}, "TotalRecordCount": 0})
 		return
-	case !strings.Contains(authz, `Token="`+token+`"`):
+	case !strings.Contains(authz, `Token="`+token+`"`) && !(f.partnerSeesAll && strings.Contains(authz, `Token="`+partnerToken+`"`)):
 		f.badAuth++
 		w.WriteHeader(http.StatusUnauthorized)
 		return
@@ -142,7 +143,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if q.Get("userId") != userJF && !strings.HasPrefix(r.URL.Path, "/MediaSegments/") &&
+	if q.Get("userId") != userJF && (!f.partnerSeesAll || q.Get("userId") != partnerJF) && !strings.HasPrefix(r.URL.Path, "/MediaSegments/") &&
 		!strings.HasPrefix(strings.ToLower(r.URL.Path), "/videos/") {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -264,6 +265,12 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
+	// The US scales, as TMDB has them (in part).
+	st.SetRatingScales(context.Background(), "movie", map[string][]store.RatingLevel{"US": {
+		{Certification: "NR", Position: 0}, {Certification: "G", Position: 1},
+		{Certification: "PG", Position: 2}, {Certification: "PG-13", Position: 3}}})
+	st.SetRatingScales(context.Background(), "series", map[string][]store.RatingLevel{"US": {
+		{Certification: "TV-Y", Meaning: "All children", Position: 1}, {Certification: "TV-PG", Position: 3}}})
 	acct, _, err := st.CreateAccount(context.Background(), subject, store.NewOwner{
 		Name: "Main", JellyfinUserID: userJF, JellyfinUsername: "of-test", JellyfinToken: token,
 	})

@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"time"
 	"unicode/utf8"
 
 	"github.com/C0PT3R/overfin-server/internal/images"
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
 	"github.com/C0PT3R/overfin-server/internal/pin"
 	"github.com/C0PT3R/overfin-server/internal/plugin"
 	"github.com/C0PT3R/overfin-server/internal/problem"
@@ -91,10 +91,13 @@ func (p Profiles) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type profileRequest struct {
-	Name          *string `json:"name"`
-	Kind          *string `json:"kind"`
-	Language      *string `json:"language"`
-	RatingCeiling *string `json:"ratingCeiling"`
+	Name     *string `json:"name"`
+	Kind     *string `json:"kind"`
+	Language *string `json:"language"`
+	// MovieCeiling and SeriesCeiling are a kids profile's highest allowed
+	// certifications, on the ratings country's scales.
+	MovieCeiling  *string `json:"movieCeiling"`
+	SeriesCeiling *string `json:"seriesCeiling"`
 	// PIN is the owner's PIN, needed to change a profile's limits when the
 	// owner has one.
 	PIN string `json:"pin"`
@@ -107,47 +110,70 @@ func validName(s string) bool {
 	return s != "" && len(s) <= 32 && utf8.ValidString(s) && textclean.Plain(s, 32) == s
 }
 
-// errUnknownRating: a rating ceiling the server doesn't know.
-var errUnknownRating = errors.New("unknown rating")
-
-// rating finds a rating by name among the server's ratings.
-func (p Profiles) rating(ctx context.Context, name string) (*jellyfin.Rating, error) {
-	all, err := p.Provisioner.Ratings(ctx)
+// scale is the ratings country's scale for a kind (movie, series), from
+// least to most mature, without "not rated", which is never a ceiling.
+func (p Profiles) scale(ctx context.Context, kind string) (string, []store.RatingLevel, error) {
+	country, err := p.Store.RatingsCountry(ctx)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	for _, r := range all {
-		if r.Name == name {
-			return &r, nil
+	all, err := p.Store.RatingScale(ctx, kind, country)
+	if err != nil {
+		return "", nil, err
+	}
+	out := all[:0]
+	for _, l := range all {
+		if l.Certification != store.NotRated {
+			out = append(out, l)
 		}
 	}
-	return nil, errUnknownRating
+	return country, out, nil
 }
 
-// ratings lists the rating names a kids profile's ceiling can be, from least
-// to most mature.
+// validCeilings checks a kids profile's ceilings against the scales; ok is
+// false when either isn't on its scale.
+func (p Profiles) validCeilings(ctx context.Context, movie, series string) (ok bool, err error) {
+	for kind, cert := range map[string]string{"movie": movie, "series": series} {
+		_, levels, err := p.scale(ctx, kind)
+		if err != nil {
+			return false, err
+		}
+		if !slices.ContainsFunc(levels, func(l store.RatingLevel) bool { return l.Certification == cert }) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// ratings lists the certifications a kids profile's ceilings can be, for
+// films and for series, from least to most mature, in the ratings country.
+// Both lists are empty while Overfin has no ratings (no Seerr).
 func (p Profiles) ratings(w http.ResponseWriter, r *http.Request) {
 	if p.Sessions.Current(w, r) == nil {
 		return
 	}
-	all, err := p.Provisioner.Ratings(r.Context())
-	if err != nil {
-		p.Logger.Error("listing ratings failed", "err", err)
-		problem.Send(w, problem.Internal, "")
-		return
+	type levelJSON struct {
+		Name    string `json:"name"`
+		Meaning string `json:"meaning,omitempty"`
 	}
-	type ratingJSON struct {
-		Name string `json:"name"`
-	}
-	out := []ratingJSON{}
-	seen := map[string]bool{}
-	for _, rt := range all {
-		if !seen[rt.Name] && validName(rt.Name) {
-			seen[rt.Name] = true
-			out = append(out, ratingJSON{rt.Name})
+	out := struct {
+		Country string      `json:"country"`
+		Movie   []levelJSON `json:"movie"`
+		Series  []levelJSON `json:"series"`
+	}{Movie: []levelJSON{}, Series: []levelJSON{}}
+	for kind, dst := range map[string]*[]levelJSON{"movie": &out.Movie, "series": &out.Series} {
+		country, levels, err := p.scale(r.Context(), kind)
+		if err != nil {
+			p.Logger.Error("listing ratings failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+		out.Country = country
+		for _, l := range levels {
+			*dst = append(*dst, levelJSON{Name: l.Certification, Meaning: l.Meaning})
 		}
 	}
-	writeOK(w, map[string]any{"items": out})
+	writeOK(w, out)
 }
 
 func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
@@ -161,8 +187,9 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 	if req.Kind != nil {
 		kind = *req.Kind
 	}
-	// A kids profile needs a ceiling; any other profile can't have one.
-	if (kind != "standard" && kind != "kids") || (kind == "kids") != (req.RatingCeiling != nil) {
+	// A kids profile needs both ceilings; any other profile can't have any.
+	kids := kind == "kids"
+	if (kind != "standard" && !kids) || (kids != (req.MovieCeiling != nil)) || (kids != (req.SeriesCeiling != nil)) {
 		problem.Send(w, problem.InvalidRequest, "")
 		return
 	}
@@ -178,20 +205,18 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 	if req.Language != nil {
 		np.Language = *req.Language
 	}
-	var ceiling *jellyfin.Rating
-	if req.RatingCeiling != nil {
-		var err error
-		if ceiling, err = p.rating(r.Context(), *req.RatingCeiling); errors.Is(err, errUnknownRating) {
-			problem.Send(w, problem.InvalidRequest, "unknown rating")
-			return
-		} else if err != nil {
+	if kids {
+		np.MovieCeiling, np.SeriesCeiling = *req.MovieCeiling, *req.SeriesCeiling
+		if ok, err := p.validCeilings(r.Context(), np.MovieCeiling, np.SeriesCeiling); err != nil {
 			p.Logger.Error("listing ratings failed", "err", err)
 			problem.Send(w, problem.Internal, "")
 			return
+		} else if !ok {
+			problem.Send(w, problem.InvalidRequest, "unknown rating")
+			return
 		}
-		np.RatingCeiling = ceiling.Name
 	}
-	prof, err := p.Provisioner.AddProfile(r.Context(), c.Account.ID, np, ceiling, c.Account.Template.MaxProfiles)
+	prof, err := p.Provisioner.AddProfile(r.Context(), c.Account.ID, np, c.Account.Template.MaxProfiles)
 	switch {
 	case errors.Is(err, store.ErrNameTaken):
 		problem.Send(w, problem.NameTaken, "")
@@ -210,7 +235,7 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	var req profileRequest
 	if !decode(r, &req) ||
-		(req.Name == nil && req.Language == nil && req.Kind == nil && req.RatingCeiling == nil) ||
+		(req.Name == nil && req.Language == nil && req.Kind == nil && req.MovieCeiling == nil && req.SeriesCeiling == nil) ||
 		(req.Name != nil && !validName(*req.Name)) ||
 		(req.Language != nil && *req.Language != "" && !languageTagRe.MatchString(*req.Language)) ||
 		(req.Kind != nil && *req.Kind != "standard" && *req.Kind != "kids") {
@@ -234,7 +259,7 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	}
 	// Limits first: they can fail on the PIN, and nothing else should
 	// change then.
-	if req.Kind != nil || req.RatingCeiling != nil {
+	if req.Kind != nil || req.MovieCeiling != nil || req.SeriesCeiling != nil {
 		if !p.changeLimits(w, r, c, pr, req) {
 			return
 		}
@@ -261,9 +286,10 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, toProfileJSON(pr))
 }
 
-// changeLimits makes a profile a kids profile, changes its rating ceiling, or
+// changeLimits makes a profile a kids profile, changes its ceilings, or
 // makes it a standard profile again. Only the owner can, with the owner's PIN
 // if there is one. It writes the problem and returns false on failure.
+// Overfin holds kids profiles to their ceilings itself: Jellyfin isn't told.
 func (p Profiles) changeLimits(w http.ResponseWriter, r *http.Request, c *Caller, pr *store.Profile, req profileRequest) bool {
 	ctx := r.Context()
 	if pr.Owner {
@@ -274,61 +300,38 @@ func (p Profiles) changeLimits(w http.ResponseWriter, r *http.Request, c *Caller
 	if req.Kind != nil {
 		kind = *req.Kind
 	}
-	name := pr.RatingCeiling
-	if req.RatingCeiling != nil {
-		name = *req.RatingCeiling
+	movie, series := pr.MovieCeiling, pr.SeriesCeiling
+	if req.MovieCeiling != nil {
+		movie = *req.MovieCeiling
+	}
+	if req.SeriesCeiling != nil {
+		series = *req.SeriesCeiling
 	}
 	if kind == "standard" {
-		if req.RatingCeiling != nil {
-			problem.Send(w, problem.InvalidRequest, "a standard profile has no rating ceiling")
+		if req.MovieCeiling != nil || req.SeriesCeiling != nil {
+			problem.Send(w, problem.InvalidRequest, "a standard profile has no ceilings")
 			return false
 		}
-		name = ""
-	}
-	var ceiling *jellyfin.Rating
-	if kind == "kids" {
-		var err error
-		if ceiling, err = p.rating(ctx, name); errors.Is(err, errUnknownRating) {
-			problem.Send(w, problem.InvalidRequest, "unknown rating")
-			return false
-		} else if err != nil {
-			p.Logger.Error("listing ratings failed", "err", err)
-			problem.Send(w, problem.Internal, "")
-			return false
-		}
+		movie, series = "", ""
+	} else if ok, err := p.validCeilings(ctx, movie, series); err != nil {
+		p.Logger.Error("listing ratings failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return false
+	} else if !ok {
+		problem.Send(w, problem.InvalidRequest, "unknown rating")
+		return false
 	}
 	if !p.checkPIN(w, ctx, c.Account.ID, c.Owner.ID, req.PIN) {
 		return false
 	}
-
-	// Whatever fails half-way must leave the profile limited: Jellyfin
-	// enforces the limit, so it is tightened before the record changes,
-	// and loosened only after.
-	restrict := func() bool {
-		if err := p.Provisioner.Restrict(ctx, pr.JellyfinUserID, ceiling); err != nil {
-			p.Logger.Error("changing a profile's limits failed", "err", err)
-			problem.Send(w, problem.Internal, "")
-			return false
-		}
-		return true
-	}
-	record := func() bool {
-		if err := p.Store.SetKind(ctx, c.Account.ID, pr.ID, kind, name); err != nil {
-			problem.Send(w, problem.NotFound, "")
-			return false
-		}
-		return true
-	}
-	ok := false
-	if ceiling != nil {
-		ok = restrict() && record()
-	} else {
-		ok = record() && restrict()
+	if err := p.Store.SetKind(ctx, c.Account.ID, pr.ID, kind, movie, series); err != nil {
+		problem.Send(w, problem.NotFound, "")
+		return false
 	}
 	if p.Images != nil {
 		p.Images.Forget(pr.ID)
 	}
-	return ok
+	return true
 }
 
 // checkPIN checks a profile's PIN. It writes the problem and returns false

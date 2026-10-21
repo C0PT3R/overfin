@@ -28,6 +28,7 @@ import (
 	"github.com/C0PT3R/overfin-server/internal/playback"
 	"github.com/C0PT3R/overfin-server/internal/plugin"
 	"github.com/C0PT3R/overfin-server/internal/provision"
+	"github.com/C0PT3R/overfin-server/internal/ratings"
 	"github.com/C0PT3R/overfin-server/internal/seerr"
 	"github.com/C0PT3R/overfin-server/internal/server"
 	"github.com/C0PT3R/overfin-server/internal/site"
@@ -56,6 +57,8 @@ type shared struct {
 	seerrKey string
 	// lists keeps discovery's lists from Seerr, in the background.
 	lists *catalog.Lists
+	// ratings keeps titles' certifications, in the background.
+	ratings *ratings.Keeper
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -404,6 +407,15 @@ func (g *gateway) currentSeerr() *seerr.Client {
 	return g.sh.seerr
 }
 
+// ratingSource is where certifications come from: Seerr, when it's
+// connected.
+func (g *gateway) ratingSource() ratings.Source {
+	if c := g.currentSeerr(); c != nil {
+		return ratings.Seerr{Client: c}
+	}
+	return nil
+}
+
 // Seerr is Seerr's address, when it's connected.
 func (g *gateway) Seerr() string {
 	g.mu.Lock()
@@ -465,6 +477,9 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 	g.sh.logger.Info("Seerr connected in the control panel", "seerr", url)
 	if g.sh.lists != nil {
 		g.sh.lists.Wake() // discovery's lists, read now
+	}
+	if g.sh.ratings != nil {
+		g.sh.ratings.Wake()
 	}
 	return "Seerr, at " + url + ": its API key works. Discovery is on.", nil
 }

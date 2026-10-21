@@ -56,8 +56,12 @@ type profileJSON struct {
 	Kind   string `json:"kind"`
 	Owner  bool   `json:"owner"`
 	HasPIN bool   `json:"hasPin"`
-	// RatingCeiling is a kids profile's highest allowed rating.
-	RatingCeiling string `json:"ratingCeiling,omitempty"`
+	// MovieCeiling and SeriesCeiling are a kids profile's highest allowed
+	// certifications; CeilingsNeeded, that it has none yet (it sees
+	// nothing until its owner picks them).
+	MovieCeiling   string `json:"movieCeiling,omitempty"`
+	SeriesCeiling  string `json:"seriesCeiling,omitempty"`
+	CeilingsNeeded bool   `json:"ceilingsNeeded,omitempty"`
 }
 
 type meJSON struct {
@@ -142,5 +146,7 @@ func decode(r *http.Request, v any) bool {
 }
 
 func toProfileJSON(p *store.Profile) profileJSON {
-	return profileJSON{ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, HasPIN: p.HasPIN, RatingCeiling: p.RatingCeiling}
+	return profileJSON{ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, HasPIN: p.HasPIN,
+		MovieCeiling: p.MovieCeiling, SeriesCeiling: p.SeriesCeiling,
+		CeilingsNeeded: p.Kind == "kids" && (p.MovieCeiling == "" || p.SeriesCeiling == "")}
 }

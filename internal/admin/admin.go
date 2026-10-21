@@ -197,6 +197,8 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/api/catalog", p.signedIn(p.catalog))
 	mux.HandleFunc("GET /admin/api/seerr", p.signedIn(p.seerr))
 	mux.HandleFunc("PUT /admin/api/seerr", p.signedIn(p.setSeerr))
+	mux.HandleFunc("GET /admin/api/ratings", p.signedIn(p.ratings))
+	mux.HandleFunc("PUT /admin/api/ratings", p.signedIn(p.setRatings))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("POST /admin/api/logout", p.logout)
 	mux.HandleFunc("GET /admin/api/accounts", p.signedIn(p.accounts))
@@ -575,6 +577,78 @@ func (p *Panel) setSeerr(w http.ResponseWriter, r *http.Request, s *session) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"summary": summary, "url": p.Seerr.Seerr()})
+}
+
+// ratingsJSON is where Overfin's own ratings stand: the ratings country,
+// those TMDB has scales for, and how many of the library's titles have
+// their certifications fetched. Without a source (Seerr), kids profiles
+// see nothing.
+type ratingsJSON struct {
+	Country   string   `json:"country"`
+	Countries []string `json:"countries"`
+	Fetched   int      `json:"fetched"`
+	Total     int      `json:"total"`
+	Source    bool     `json:"source"`
+}
+
+func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
+	out := ratingsJSON{Source: p.Seerr != nil && p.Seerr.Seerr() != ""}
+	var err error
+	if out.Country, err = p.Store.RatingsCountry(ctx); err != nil {
+		return out, err
+	}
+	if out.Countries, err = p.Store.RatingCountries(ctx); err != nil {
+		return out, err
+	}
+	if out.Countries == nil {
+		out.Countries = []string{}
+	}
+	out.Fetched, out.Total, err = p.Store.RatingProgress(ctx)
+	return out, err
+}
+
+func (p *Panel) ratings(w http.ResponseWriter, r *http.Request, s *session) {
+	out, err := p.ratingsState(r.Context())
+	if err != nil {
+		p.Logger.Error("reading the ratings failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// setRatings changes the ratings country, to one TMDB has scales for.
+// Kids profiles' ceilings are cleared with it.
+func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
+	var req struct {
+		Country string `json:"country"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a valid request"})
+		return
+	}
+	ctx := r.Context()
+	countries, err := p.Store.RatingCountries(ctx)
+	if err == nil && !slices.Contains(countries, req.Country) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "TMDB has no ratings for this country"})
+		return
+	}
+	if err == nil {
+		err = p.Store.SetRatingsCountry(ctx, req.Country)
+	}
+	out, err2 := p.ratingsState(ctx)
+	if err == nil {
+		err = err2
+	}
+	if err != nil {
+		p.Logger.Error("changing the ratings country failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
+		return
+	}
+	p.Logger.Info("ratings country changed in the control panel", "country", req.Country, "by", s.name)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (p *Panel) setJellyfin(w http.ResponseWriter, r *http.Request, s *session) {

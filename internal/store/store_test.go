@@ -535,7 +535,7 @@ func TestCatalogTitles(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := func(avail string) string {
-		got, err := s.ListTitles(ctx, "trending", "movie", avail, 0, 10)
+		got, err := s.ListTitles(ctx, "trending", "movie", avail, nil, 0, 10)
 		if err != nil {
 			t.Fatal(err)
 		}

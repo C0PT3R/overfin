@@ -28,8 +28,7 @@ import (
 // (catalog.Lists); only a title's page may ask Seerr, the first time it's
 // opened and once a week after.
 //
-// Kids profiles see none of it yet: discovery's titles carry no rating
-// Overfin has checked, so they're all hidden from them (rule 28).
+// Kids profiles see only the titles their ceilings allow (rule 28).
 type Discovery struct {
 	Library Library
 	Seerr   *seerr.Client
@@ -129,8 +128,9 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := discoverPage{Items: []catalogTitle{}}
-	if p.Kind == "kids" {
-		writeOK(w, out)
+	ceiling, err := d.Library.ceiling(r.Context(), p)
+	if err != nil {
+		d.Library.storeError(w, err)
 		return
 	}
 	binding := cursorBinding(r, p.ID)
@@ -147,7 +147,7 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// One more than asked for, to know whether there are more.
-	titles, err := d.Store.ListTitles(r.Context(), list, kind, avail, offset, limit+1)
+	titles, err := d.Store.ListTitles(r.Context(), list, kind, avail, ceiling, offset, limit+1)
 	if err != nil {
 		d.Library.Logger.Error("reading the catalog failed", "err", err)
 		problem.Send(w, problem.Internal, "")
@@ -190,8 +190,8 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	if p.Kind == "kids" {
-		problem.Send(w, problem.NotFound, "")
+	if may, err := d.mayOpen(r.Context(), p, kind, tmdb); err != nil || !may {
+		d.Library.hidden(w, err)
 		return
 	}
 	t, err := d.Store.TitleByTMDB(r.Context(), kind, tmdb)
@@ -306,6 +306,9 @@ func (d Discovery) place(ctx context.Context, p *store.Profile, titles []store.T
 				found = append(found, s)
 			}
 		}
+		if found, err = d.Library.allowedItems(ctx, p, found); err != nil {
+			return nil, err
+		}
 		if err := d.Library.withStates(ctx, p, found); err != nil {
 			return nil, err
 		}
@@ -353,7 +356,9 @@ func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profil
 		return
 	}
 	data, contentType, err := d.Library.Images.TMDB(r.Context(), ref, size, func(ctx context.Context) error {
-		if p.Kind == "kids" {
+		if may, err := d.mayOpen(ctx, p, ref.Kind, strconv.Itoa(ref.TMDBID)); err != nil {
+			return err
+		} else if !may {
 			return images.ErrHidden
 		}
 		t, err := d.Store.TitleByTMDB(ctx, ref.Kind, strconv.Itoa(ref.TMDBID))
@@ -382,6 +387,15 @@ func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profil
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	_, _ = w.Write(data)
+}
+
+// mayOpen says whether the profile may see a TMDB title.
+func (d Discovery) mayOpen(ctx context.Context, p *store.Profile, kind, tmdb string) (bool, error) {
+	c, err := d.Library.ceiling(ctx, p)
+	if c == nil || err != nil {
+		return err == nil, err
+	}
+	return d.Store.TitleAllowed(ctx, *c, kind, tmdb)
 }
 
 func (d Discovery) seerrError(w http.ResponseWriter, err error) {

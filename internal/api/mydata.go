@@ -71,7 +71,8 @@ type exportProfileJSON struct {
 	Kind          string `json:"kind"`
 	Owner         bool   `json:"owner"`
 	Language      string `json:"language,omitempty"`
-	RatingCeiling string `json:"ratingCeiling,omitempty"`
+	MovieCeiling  string `json:"movieCeiling,omitempty"`
+	SeriesCeiling string `json:"seriesCeiling,omitempty"`
 	HasPIN        bool   `json:"hasPin"`
 	CreatedAt     string `json:"createdAt"`
 	// WatchHistory is read from the media server for this download.
@@ -193,7 +194,7 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Profiles = append(out.Profiles, exportProfileJSON{
 			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language,
-			RatingCeiling: p.RatingCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
+			MovieCeiling: p.MovieCeiling, SeriesCeiling: p.SeriesCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
 			WatchHistory: history, Titles: titles, Modules: mods,
 		})
 	}

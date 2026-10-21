@@ -101,9 +101,9 @@ export class Overfin {
 
   async profiles() { return (await this.request('GET', '/profiles')).items; }
   profile(id) { return this.request('GET', `/profiles/${enc(id)}`); }
-  /** @param {{name: string, kind?: 'standard'|'kids', ratingCeiling?: string, language?: string}} profile */
+  /** @param {{name: string, kind?: 'standard'|'kids', movieCeiling?: string, seriesCeiling?: string, language?: string}} profile */
   createProfile(profile) { return this.request('POST', '/profiles', profile); }
-  /** Changes name, language, kind or ratingCeiling; limits need the owner's `pin` if set. */
+  /** Changes name, language, kind or ceilings; limits need the owner's `pin` if set. */
   updateProfile(id, changes) { return this.request('PATCH', `/profiles/${enc(id)}`, changes); }
   /** Deletes a profile and its history. Needs a fresh login (step-up). */
   deleteProfile(id) { return this.request('DELETE', `/profiles/${enc(id)}`); }
@@ -111,8 +111,8 @@ export class Overfin {
   activateProfile(id, pin) { return this.request('POST', `/profiles/${enc(id)}/activate`, pin ? { pin } : {}); }
   setPin(id, pin, ownerPin) { return this.request('PUT', `/profiles/${enc(id)}/pin`, ownerPin ? { pin, ownerPin } : { pin }); }
   removePin(id) { return this.request('DELETE', `/profiles/${enc(id)}/pin`); }
-  /** Rating names a kids profile's ceiling can be, least mature first. */
-  async ratings() { return (await this.request('GET', '/ratings')).items.map((r) => r.name); }
+  /** The certifications a kids profile's ceilings can be, for films and series, least mature first. */
+  ratings() { return this.request('GET', '/ratings'); }
   async sessions() { return (await this.request('GET', '/sessions')).items; }
   endSession(id) { return this.request('DELETE', `/sessions/${enc(id)}`); }
   endOtherSessions() { return this.request('DELETE', '/sessions'); }

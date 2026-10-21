@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -284,4 +285,104 @@ func (r rawTitle) title() (Title, bool) {
 		t.Status = r.MediaInfo.Status
 	}
 	return t, true
+}
+
+// Certification is one level of a country's scale.
+type Certification struct {
+	Certification string
+	Meaning       string
+	// Order is TMDB's: higher is more mature.
+	Order int
+}
+
+// country is what an ISO 3166-1 country code looks like.
+var country = regexp.MustCompile(`^[A-Z]{2}$`)
+
+// certification checks a certification as TMDB writes it, such as "PG-13",
+// "12" or "TV-Y7"; "" when it isn't one.
+func certification(s string) string {
+	if s = strings.TrimSpace(s); len(s) > 16 || textclean.Plain(s, 16) != s {
+		return ""
+	}
+	return s
+}
+
+// Certifications returns the scales for films ("movie") or series
+// ("series"), by country.
+func (c *Client) Certifications(ctx context.Context, kind string) (map[string][]Certification, error) {
+	path := map[string]string{"movie": "/certifications/movie", "series": "/certifications/tv"}[kind]
+	if path == "" {
+		return nil, errors.New("seerr: invalid kind")
+	}
+	var raw struct {
+		Certifications map[string][]struct {
+			Certification string
+			Meaning       string
+			Order         int
+		}
+	}
+	if err := c.get(ctx, path, nil, &raw); err != nil {
+		return nil, err
+	}
+	out := map[string][]Certification{}
+	for cc, levels := range raw.Certifications {
+		if !country.MatchString(cc) || len(levels) > 50 {
+			continue
+		}
+		for _, l := range levels {
+			if cert := certification(l.Certification); cert != "" && l.Order >= 0 && l.Order <= 100 {
+				out[cc] = append(out[cc], Certification{Certification: cert, Meaning: textclean.Plain(l.Meaning, 1000), Order: l.Order})
+			}
+		}
+	}
+	return out, nil
+}
+
+// Ratings returns a title's certifications, by country: a film's release
+// certifications (each of its releases may have its own), a series'
+// content rating.
+func (c *Client) Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error) {
+	path := map[string]string{"movie": "/movie/", "series": "/tv/"}[kind]
+	if path == "" || tmdbID <= 0 || tmdbID > 9_999_999_999 {
+		return nil, ErrNotFound
+	}
+	var raw struct {
+		ID       int
+		Releases struct {
+			Results []struct {
+				Country      string `json:"iso_3166_1"`
+				ReleaseDates []struct {
+					Certification string
+				} `json:"release_dates"`
+			}
+		}
+		ContentRatings struct {
+			Results []struct {
+				Country string `json:"iso_3166_1"`
+				Rating  string
+			}
+		}
+	}
+	if err := c.get(ctx, path+strconv.Itoa(tmdbID), nil, &raw); err != nil {
+		return nil, err
+	}
+	if raw.ID != tmdbID {
+		return nil, ErrNotFound
+	}
+	out := map[string][]string{}
+	add := func(cc, cert string) {
+		if cert = certification(cert); cert != "" && country.MatchString(cc) && len(out[cc]) < 20 &&
+			!slices.Contains(out[cc], cert) {
+			out[cc] = append(out[cc], cert)
+		}
+	}
+	for _, r := range raw.Releases.Results {
+		for _, d := range r.ReleaseDates {
+			add(r.Country, d.Certification)
+		}
+	}
+	for _, r := range raw.ContentRatings.Results {
+		add(r.Country, r.Rating)
+	}
+	return out, nil
 }

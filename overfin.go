@@ -30,6 +30,7 @@ import (
 	"github.com/C0PT3R/overfin-server/internal/personal"
 	"github.com/C0PT3R/overfin-server/internal/playback"
 	"github.com/C0PT3R/overfin-server/internal/provision"
+	"github.com/C0PT3R/overfin-server/internal/ratings"
 	"github.com/C0PT3R/overfin-server/internal/seal"
 	"github.com/C0PT3R/overfin-server/internal/seerr"
 	"github.com/C0PT3R/overfin-server/internal/store"
@@ -267,6 +268,11 @@ func run(logger *slog.Logger) error {
 	// titles) per list, every hour.
 	sh.lists = catalog.NewLists(gw.currentSeerr, db, logger, time.Hour, 10)
 	go sh.lists.Run(ctx)
+	// Titles' certifications, for kids profiles: looked for every 10
+	// minutes, a tenth of a second apart.
+	sh.ratings = ratings.NewKeeper(gw.ratingSource, db, logger, 10*time.Minute, 100*time.Millisecond)
+	go sh.ratings.Run(ctx)
+	go unrestrictKids(ctx, db, gw.Provisioner, logger)
 	// Each profile's data, brought over from Jellyfin once.
 	go (&personal.Importer{Jellyfin: sh.jf, Store: db, Logger: logger, Every: 10 * time.Minute}).Run(ctx)
 
@@ -416,4 +422,28 @@ func recoverTokensWith(ctx context.Context, logger *slog.Logger, db *store.Store
 	}
 	logger.Info("recovery: done; PINs cleared and everyone logs in again", "pins", pins, "logins", logins)
 	return nil
+}
+
+// unrestrictKids lifts Jellyfin's rating limits from kids profiles' users,
+// set by Overfin before it had its own ratings: Overfin applies those now.
+// What fails is tried again ten minutes later.
+func unrestrictKids(ctx context.Context, db *store.Store, prov func() *provision.Provisioner, logger *slog.Logger) {
+	for {
+		kids, err := db.KidsProfiles(ctx)
+		failed := err != nil
+		for _, p := range kids {
+			if err = prov().Unrestrict(ctx, p.JellyfinUserID); err != nil {
+				failed = true
+			}
+		}
+		if !failed {
+			return
+		}
+		logger.Warn("could not lift Jellyfin's limits from kids profiles yet", "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Minute):
+		}
+	}
 }

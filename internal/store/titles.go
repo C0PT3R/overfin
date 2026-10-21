@@ -113,8 +113,8 @@ func (s *Store) SetList(ctx context.Context, list, kind string, tmdbIDs []string
 
 // ListTitles returns a page of a discovery list, in order, from offset:
 // all its titles, those the library has ("library") or those it doesn't
-// ("missing").
-func (s *Store) ListTitles(ctx context.Context, list, kind, availability string, offset, limit int) ([]Title, error) {
+// ("missing"); with a ceiling, only those it allows.
+func (s *Store) ListTitles(ctx context.Context, list, kind, availability string, ceiling *Ceiling, offset, limit int) ([]Title, error) {
 	filter := ""
 	switch availability {
 	case "library":
@@ -122,10 +122,16 @@ func (s *Store) ListTitles(ctx context.Context, list, kind, availability string,
 	case "missing":
 		filter = ` AND NOT EXISTS (SELECT 1 FROM catalog_items i WHERE i.kind = t.kind AND i.tmdb = t.tmdb)`
 	}
+	args := []any{list, kind}
+	if ceiling != nil {
+		cond, a := ceiling.allowed("t.kind", "t.tmdb")
+		filter += ` AND ` + cond
+		args = append(args, a...)
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT `+titleColumns+` FROM catalog_lists l
 		JOIN catalog_titles t ON t.kind = l.kind AND t.tmdb = l.tmdb
 		WHERE l.list = ? AND l.kind = ?`+filter+` ORDER BY l.position LIMIT ? OFFSET ?`,
-		list, kind, limit, offset)
+		append(args, limit, offset)...)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +161,7 @@ func (s *Store) PurgeTitles(ctx context.Context, before time.Time) (int64, error
 	return res.RowsAffected()
 }
 
-// ForgetTMDB deletes every title and list: Overfin no longer uses TMDB's
+// ForgetTMDB deletes every title, list and certification: Overfin no longer uses TMDB's
 // data, and its terms ask for it to be deleted then.
 func (s *Store) ForgetTMDB(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -163,7 +169,8 @@ func (s *Store) ForgetTMDB(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, q := range []string{`DELETE FROM catalog_lists`, `DELETE FROM catalog_titles`} {
+	for _, q := range []string{`DELETE FROM catalog_lists`, `DELETE FROM catalog_titles`,
+		`DELETE FROM rating_scales`, `DELETE FROM title_ratings`, `DELETE FROM title_ratings_fetched`} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}

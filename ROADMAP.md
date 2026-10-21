@@ -357,6 +357,12 @@ own do), so a title looks the same wherever it is.
    from kids, and a playback for anything not in the catalog is refused.
    Jellyfin's own parental limits are no longer used: its ratings come from
    other sources and would disagree with Overfin's.
+   *Ratings: done.* Overfin's own, from TMDB (through Seerr, behind an
+   interface so TMDB can be reached directly with Overfin's own key later):
+   the operator picks the ratings country, each kids profile has a film
+   ceiling and a series ceiling on that country's scales, and every
+   certification a title has there must be within it. Libraries per profile
+   and blocked tags are still to do.
 4. **One Jellyfin account.** With nothing personal and no rules left in
    Jellyfin, its users are interchangeable: one ordinary account (never an
    administrator) with every library serves everyone, local users and peers
