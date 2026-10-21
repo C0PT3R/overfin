@@ -317,6 +317,13 @@ func (g *gateway) reload(getenv func(string) string) error {
 	return nil
 }
 
+// Provisioner is the provisioner of the configuration in effect.
+func (g *gateway) Provisioner() *provision.Provisioner {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return newProvisioner(g.cfg, g.sh)
+}
+
 // Jellyfin is Jellyfin's address in effect, and whether the configuration
 // file sets it (then only the file changes it).
 func (g *gateway) Jellyfin() (url string, inFile bool) {

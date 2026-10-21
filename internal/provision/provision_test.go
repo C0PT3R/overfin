@@ -44,6 +44,9 @@ type fakeJellyfin struct {
 	alicePolicy        map[string]any
 	failing            string
 	logouts            int
+	// For the service account: passwords set, and whether its user is gone.
+	passwords   int
+	serviceGone bool
 }
 
 func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +69,15 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.aliceName = in.Name
 		w.WriteHeader(http.StatusNoContent)
 	case "POST /Users/Password":
+		if r.URL.Query().Get("userId") == jfUser {
+			if f.serviceGone {
+				http.NotFound(w, r)
+				return
+			}
+			f.passwords++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if f.failing == "password" || r.URL.Query().Get("userId") != aliceUser {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -98,7 +110,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			id = aliceUser
 		case in.Username == "boss" && in.Pw == adminPass:
 			id = adminUser
-		case f.failLogin || !strings.HasPrefix(in.Username, "of-"):
+		case f.failLogin || !(strings.HasPrefix(in.Username, "of-") || strings.HasPrefix(in.Username, "overfin-service-")):
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}

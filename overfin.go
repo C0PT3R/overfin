@@ -20,6 +20,7 @@ import (
 
 	"github.com/C0PT3R/overfin-gateway/internal/admin"
 	"github.com/C0PT3R/overfin-gateway/internal/api"
+	"github.com/C0PT3R/overfin-gateway/internal/catalog"
 	"github.com/C0PT3R/overfin-gateway/internal/config"
 	"github.com/C0PT3R/overfin-gateway/internal/connector"
 	"github.com/C0PT3R/overfin-gateway/internal/images"
@@ -246,10 +247,15 @@ func run(logger *slog.Logger) error {
 	janitor := api.Playback{Library: api.Library{Jellyfin: sh.jf, Logger: logger}, Tickets: sh.tickets, Logger: logger}
 	go janitor.RunJanitor(ctx)
 	go purgeExpired(ctx, db, logger)
+	// The catalog's index, read through Overfin's Jellyfin service account.
+	cat := &catalog.Sync{Jellyfin: sh.jf, Store: db, Logger: logger,
+		Service:      &provision.Service{Provisioner: gw.Provisioner},
+		ChangesEvery: 5 * time.Minute, FullEvery: 6 * time.Hour}
+	go cat.Run(ctx)
 
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
-		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Group: a.Group, Logger: logger,
+		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Catalog: cat, Group: a.Group, Logger: logger,
 			Store: db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}

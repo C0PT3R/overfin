@@ -1,0 +1,320 @@
+// Package catalog keeps Overfin's index of the library: every title, with
+// its TMDB, IMDb and TVDB IDs, its rating and its image references, read
+// through Overfin's Jellyfin service account and kept in Overfin's
+// database. Nothing personal is read or kept.
+//
+// A full pass reads the whole library now and then, and is the only one that
+// removes titles; in between, only what Jellyfin saved since the last read
+// is read again.
+package catalog
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"regexp"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-gateway/internal/textclean"
+)
+
+// Service is the Jellyfin service account the catalog reads with.
+type Service interface {
+	Auth(ctx context.Context) (jellyfin.Auth, string, error)
+	// Refused tells it Jellyfin refused its token; it gets a new one.
+	Refused(ctx context.Context) error
+}
+
+// Sync keeps the index in step with the library.
+type Sync struct {
+	Jellyfin *jellyfin.Client
+	Store    *store.Store
+	Service  Service
+	Logger   *slog.Logger
+	// ChangesEvery is how often changes are read; FullEvery, how often the
+	// whole library is.
+	ChangesEvery time.Duration
+	FullEvery    time.Duration
+
+	mu      sync.Mutex
+	lastErr string
+	now     func() time.Time
+}
+
+// pageSize is how many titles one request reads.
+const pageSize = 500
+
+// margin is how far back changes are read again, so nothing saved during
+// the previous read is missed.
+const margin = 2 * time.Minute
+
+func (s *Sync) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// Run keeps the index in step until ctx ends: a full pass first if the last
+// one is old or there's none, then changes every ChangesEvery, and a full
+// pass every FullEvery.
+func (s *Sync) Run(ctx context.Context) {
+	for {
+		s.once(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.ChangesEvery):
+		}
+	}
+}
+
+func (s *Sync) once(ctx context.Context) {
+	st, err := s.Store.CatalogState(ctx)
+	if err == nil {
+		if st.Pass == 0 || s.clock().Sub(st.FullAt) >= s.FullEvery {
+			err = s.Full(ctx)
+		} else {
+			err = s.Changes(ctx)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil && ctx.Err() == nil {
+		s.Logger.Error("catalog: reading the library failed", "err", err)
+		s.lastErr = err.Error()
+	} else {
+		s.lastErr = ""
+	}
+}
+
+// Full reads the whole library, then removes the titles that are gone.
+func (s *Sync) Full(ctx context.Context) error {
+	st, err := s.Store.CatalogState(ctx)
+	if err != nil {
+		return err
+	}
+	start := s.clock()
+	pass := st.Pass + 1
+	n, err := s.read(ctx, time.Time{}, pass)
+	if err != nil {
+		return err
+	}
+	removed, err := s.sweep(ctx, pass)
+	if err != nil {
+		return err
+	}
+	st.Pass, st.FullAt, st.ChangesAt = pass, start, start
+	if err := s.Store.SetCatalogState(ctx, st); err != nil {
+		return err
+	}
+	s.Logger.Info("catalog: the library was read", "titles", n, "removed", removed)
+	return nil
+}
+
+// Changes reads what Jellyfin saved since the last read.
+func (s *Sync) Changes(ctx context.Context) error {
+	st, err := s.Store.CatalogState(ctx)
+	if err != nil {
+		return err
+	}
+	start := s.clock()
+	n, err := s.read(ctx, st.ChangesAt.Add(-margin), st.Pass)
+	if err != nil {
+		return err
+	}
+	st.ChangesAt = start
+	if err := s.Store.SetCatalogState(ctx, st); err != nil {
+		return err
+	}
+	if n > 0 {
+		s.Logger.Info("catalog: changes read", "titles", n)
+	}
+	return nil
+}
+
+// read reads the library (everything, or what was saved since since) and
+// stores it as seen by pass. It returns how many titles it read.
+func (s *Sync) read(ctx context.Context, since time.Time, pass int64) (int, error) {
+	n := 0
+	for start := 0; ; start += pageSize {
+		var page *jellyfin.ItemPage
+		err := s.withService(ctx, func(a jellyfin.Auth, userID string) error {
+			var err error
+			page, err = s.Jellyfin.CatalogPage(ctx, a, userID, jellyfin.CatalogQuery{StartIndex: start, Limit: pageSize, Since: since})
+			return err
+		})
+		if err != nil {
+			return n, err
+		}
+		var items []store.CatalogItem
+		for _, raw := range page.Items {
+			if it, ok := convert(raw); ok {
+				items = append(items, it)
+			}
+		}
+		if err := s.Store.PutCatalog(ctx, items, pass); err != nil {
+			return n, err
+		}
+		n += len(items)
+		if len(page.Items) < pageSize {
+			return n, nil
+		}
+	}
+}
+
+// sweep removes the titles the full pass didn't see, after asking Jellyfin
+// about them again: titles added while the pass ran shift its pages, and
+// one missed that way must not be removed.
+func (s *Sync) sweep(ctx context.Context, pass int64) (int, error) {
+	unseen, err := s.Store.UnseenCatalog(ctx, pass)
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for batch := range slices.Chunk(unseen, 100) {
+		var found []jellyfin.RawItem
+		err := s.withService(ctx, func(a jellyfin.Auth, userID string) error {
+			var err error
+			found, err = s.Jellyfin.CatalogItems(ctx, a, userID, batch)
+			return err
+		})
+		if err != nil {
+			return removed, err
+		}
+		var still []store.CatalogItem
+		present := map[string]bool{}
+		for _, raw := range found {
+			if it, ok := convert(raw); ok {
+				still = append(still, it)
+				present[it.ID] = true
+			}
+		}
+		if err := s.Store.PutCatalog(ctx, still, pass); err != nil {
+			return removed, err
+		}
+		var gone []string
+		for _, id := range batch {
+			if !present[id] {
+				gone = append(gone, id)
+			}
+		}
+		if err := s.Store.DeleteCatalog(ctx, gone); err != nil {
+			return removed, err
+		}
+		removed += len(gone)
+	}
+	return removed, nil
+}
+
+// withService runs fn with the service account, and once more with a new
+// token if Jellyfin refused the first.
+func (s *Sync) withService(ctx context.Context, fn func(jellyfin.Auth, string) error) error {
+	a, userID, err := s.Service.Auth(ctx)
+	if err != nil {
+		return err
+	}
+	err = fn(a, userID)
+	if !jellyfin.IsStatus(err, http.StatusUnauthorized) {
+		return err
+	}
+	if err := s.Service.Refused(ctx); err != nil {
+		return err
+	}
+	if a, userID, err = s.Service.Auth(ctx); err != nil {
+		return err
+	}
+	return fn(a, userID)
+}
+
+// Status is where the index stands, for the control panel.
+type Status struct {
+	Titles    map[string]int `json:"titles"`
+	FullAt    time.Time      `json:"fullAt"`
+	ChangesAt time.Time      `json:"changesAt"`
+	// Error is the last read's failure, if it failed.
+	Error string `json:"error,omitempty"`
+}
+
+// Status says where the index stands.
+func (s *Sync) Status(ctx context.Context) (Status, error) {
+	st, err := s.Store.CatalogState(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	titles, err := s.Store.CatalogCounts(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return Status{Titles: titles, FullAt: st.FullAt, ChangesAt: st.ChangesAt, Error: s.lastErr}, nil
+}
+
+// ---- From Jellyfin's items to the index -----------------------------------------
+
+var kinds = map[string]string{"Movie": "movie", "Series": "series", "Season": "season", "Episode": "episode"}
+
+// What an upstream ID may look like (SECURITY.md rule 7): anything else is
+// left out.
+var (
+	tmdbID   = regexp.MustCompile(`^[0-9]{1,10}$`)
+	imdbID   = regexp.MustCompile(`^tt[0-9]{1,10}$`)
+	tvdbID   = regexp.MustCompile(`^[0-9]{1,10}$`)
+	imageTag = regexp.MustCompile(`^[0-9A-Za-z]{1,64}$`)
+)
+
+// convert turns one of Jellyfin's items into a title of the index, its text
+// made plain and its IDs checked. Items of other types, or with an ID that
+// isn't one, are left out.
+func convert(raw jellyfin.RawItem) (store.CatalogItem, bool) {
+	kind, ok := kinds[raw.Type]
+	if !ok {
+		return store.CatalogItem{}, false
+	}
+	id, err := jellyfin.NormalizeID(raw.Id)
+	if err != nil {
+		return store.CatalogItem{}, false
+	}
+	it := store.CatalogItem{
+		ID:       id,
+		Kind:     kind,
+		Name:     textclean.Plain(raw.Name, 300),
+		SortName: textclean.Plain(raw.SortName, 300),
+		Year:     raw.ProductionYear,
+		Rating:   textclean.Plain(raw.OfficialRating, 32),
+		TMDB:     matching(tmdbID, raw.ProviderIds["Tmdb"]),
+		IMDb:     matching(imdbID, raw.ProviderIds["Imdb"]),
+		TVDB:     matching(tvdbID, raw.ProviderIds["Tvdb"]),
+	}
+	if it.SortName == "" {
+		it.SortName = it.Name
+	}
+	if kind == "season" || kind == "episode" {
+		it.SeriesID, _ = jellyfin.NormalizeID(raw.SeriesId)
+	}
+	switch kind {
+	case "season":
+		it.SeasonNumber = raw.IndexNumber
+	case "episode":
+		it.SeasonID, _ = jellyfin.NormalizeID(raw.SeasonId)
+		it.SeasonNumber, it.EpisodeNumber = raw.ParentIndexNumber, raw.IndexNumber
+	}
+	it.PrimaryTag = matching(imageTag, raw.ImageTags["Primary"])
+	it.ThumbTag = matching(imageTag, raw.ImageTags["Thumb"])
+	if len(raw.BackdropImageTags) > 0 {
+		it.BackdropTag = matching(imageTag, raw.BackdropImageTags[0])
+	}
+	return it, true
+}
+
+func matching(re *regexp.Regexp, s string) string {
+	if re.MatchString(s) {
+		return s
+	}
+	return ""
+}

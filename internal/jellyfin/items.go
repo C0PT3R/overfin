@@ -14,6 +14,8 @@ import (
 type RawItem struct {
 	Id                      string
 	Name                    string
+	SortName                string
+	ParentId                string
 	Type                    string
 	CollectionType          string
 	PremiereDate            string

@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/C0PT3R/overfin-gateway/internal/catalog"
 	"github.com/C0PT3R/overfin-gateway/internal/config"
 	"github.com/C0PT3R/overfin-gateway/internal/connector"
 	"github.com/C0PT3R/overfin-gateway/internal/oidc"
@@ -51,6 +52,11 @@ type Jellyfin interface {
 	// SetJellyfin tests and applies a new address or key (empty: keep
 	// it). Its error says what's wrong in plain words.
 	SetJellyfin(ctx context.Context, url, key string) (string, error)
+}
+
+// Catalog says where the catalog's index stands.
+type Catalog interface {
+	Status(ctx context.Context) (catalog.Status, error)
 }
 
 // Directory is an identity provider connector's view of people, by the
@@ -105,7 +111,9 @@ type Modules interface {
 type Panel struct {
 	Features Features
 	// Jellyfin, when set, shows and changes how Overfin reaches Jellyfin.
-	Jellyfin    Jellyfin
+	Jellyfin Jellyfin
+	// Catalog, when set, shows where the catalog's index stands.
+	Catalog     Catalog
 	Store       *store.Store
 	Provisioner *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are.
@@ -175,6 +183,7 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/api/features", p.signedIn(p.features))
 	mux.HandleFunc("PUT /admin/api/features", p.signedIn(p.setFeatures))
 	mux.HandleFunc("GET /admin/api/jellyfin", p.signedIn(p.jellyfin))
+	mux.HandleFunc("GET /admin/api/catalog", p.signedIn(p.catalog))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("POST /admin/api/logout", p.logout)
 	mux.HandleFunc("GET /admin/api/accounts", p.signedIn(p.accounts))
@@ -508,6 +517,20 @@ func (p *Panel) jellyfin(w http.ResponseWriter, r *http.Request, s *session) {
 	}
 	url, inFile := p.Jellyfin.Jellyfin()
 	writeJSON(w, http.StatusOK, map[string]any{"url": url, "inFile": inFile})
+}
+
+func (p *Panel) catalog(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.Catalog == nil {
+		http.NotFound(w, r)
+		return
+	}
+	st, err := p.Catalog.Status(r.Context())
+	if err != nil {
+		p.Logger.Error("reading the catalog's status failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (p *Panel) setJellyfin(w http.ResponseWriter, r *http.Request, s *session) {

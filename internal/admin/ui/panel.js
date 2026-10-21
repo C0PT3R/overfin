@@ -82,6 +82,20 @@ function jellyfinSection(j) {
     h('div', { class: 'row' }, msg, save));
 }
 
+// The catalog's index: read only, where it stands.
+function catalogSection(c) {
+  if (!c) return null;
+  const t = c.titles || {};
+  const counts = [['movie', 'films'], ['series', 'series'], ['season', 'seasons'], ['episode', 'episodes']]
+    .map(([k, label]) => `${t[k] || 0} ${label}`).join(', ');
+  const read = c.fullAt && !c.fullAt.startsWith('0001')
+    ? `Library read in full ${ago(c.fullAt)}; changes read ${ago(c.changesAt)}.`
+    : 'The library is being read for the first time.';
+  return h('section', {}, h('h2', {}, 'Catalog'),
+    h('div', { class: 'row' }, h('div', {}, counts, h('div', { class: 'hint' }, read))),
+    c.error && h('div', { class: 'row' }, h('div', { class: 'error' }, `Last read failed: ${c.error}`)));
+}
+
 function render(state, draft) {
   // A draft fills in over the current settings: one kept from an older
   // version may lack sections, or have some that are gone.
@@ -127,6 +141,7 @@ function render(state, draft) {
 
   const sections = [
     jellyfinSection(state.jellyfin),
+    catalogSection(state.catalog),
     h('section', {}, h('h2', {}, 'Features'),
       ...state.plugins.flatMap((p) => [listToggle(p.name,
         (p.description || '') +
@@ -404,6 +419,7 @@ async function route() {
   $('#main').classList.remove('wide');
   const state = await api('GET', '/admin/api/features');
   state.jellyfin = await api('GET', '/admin/api/jellyfin').catch(() => null);
+  state.catalog = await api('GET', '/admin/api/catalog').catch(() => null);
   let draft = null;
   try { draft = JSON.parse(sessionStorage.getItem(DRAFT) || 'null'); } catch { draft = null; }
   render(state, draft);
