@@ -91,8 +91,17 @@ function catalogSection(c) {
   const read = c.fullAt && !c.fullAt.startsWith('0001')
     ? `Library read in full ${ago(c.fullAt)}; changes read ${ago(c.changesAt)}.`
     : 'The library is being read for the first time.';
+  const u = c.unmatched || {};
+  const parts = [
+    [u.movie, 'films', 'without a TMDB ID'], [u.series, 'series', 'without a TMDB ID'],
+    [u.season, 'seasons', 'without their number'], [u.episode, 'episodes', 'without their season or episode number'],
+  ].filter(([n]) => n > 0).map(([n, label, why]) => `${n} ${label} ${why}`);
+  const matching = parts.length
+    ? `Can't be matched yet: ${parts.join('; ')}. Refreshing their metadata in Jellyfin usually fixes it.`
+    : 'Every title can be matched.';
   return h('section', {}, h('h2', {}, 'Catalog'),
     h('div', { class: 'row' }, h('div', {}, counts, h('div', { class: 'hint' }, read))),
+    h('div', { class: 'row' }, h('div', { class: 'hint' }, matching)),
     c.error && h('div', { class: 'row' }, h('div', { class: 'error' }, `Last read failed: ${c.error}`)));
 }
 

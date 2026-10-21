@@ -160,6 +160,11 @@ func TestSync(t *testing.T) {
 	if stat.Titles["movie"] != 1 || !stat.FullAt.Equal(*now) || stat.Error != "" {
 		t.Errorf("status: %+v", stat)
 	}
+	// The series has no TMDB ID; the film, the season and the episode can
+	// be matched.
+	if len(stat.Unmatched) != 1 || stat.Unmatched["series"] != 1 {
+		t.Errorf("unmatched: %v", stat.Unmatched)
+	}
 
 	// Jellyfin refuses the token: the service gets a new one, which
 	// Jellyfin accepts, and the read goes on.

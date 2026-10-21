@@ -233,7 +233,10 @@ func (s *Sync) withService(ctx context.Context, fn func(jellyfin.Auth, string) e
 
 // Status is where the index stands, for the control panel.
 type Status struct {
-	Titles    map[string]int `json:"titles"`
+	Titles map[string]int `json:"titles"`
+	// Unmatched counts, by kind, the titles that can't be matched to TMDB
+	// (store.CatalogUnmatched).
+	Unmatched map[string]int `json:"unmatched"`
 	FullAt    time.Time      `json:"fullAt"`
 	ChangesAt time.Time      `json:"changesAt"`
 	// Error is the last read's failure, if it failed.
@@ -250,9 +253,13 @@ func (s *Sync) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	unmatched, err := s.Store.CatalogUnmatched(ctx)
+	if err != nil {
+		return Status{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Status{Titles: titles, FullAt: st.FullAt, ChangesAt: st.ChangesAt, Error: s.lastErr}, nil
+	return Status{Titles: titles, Unmatched: unmatched, FullAt: st.FullAt, ChangesAt: st.ChangesAt, Error: s.lastErr}, nil
 }
 
 // ---- From Jellyfin's items to the index -----------------------------------------

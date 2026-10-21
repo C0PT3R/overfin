@@ -184,6 +184,32 @@ func (s *Store) CatalogCounts(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
+// CatalogUnmatched counts, by kind, the titles that can't be matched to
+// TMDB later: films and series without a TMDB ID, seasons without their
+// number, episodes without their season or episode number (episodes and
+// seasons are matched by their show's ID and their numbers).
+func (s *Store) CatalogUnmatched(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT kind, count(*) FROM catalog_items
+		WHERE (kind IN ('movie', 'series') AND tmdb IS NULL)
+		   OR (kind = 'season' AND season_number IS NULL)
+		   OR (kind = 'episode' AND (season_number IS NULL OR episode_number IS NULL))
+		GROUP BY kind`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var kind string
+		var n int
+		if err := rows.Scan(&kind, &n); err != nil {
+			return nil, err
+		}
+		out[kind] = n
+	}
+	return out, rows.Err()
+}
+
 // CatalogState is where the catalog's sync stands, kept across restarts.
 type CatalogState struct {
 	// Pass counts full passes; titles carry the one that last saw them.
