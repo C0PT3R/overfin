@@ -304,7 +304,18 @@ own do), so a title looks the same wherever it is.
    stored in Overfin's database. Listings, search, filters and counts become
    queries on it, so pages and cursors stay right whatever the rules hide;
    Jellyfin is asked for streams and images only. The library changes
-   the most.
+   the most. In order:
+   - **A Jellyfin service account**: an ordinary user (never an
+     administrator, separate from Jellyfin's own admin account) with every
+     library, made once with the admin key (that's provisioning, which rule
+     3 allows), reading the library for the index. Profiles keep their own
+     Jellyfin users until step 4, where it serves everyone.
+   - **The index** read through it: every title with its TMDB, IMDb and
+     TVDB IDs, Jellyfin's metadata and rating, and image references (the
+     item's ID and its image tags). Never images, never URLs: posters are
+     still fetched when asked for, re-encoded and cached.
+   - **Kept in sync**: changes read often, a full pass now and then for
+     what's gone.
 2. **Personal data in Overfin, for every title:** resume points, watched
    marks and counts, favorites, personal ratings, history, and titles
    hidden from "Continue Watching", kept by title, so the same film on two
@@ -455,8 +466,28 @@ nothing beyond what that needs.
 
 ## Designed, to implement later
 
-- TMDB catalog plugin: discover, catalog titles, curated lists.
-- Seerr requests plugin: requests, quotas, problem reports.
+- **Discovery**: trending, popular and upcoming titles, search, a title's
+  page, curated lists, with each title's place in the library (available,
+  partly, requested, missing). From Seerr (no TMDB key needed, and it
+  already knows what's available) or from TMDB directly with the
+  operator's key, behind one interface. Images are TMDB paths, fetched from
+  TMDB's fixed image server only (rules 5 and 43). Lists carry no ratings,
+  so a title is shown to a kids profile only once its rating, in the
+  operator's country, is read from its details and kept; without one it
+  stays hidden (rule 28).
+- **Requests**, through Seerr. Each Overfin **account** (not profile) has
+  its own Seerr user, stable and anonymous: an opaque name, a unique
+  placeholder address on `.invalid`, a random password thrown away (so
+  Seerr never emails one, and nobody signs in to Seerr as them), no avatar,
+  permissions set by Overfin; Overfin keeps the link and remakes the user
+  if it's gone. Two settings in the panel: **Manage requests from here**
+  (Overfin keeps requests for approval, applies quotas from the account
+  templates, and sends Seerr only what's approved); unchecked, Seerr
+  approves and counts them as it does on its own, and **Use real user
+  names in Seerr** shows the panel's name for each account there instead
+  of an opaque one (the link stays the same either way). Both off by
+  default. "Ignore quota" is never set for people. Problem reports come
+  with it.
 - Profile avatars, profile transfers.
 - Trickplay, lyrics, bitrate test.
 
