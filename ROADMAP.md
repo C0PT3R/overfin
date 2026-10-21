@@ -376,7 +376,104 @@ own do), so a title looks the same wherever it is.
    session per device). The admin key is then needed only for setup and
    migration. Linked accounts (migration's "link" mode) keep their old
    Jellyfin user until they're moved.
-5. **Federation**, built on all of the above (below).
+
+## Milestone 5: Federation
+
+A milestone of its own: the largest piece of work on the roadmap.
+
+What Jellyfin users have asked for since 2019 under that name (the
+"Federated servers" feature request, among the most voted, which the
+Jellyfin team declined) is what Plex calls shared servers: a friend's libraries appear next to yours, in the same
+site and apps, with one login. People make do with workarounds (a reverse
+proxy presenting several servers as one, with an account on each, a
+plugin, or mounting each other's libraries over a VPN). Overfin does it
+gateway to gateway, each Jellyfin staying private, built on everything
+milestone 4 brings: Overfin's own catalog, personal data, rules and one
+Jellyfin account.
+
+- **pairing, by people, never by announcement**: each gateway has a key
+  pair and a short fingerprint. An operator creates a pairing invitation in
+  the panel (a one-time code with the gateway's address, fingerprint and a
+  single-use secret, valid a day) and sends it however they like; the other
+  operator pastes it in theirs, their gateway proves it has the secret and
+  presents its own key, and the first operator accepts it, fingerprints
+  compared to rule out impostors. Then the two gateways talk with signed
+  requests. No directory, no broadcast: the federation API answers paired
+  keys only, a plain 404 for anyone else, on the site's address (the panel
+  stays private). Every pairing is between two servers, deliberate on both
+  sides; trust is never passed along (A paired with B, and B with C, gives
+  A nothing of C). Either side can end a pairing, at once;
+- **sharing, library by library**: each side picks which of its own
+  libraries it offers, and which of the other's it wants. A one-way
+  pairing is simply one where a side offers nothing;
+- **a server only ever offers what it owns**: what it receives from a
+  peer is never passed on, since that would be sharing what isn't its own.
+  What a server can offer is built from its own backend only, and a peer's
+  tickets only work for the pairing they were issued to. A modified
+  gateway could still relay what it receives; the owner's limits cap what
+  it can pull, and blocking ends it;
+- **the owner sets the limits**, per pairing: streams at once, transcodes
+  at once (apart, since transcoding is what costs; a remux isn't one) and
+  a bitrate cap, plus a reserve of streams for its own users that peers
+  can never take. The viewer's gateway knows them and doesn't offer what
+  the owner would refuse; at a limit, clients get the same answer as at
+  any other;
+- **blocking**: an operator can refuse all contact with a peer, by its
+  key, in every network they share and any they join later. A blocked
+  peer gets the same 404 as an unknown one and is sent nothing; only the
+  operator who blocked can lift it;
+- people see the peer's titles in their own site, under its brand, mixed
+  with their own (`item_<peer>_<id>` IDs are ready for it), with filters of
+  their choosing: this server only, a peer only, everything, or only titles
+  on no server at all (requestable, with the TMDB catalog and requests). A
+  title on both servers plays from the viewer's own by default, with the
+  peer offered as another source. While a peer is offline, its titles are
+  hidden, or shown as requestable among the titles on no server;
+- the peer serves its pairings through its one Jellyfin account
+  (milestone 4) and counts each pairing's streams itself. It never knows
+  who watches: requests come from the pairing, not from a person;
+- everything personal stays home, and so do the rules (milestone 4): the
+  viewer's Overfin keeps what they do with a peer's titles, applies its own
+  kids limits to them, and checks every listing and playback request before
+  asking the peer for anything;
+- the video comes straight from the peer, not through two gateways (which
+  would use twice the bandwidth): the peer hands out a short-lived, signed
+  stream ticket for the pairing, and the browser fetches with that ticket
+  only, no login, no cookie, no referrer. The peer still sees the viewer's
+  address, which Overfin never stores; an operator who wants more can relay
+  a peer's streams through their own gateway, for their own viewers only,
+  at the bandwidth cost. The site's CSP allows media from paired peers
+  only;
+- **keys**: a gateway's new key is signed by its old one, both accepted for
+  a short while; a peer's key that changes otherwise stops the pairing
+  until its operator confirms it.
+
+**Hosted networks**, for more than a few servers. Pairing every pair by
+hand doesn't scale, and a mesh where every member pairs with every other
+by itself would break as it grows and spread trust nobody controls, so
+there's none. Instead, a **network host**, a small separate program that
+holds no media, is the network's authority: it invites and removes
+members, and keeps a signed, append-only directory of them (a display
+name chosen for the network, an address, a key). Members then talk to
+each other directly, as in a pairing, end to end, so the host never sees
+who asks whom for what; streams never go through it. Each member offers
+libraries to the network as a whole and lends it one pool of streams and
+transcodes, with exceptions for members of its choosing; blocks always
+win over the directory. Joining means trusting the host with who's in the
+network, and the panel says so in plain words. Against a hostile host:
+before trusting a key, a member confirms it with the peer directly, at
+the address its streams come from, so swapping keys would mean carrying
+all that peer's streams; members compare the directory they see whenever
+they talk, so showing different members different directories gets
+caught; and operators who know each other can compare fingerprints.
+
+Basic federation only, out of scope: swarms of servers or of browsers (as
+PeerTube does), copying a peer's files to one's own server, and watching
+together across servers (a social feature). Open questions: whether the
+network host should also carry members' messages, hiding their addresses
+from each other (they'd still learn each other's streaming address), or
+only keep the directory, as assumed here; who may invite to a hosted
+network besides its host.
 
 ## Beyond Jellyfin
 
@@ -403,100 +500,6 @@ nothing beyond what that needs.
   the images and descriptions of unwatched episodes); **"Are you still
   watching?"**, an operator's setting; and **a message to all users**, with
   the notices.
-- **Federation**, an important one. What Jellyfin users have asked for
-  since 2019 under that name (the "Federated servers" feature request,
-  among the most voted, which the Jellyfin team declined) is what Plex calls
-  shared servers: a friend's libraries appear next to yours, in the same
-  site and apps, with one login. People make do with workarounds (a reverse
-  proxy presenting several servers as one, with an account on each, a
-  plugin, or mounting each other's libraries over a VPN). Overfin does it
-  gateway to gateway, each Jellyfin staying private, on milestone 4's
-  foundations:
-
-  - **pairing, by people, never by announcement**: each gateway has a key
-    pair and a short fingerprint. An operator creates a pairing invitation in
-    the panel (a one-time code with the gateway's address, fingerprint and a
-    single-use secret, valid a day) and sends it however they like; the other
-    operator pastes it in theirs, their gateway proves it has the secret and
-    presents its own key, and the first operator accepts it, fingerprints
-    compared to rule out impostors. Then the two gateways talk with signed
-    requests. No directory, no broadcast: the federation API answers paired
-    keys only, a plain 404 for anyone else, on the site's address (the panel
-    stays private). Every pairing is between two servers, deliberate on both
-    sides; trust is never passed along (A paired with B, and B with C, gives
-    A nothing of C). Either side can end a pairing, at once;
-  - **sharing, library by library**: each side picks which of its own
-    libraries it offers, and which of the other's it wants. A one-way
-    pairing is simply one where a side offers nothing;
-  - **a server only ever offers what it owns**: what it receives from a
-    peer is never passed on, since that would be sharing what isn't its own.
-    What a server can offer is built from its own backend only, and a peer's
-    tickets only work for the pairing they were issued to. A modified
-    gateway could still relay what it receives; the owner's limits cap what
-    it can pull, and blocking ends it;
-  - **the owner sets the limits**, per pairing: streams at once, transcodes
-    at once (apart, since transcoding is what costs; a remux isn't one) and
-    a bitrate cap, plus a reserve of streams for its own users that peers
-    can never take. The viewer's gateway knows them and doesn't offer what
-    the owner would refuse; at a limit, clients get the same answer as at
-    any other;
-  - **blocking**: an operator can refuse all contact with a peer, by its
-    key, in every network they share and any they join later. A blocked
-    peer gets the same 404 as an unknown one and is sent nothing; only the
-    operator who blocked can lift it;
-  - people see the peer's titles in their own site, under its brand, mixed
-    with their own (`item_<peer>_<id>` IDs are ready for it), with filters of
-    their choosing: this server only, a peer only, everything, or only titles
-    on no server at all (requestable, with the TMDB catalog and requests). A
-    title on both servers plays from the viewer's own by default, with the
-    peer offered as another source. While a peer is offline, its titles are
-    hidden, or shown as requestable among the titles on no server;
-  - the peer serves its pairings through its one Jellyfin account
-    (milestone 4) and counts each pairing's streams itself. It never knows
-    who watches: requests come from the pairing, not from a person;
-  - everything personal stays home, and so do the rules (milestone 4): the
-    viewer's Overfin keeps what they do with a peer's titles, applies its own
-    kids limits to them, and checks every listing and playback request before
-    asking the peer for anything;
-  - the video comes straight from the peer, not through two gateways (which
-    would use twice the bandwidth): the peer hands out a short-lived, signed
-    stream ticket for the pairing, and the browser fetches with that ticket
-    only, no login, no cookie, no referrer. The peer still sees the viewer's
-    address, which Overfin never stores; an operator who wants more can relay
-    a peer's streams through their own gateway, for their own viewers only,
-    at the bandwidth cost. The site's CSP allows media from paired peers
-    only;
-  - **keys**: a gateway's new key is signed by its old one, both accepted for
-    a short while; a peer's key that changes otherwise stops the pairing
-    until its operator confirms it.
-
-  **Hosted networks**, for more than a few servers. Pairing every pair by
-  hand doesn't scale, and a mesh where every member pairs with every other
-  by itself would break as it grows and spread trust nobody controls, so
-  there's none. Instead, a **network host**, a small separate program that
-  holds no media, is the network's authority: it invites and removes
-  members, and keeps a signed, append-only directory of them (a display
-  name chosen for the network, an address, a key). Members then talk to
-  each other directly, as in a pairing, end to end, so the host never sees
-  who asks whom for what; streams never go through it. Each member offers
-  libraries to the network as a whole and lends it one pool of streams and
-  transcodes, with exceptions for members of its choosing; blocks always
-  win over the directory. Joining means trusting the host with who's in the
-  network, and the panel says so in plain words. Against a hostile host:
-  before trusting a key, a member confirms it with the peer directly, at
-  the address its streams come from, so swapping keys would mean carrying
-  all that peer's streams; members compare the directory they see whenever
-  they talk, so showing different members different directories gets
-  caught; and operators who know each other can compare fingerprints.
-
-  Basic federation only, out of scope: swarms of servers or of browsers (as
-  PeerTube does), copying a peer's files to one's own server, and watching
-  together across servers (a social feature). Open questions: whether the
-  network host should also carry members' messages, hiding their addresses
-  from each other (they'd still learn each other's streaming address), or
-  only keep the directory, as assumed here; who may invite to a hosted
-  network besides its host.
-
 ## Designed, to implement later
 
 - ~~**Discovery from Seerr, first version**~~ Done: Seerr connected from
