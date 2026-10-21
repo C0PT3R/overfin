@@ -149,6 +149,17 @@ export class Overfin {
   async nextUp(limit = 12) { return (await this.request('GET', `/items/next-up${toQuery({ limit })}`)).items; }
   async latest(libraryId, limit = 16) { return (await this.request('GET', `/items/latest${toQuery({ library: libraryId, limit })}`)).items; }
 
+  // ---- What the profile does with titles -----------------------------------
+
+  /** Marks a title watched (a series or a season: all its episodes), or not. Returns its new state. */
+  setPlayed(id, played = true) { return this.request(played ? 'PUT' : 'DELETE', `/items/${enc(id)}/played`); }
+  /** Marks a title a favorite, or not. Returns its new state. */
+  setFavorite(id, favorite = true) { return this.request(favorite ? 'PUT' : 'DELETE', `/items/${enc(id)}/favorite`); }
+  /** Takes a title out of Continue Watching; whether it was watched stays. Returns its new state. */
+  forgetProgress(id) { return this.request('DELETE', `/items/${enc(id)}/progress`); }
+  /** Forgets what the active profile watched. Not for kids profiles. */
+  clearHistory() { return this.request('DELETE', '/me/history'); }
+
   // ---- Watchlist (the watchlist plugin) -------------------------------------
 
   /** The profile's watchlist: movies, shows, seasons, episodes; newest first. */

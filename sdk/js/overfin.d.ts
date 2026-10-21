@@ -304,6 +304,11 @@ export class Overfin {
     options?: { availability?: 'all' | 'library' | 'missing'; limit?: number; cursor?: string }): Promise<CatalogPage>;
   catalogTitle(mediaKind: 'movie' | 'series', tmdbId: string): Promise<CatalogDetail>;
 
+  setPlayed(id: string, played?: boolean): Promise<UserState>;
+  setFavorite(id: string, favorite?: boolean): Promise<UserState>;
+  forgetProgress(id: string): Promise<UserState>;
+  clearHistory(): Promise<null>;
+
   watchlist(): Promise<ItemSummary[]>;
   onWatchlist(id: string): Promise<boolean>;
   addToWatchlist(id: string): Promise<null>;

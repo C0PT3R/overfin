@@ -89,6 +89,21 @@ test('discovery asks for its list and filters', async () => {
   assert.deepEqual((await overfin.catalogTitle('movie', '949')).genres, ['Crime']);
 });
 
+test('marks are PUT or DELETE on the title', async () => {
+  const calls = fakeServer({
+    'PUT /api/v1/items/item_1/played': () => [200, { played: true }],
+    'DELETE /api/v1/items/item_1/favorite': () => [200, { favorite: false }],
+    'DELETE /api/v1/items/item_1/progress': () => [200, { positionMs: 0 }],
+    'DELETE /api/v1/me/history': () => [204, null],
+  });
+  const overfin = new Overfin();
+  assert.equal((await overfin.setPlayed('item_1')).played, true);
+  assert.equal((await overfin.setFavorite('item_1', false)).favorite, false);
+  await overfin.forgetProgress('item_1');
+  assert.equal(await overfin.clearHistory(), null);
+  assert.deepEqual(calls.map((c) => c.method), ['PUT', 'DELETE', 'DELETE', 'DELETE']);
+});
+
 test('no content is null', async () => {
   fakeServer({ 'DELETE /api/v1/profiles/p1/pin': () => [204, null] });
   assert.equal(await new Overfin().removePin('p1'), null);
