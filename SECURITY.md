@@ -223,14 +223,11 @@ comes from the internet, and media files can be written by anyone.
     hidden items never show up as a number.
 57. Discovery is off until the operator connects Seerr: then what's trending,
     popular or upcoming, and titles' details, are asked of Seerr (which asks
-    TMDB) by the server, and their
-    posters of TMDB's image server. Nothing about who's asking is sent;
-    browsers never contact Seerr or TMDB (rule 43). Seerr's API key is kept
-    sealed, like every token. TMDB's data is kept as its terms allow: five
-    months at most without being fetched again, and deleted entirely when
-    Seerr is disconnected.
-
-### Administration
+    TMDB) by the server, and their posters of TMDB's image server. Nothing about
+    who's asking is sent; browsers never contact Seerr or TMDB (rule 43).
+    Seerr's API key is kept sealed, like every token. TMDB's data is kept as its
+    terms allow: five months at most without being fetched again, and deleted
+    entirely when Seerr is disconnected.  ### Administration
 58. Overfin's administration, its built-in control panel, is never exposed
     to the internet. It exists only on its own listener, off by default; no
     admin route can be registered on the public API. That listener answers
