@@ -167,9 +167,15 @@ comes from the internet, and media files can be written by anyone.
     profile made each request, and short-lived playback state; with the admin
     side, also invites, account expiry and limits, and labels the operator
     sets; with the watchlist, each profile's list of titles (private to it,
-    deleted with it). Watch history stays in Jellyfin, which already keeps it. The admin
-    side reads history and activity from Jellyfin live, for the page being
-    viewed, and never stores it: at most it keeps it in memory, never on
+    deleted with it); and what each profile did with each title (where it
+    stopped, whether it watched it, how many times and when last, its
+    favorites), brought over from Jellyfin once with the profile's own
+    token, then kept by Overfin. That belongs to its profile: only that
+    profile sees it (and, for a kids profile, its account's owner, rule
+    50), never the admins, whom neither the panel nor any admin route
+    shows it; it's in the data download (rule 52) and deleted with the
+    profile. The admin side reads activity from Jellyfin live, for the page
+    being viewed, and never stores it: at most it keeps it in memory, never on
     disk, for a few minutes and within a size limit, so a restart forgets
     it. Names and emails from the identity provider are shown live through
     its connector, the same way, never stored.

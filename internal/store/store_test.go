@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -567,5 +568,59 @@ func TestCatalogTitles(t *testing.T) {
 	// Disconnected from Seerr: all of it goes.
 	if err := s.ForgetTMDB(ctx); err != nil || names("all") != "" {
 		t.Errorf("forgotten: %v %s", err, names("all"))
+	}
+}
+
+func TestPersonal(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	_, p, err := s.CreateAccount(ctx, "subject", owner("p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := func(n int) string { return fmt.Sprintf("%032x", n) }
+	one, two := 1, 2
+	s.PutCatalog(ctx, []CatalogItem{
+		{ID: id(1), Kind: "movie", Name: "Heat", SortName: "Heat", TMDB: "949"},
+		{ID: id(2), Kind: "movie", Name: "Heat (4K)", SortName: "Heat", TMDB: "949"}, // another copy
+		{ID: id(3), Kind: "series", Name: "Dark", SortName: "Dark", TVDB: "334824"},
+		{ID: id(4), Kind: "episode", Name: "Secrets", SortName: "Secrets", SeriesID: id(3), SeasonNumber: &one, EpisodeNumber: &two},
+		{ID: id(5), Kind: "movie", Name: "Home video", SortName: "Home video"},
+	}, 1)
+	keys, err := s.TitleKeys(ctx, []string{id(1), id(2), id(4), id(5), id(9)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for item, want := range map[string]string{id(1): "movie/tmdb/949", id(2): "movie/tmdb/949",
+		id(4): "series/tvdb/334824/s1/e2", id(5): "item/" + id(5), id(9): "item/" + id(9)} {
+		if keys[item] != want {
+			t.Errorf("%s: %q, want %q", item, keys[item], want)
+		}
+	}
+
+	// Two copies of one film add up.
+	at := time.Unix(1_800_000_000, 0)
+	if err := s.MergePersonal(ctx, p.ID, []Personal{
+		{Title: "movie/tmdb/949", ItemID: id(1), Played: true, PlayCount: 2, LastPlayedAt: at},
+		{Title: "movie/tmdb/949", ItemID: id(2), PositionMs: 60_000, Favorite: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.PersonalStates(ctx, p.ID, []string{"movie/tmdb/949", "series/tmdb/1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := got["movie/tmdb/949"]
+	if len(got) != 1 || !h.Played || h.PlayCount != 2 || h.PositionMs != 60_000 || !h.Favorite || !h.LastPlayedAt.Equal(at) {
+		t.Errorf("merged: %+v", got)
+	}
+
+	// Imports, once per profile.
+	if todo, _ := s.ProfilesToImport(ctx); len(todo) != 1 {
+		t.Fatalf("to import: %d", len(todo))
+	}
+	s.MarkImported(ctx, p.ID, at)
+	if todo, _ := s.ProfilesToImport(ctx); len(todo) != 0 {
+		t.Errorf("imported twice: %d", len(todo))
 	}
 }

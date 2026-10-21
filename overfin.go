@@ -27,6 +27,7 @@ import (
 	"github.com/C0PT3R/overfin-server/internal/jellyfin"
 	"github.com/C0PT3R/overfin-server/internal/keys"
 	"github.com/C0PT3R/overfin-server/internal/oidc"
+	"github.com/C0PT3R/overfin-server/internal/personal"
 	"github.com/C0PT3R/overfin-server/internal/playback"
 	"github.com/C0PT3R/overfin-server/internal/provision"
 	"github.com/C0PT3R/overfin-server/internal/seal"
@@ -266,6 +267,8 @@ func run(logger *slog.Logger) error {
 	// titles) per list, every hour.
 	sh.lists = catalog.NewLists(gw.currentSeerr, db, logger, time.Hour, 10)
 	go sh.lists.Run(ctx)
+	// Each profile's data, brought over from Jellyfin once.
+	go (&personal.Importer{Jellyfin: sh.jf, Store: db, Logger: logger, Every: 10 * time.Minute}).Run(ctx)
 
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC

@@ -30,7 +30,7 @@ func TestExportMyData(t *testing.T) {
 	if res.StatusCode != 200 || !strings.Contains(res.Header.Get("Content-Disposition"), "attachment") {
 		t.Fatalf("export: %d %s", res.StatusCode, res.Header.Get("Content-Disposition"))
 	}
-	for _, want := range []string{`"account":{"id":"acct_`, `"owner":true`, `"watchHistory":[{`, `"name":"Movie 0"`, `"sessions":[{`} {
+	for _, want := range []string{`"account":{"id":"acct_`, `"owner":true`, `"watchHistory":[{`, `"titles":[`, `"name":"Movie 0"`, `"sessions":[{`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("export lacks %s: %s", want, body)
 		}

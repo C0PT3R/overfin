@@ -406,7 +406,8 @@ paths:
         `owner-only`, since their data is in the owner's export. Secrets (tokens, PIN
         hashes, keys) are never included. Each profile's watch history
         (watched, in progress, favorites, with external IDs) is read from the
-        media server for the download; Overfin doesn't keep it.
+        media server for the download, and comes with what Overfin keeps
+        about each of the profile's titles (`titles`).
       tags: [account]
       requestBody:
         content:

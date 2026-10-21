@@ -74,12 +74,25 @@ type exportProfileJSON struct {
 	RatingCeiling string `json:"ratingCeiling,omitempty"`
 	HasPIN        bool   `json:"hasPin"`
 	CreatedAt     string `json:"createdAt"`
-	// WatchHistory is read from the media server for this download; Overfin
-	// doesn't keep it.
+	// WatchHistory is read from the media server for this download.
 	WatchHistory []exportItemJSON `json:"watchHistory"`
+	// Titles is what Overfin keeps about what the profile did with each
+	// title: where it stopped, whether it watched it, how many times and
+	// when last, its favorites.
+	Titles []exportTitleJSON `json:"titles"`
 	// Modules holds what each switched-on module keeps about the profile,
 	// by module name (the watchlist, say).
 	Modules map[string]any `json:"modules,omitempty"`
+}
+
+type exportTitleJSON struct {
+	Title        string `json:"title"`
+	Item         string `json:"item,omitempty"`
+	PositionMs   int64  `json:"positionMs,omitempty"`
+	Played       bool   `json:"played"`
+	PlayCount    int    `json:"playCount,omitempty"`
+	LastPlayedAt string `json:"lastPlayedAt,omitempty"`
+	Favorite     bool   `json:"favorite"`
 }
 
 type exportItemJSON struct {
@@ -148,6 +161,23 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 			problem.Send(w, problem.Internal, "")
 			return
 		}
+		kept, err := a.Sessions.Store.AllPersonal(ctx, p.ID)
+		if err != nil {
+			a.Logger.Error("reading a profile's titles for an export failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+		titles := make([]exportTitleJSON, 0, len(kept))
+		for _, k := range kept {
+			t := exportTitleJSON{Title: k.Title, PositionMs: k.PositionMs, Played: k.Played, PlayCount: k.PlayCount, Favorite: k.Favorite}
+			if k.ItemID != "" {
+				t.Item = "item_" + k.ItemID
+			}
+			if !k.LastPlayedAt.IsZero() {
+				t.LastPlayedAt = k.LastPlayedAt.UTC().Format(time.RFC3339)
+			}
+			titles = append(titles, t)
+		}
 		mods := map[string]any{}
 		as := &Caller{Account: c.Account, Session: c.Session, Profile: p, Owner: c.Owner}
 		for _, m := range a.Mounts {
@@ -164,7 +194,7 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 		out.Profiles = append(out.Profiles, exportProfileJSON{
 			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language,
 			RatingCeiling: p.RatingCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
-			WatchHistory: history, Modules: mods,
+			WatchHistory: history, Titles: titles, Modules: mods,
 		})
 	}
 	sessions, err := a.Sessions.Store.Sessions(ctx, c.Account.ID)

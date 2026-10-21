@@ -327,7 +327,15 @@ own do), so a title looks the same wherever it is.
      Still through Jellyfin: kids profiles, personal filters (watched,
      favorites, in progress), a person's titles, shuffling and last
      played, until steps 2 and 3.
-2. **Personal data in Overfin, for every title:** resume points, watched
+2. ~~Storage and import~~ Done: each profile's data (positions,
+   watched, play counts, last played, favorites) is kept by title (a film
+   by its TMDB ID, an episode by its show's and its numbers) and brought
+   over from Jellyfin once, with the profile's own token, in the
+   background; it's in the data download, and SECURITY.md rule 40 says
+   whose it is. Next: Overfin writes it (playback, watched, favorites),
+   then reads it (listings, Continue Watching, Next Up), then the site's
+   buttons, clearing it included.
+   **Personal data in Overfin, for every title:** resume points, watched
    marks and counts, favorites, personal ratings, history, and titles
    hidden from "Continue Watching", kept by title, so the same film on two
    servers has one state. Overfin computes "Continue Watching", "Next Up"
