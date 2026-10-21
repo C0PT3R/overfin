@@ -5,6 +5,31 @@ Where Overfin stands and what comes next. Items move from **planned** to
 and covered by [SECURITY.md](SECURITY.md), and from **designed** to **done**
 once they are implemented and tested.
 
+## Direction
+
+Overfin is a platform: a server over Jellyfin and a suite of official apps
+(the site first, then mobile and TV). The server holds everything that
+matters: who people are, what each profile may see, limits, sharing between
+servers. The apps hold the experience, and nothing else.
+
+- **The official apps come first.** Nobody builds on a platform that has no
+  apps yet, so Overfin makes a full set itself.
+- **One API, for every app and every server.** Every app, official or not,
+  talks to the server through the same public API. That's what lets the
+  official apps connect to any Overfin server, someone else's included, and
+  what lets anyone build a site or an app of their own. So the API is
+  versioned and stable, and the official apps use nothing else.
+- **A client of one's own is an equal.** The server enforces the rules, so a
+  custom client can do everything the official ones do, never more, with
+  total freedom on looks and feel. At worst it breaks its own features,
+  never the rules. That's what a good backend is for.
+- **Few choices, real ones.** Overfin decides how it works; operators set
+  only what really differs from one server to another, such as limits that
+  depend on the hardware, or who may sign up. A feature that does nothing
+  until it's used needs no switch, and an outside service is on once it's
+  configured.
+- **Overfin over Jellyfin.** Overfin owns people; Jellyfin plays media.
+
 ## Done
 
 - Gateway skeleton: HTTP server, security headers, body limits, panic
