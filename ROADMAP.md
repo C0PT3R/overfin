@@ -316,6 +316,17 @@ own do), so a title looks the same wherever it is.
      still fetched when asked for, re-encoded and cached.
    - **Kept in sync**: changes read often, a full pass now and then for
      what's gone.
+   - ~~The service account, the index, its sync~~ Done, read library by
+     library, with each title's library, dates, rating score, genres and
+     studios. ~~Listings from it~~ Done for what it can answer: by
+     library, kind, genre, studio, year, a series' seasons and episodes,
+     sorted by name, release, date added or rating. Each page is still
+     read from Jellyfin as the profile, by the items' IDs, so nothing the
+     profile may not see shows (and progress comes along), and the total
+     is Jellyfin's own count for the profile, on the first page only.
+     Still through Jellyfin: kids profiles, personal filters (watched,
+     favorites, in progress), a person's titles, shuffling and last
+     played, until steps 2 and 3.
 2. **Personal data in Overfin, for every title:** resume points, watched
    marks and counts, favorites, personal ratings, history, and titles
    hidden from "Continue Watching", kept by title, so the same film on two

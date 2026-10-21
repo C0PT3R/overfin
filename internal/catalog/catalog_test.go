@@ -37,12 +37,16 @@ type library struct {
 func (l *library) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if r.URL.Path != "/Items" {
-		http.NotFound(w, r)
-		return
-	}
 	if !strings.Contains(r.Header.Get("Authorization"), `Token="`+l.token+`"`) {
 		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if r.URL.Path == "/UserViews" {
+		json.NewEncoder(w).Encode(map[string]any{"Items": []any{map[string]any{"Id": id(900), "Name": "All"}}})
+		return
+	}
+	if r.URL.Path != "/Items" {
+		http.NotFound(w, r)
 		return
 	}
 	q := r.URL.Query()
@@ -54,6 +58,10 @@ func (l *library) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"Items": out, "TotalRecordCount": len(out)})
+		return
+	}
+	if q.Get("parentId") != id(900) {
+		json.NewEncoder(w).Encode(map[string]any{"Items": []any{}, "TotalRecordCount": 0})
 		return
 	}
 	since, _ := time.Parse(time.RFC3339, q.Get("minDateLastSaved"))

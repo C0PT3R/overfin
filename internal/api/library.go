@@ -61,6 +61,13 @@ func (l Library) Register(r *plugin.Registrar) error {
 	return nil
 }
 
+// indexReady reports whether the catalog's index can answer listings: once
+// it has read the whole library at least once.
+func (l Library) indexReady(r *http.Request) bool {
+	st, err := l.Provisioner.Store.CatalogState(r.Context())
+	return err == nil && st.Pass > 0
+}
+
 // active returns the caller's active profile, or writes the problem and
 // returns nil.
 func (l Library) active(w http.ResponseWriter, r *http.Request) *store.Profile {
@@ -181,6 +188,10 @@ func (l Library) items(w http.ResponseWriter, r *http.Request) {
 	}
 	if jq.SortBy == "random" {
 		l.randomPage(w, r, p, jq)
+		return
+	}
+	if lq, ok := indexQuery(q, p); ok && l.indexReady(r) {
+		l.indexPage(w, r, p, lq, jq)
 		return
 	}
 	l.page(w, r, p, func(ctx context.Context, start, limit int) (*jellyfin.ItemPage, error) {

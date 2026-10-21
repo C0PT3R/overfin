@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// catalogFields are the fields the catalog's index asks for.
+const catalogFields = "ProviderIds,SortName,ParentId,Genres,Studios,DateCreated"
+
 // CatalogTypes are the item types Overfin's catalog indexes, for now.
 var CatalogTypes = []string{"Movie", "Series", "Season", "Episode"}
 
@@ -18,6 +21,8 @@ type CatalogQuery struct {
 	Limit      int
 	// Since, when set, asks only for items Jellyfin saved since then.
 	Since time.Time
+	// LibraryID, when set, lists that library only.
+	LibraryID string
 }
 
 // CatalogPage lists every title of the library, page by page, in a stable
@@ -28,7 +33,7 @@ func (c *Client) CatalogPage(ctx context.Context, a Auth, userID string, q Catal
 		"userId":                 {userID},
 		"recursive":              {"true"},
 		"includeItemTypes":       {strings.Join(CatalogTypes, ",")},
-		"fields":                 {"ProviderIds,SortName,ParentId"},
+		"fields":                 {catalogFields},
 		"enableImageTypes":       {"Primary,Backdrop,Thumb"},
 		"imageTypeLimit":         {"1"},
 		"enableUserData":         {"false"},
@@ -37,6 +42,9 @@ func (c *Client) CatalogPage(ctx context.Context, a Auth, userID string, q Catal
 		"sortOrder":              {"Ascending"},
 		"startIndex":             {strconv.Itoa(q.StartIndex)},
 		"limit":                  {strconv.Itoa(q.Limit)},
+	}
+	if q.LibraryID != "" {
+		v.Set("parentId", q.LibraryID)
 	}
 	if !q.Since.IsZero() {
 		v.Set("minDateLastSaved", q.Since.UTC().Format(time.RFC3339))
@@ -54,7 +62,7 @@ func (c *Client) CatalogItems(ctx context.Context, a Auth, userID string, ids []
 	v := url.Values{
 		"userId":           {userID},
 		"ids":              {strings.Join(ids, ",")},
-		"fields":           {"ProviderIds,SortName,ParentId"},
+		"fields":           {catalogFields},
 		"enableImageTypes": {"Primary,Backdrop,Thumb"},
 		"imageTypeLimit":   {"1"},
 		"enableUserData":   {"false"},

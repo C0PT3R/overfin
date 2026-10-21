@@ -19,6 +19,7 @@ type RawItem struct {
 	Type                    string
 	CollectionType          string
 	PremiereDate            string
+	DateCreated             string
 	EndDate                 string
 	StartDate               string
 	ProductionYear          int

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -96,6 +97,15 @@ type CatalogItem struct {
 	PrimaryTag    string
 	BackdropTag   string
 	ThumbTag      string
+	// For listings: the library it's in (empty: unchanged), when it was
+	// added, its release date (YYYY-MM-DD), its rating score, its genres
+	// and studios.
+	LibraryID       string
+	AddedAt         time.Time
+	PremiereDate    string
+	CommunityRating *float64
+	Genres          []string
+	Studios         []string
 }
 
 // PutCatalog adds or updates titles, marking them seen by the full pass
@@ -108,24 +118,43 @@ func (s *Store) PutCatalog(ctx context.Context, items []CatalogItem, pass int64)
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO catalog_items (id, kind, name, sort_name, year,
 		series_id, season_id, season_number, episode_number, tmdb, imdb, tvdb, rating,
-		primary_tag, backdrop_tag, thumb_tag, seen)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		primary_tag, backdrop_tag, thumb_tag, seen, library_id, added_at, premiere_date, community_rating)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET kind = excluded.kind, name = excluded.name,
 			sort_name = excluded.sort_name, year = excluded.year, series_id = excluded.series_id,
 			season_id = excluded.season_id, season_number = excluded.season_number,
 			episode_number = excluded.episode_number, tmdb = excluded.tmdb, imdb = excluded.imdb,
 			tvdb = excluded.tvdb, rating = excluded.rating, primary_tag = excluded.primary_tag,
-			backdrop_tag = excluded.backdrop_tag, thumb_tag = excluded.thumb_tag, seen = excluded.seen`)
+			backdrop_tag = excluded.backdrop_tag, thumb_tag = excluded.thumb_tag, seen = excluded.seen,
+			library_id = coalesce(excluded.library_id, library_id), added_at = excluded.added_at,
+			premiere_date = excluded.premiere_date, community_rating = excluded.community_rating`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, it := range items {
+		var added any
+		if !it.AddedAt.IsZero() {
+			added = it.AddedAt.Unix()
+		}
 		if _, err := stmt.ExecContext(ctx, it.ID, it.Kind, it.Name, it.SortName, nullInt(it.Year),
 			nullString(it.SeriesID), nullString(it.SeasonID), it.SeasonNumber, it.EpisodeNumber,
 			nullString(it.TMDB), nullString(it.IMDb), nullString(it.TVDB), it.Rating,
-			nullString(it.PrimaryTag), nullString(it.BackdropTag), nullString(it.ThumbTag), pass); err != nil {
+			nullString(it.PrimaryTag), nullString(it.BackdropTag), nullString(it.ThumbTag), pass,
+			nullString(it.LibraryID), added, nullString(it.PremiereDate), it.CommunityRating); err != nil {
 			return err
+		}
+		// Genres and studios, replaced as a whole.
+		for table, names := range map[string][]string{"catalog_genres": it.Genres, "catalog_studios": it.Studios} {
+			column := map[string]string{"catalog_genres": "genre", "catalog_studios": "studio"}[table]
+			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE item_id = ?`, it.ID); err != nil {
+				return err
+			}
+			for _, n := range names {
+				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO `+table+` (item_id, `+column+`) VALUES (?, ?)`, it.ID, n); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return tx.Commit()
@@ -347,4 +376,93 @@ func (s *Store) CatalogEpisodes(ctx context.Context, seriesID string) (map[int]i
 		out[season] = n
 	}
 	return out, rows.Err()
+}
+
+// ListQuery is a library listing answered from the index.
+type ListQuery struct {
+	LibraryID string
+	// ParentID, when set, lists a series' seasons or episodes, or a
+	// season's episodes.
+	ParentID string
+	Kinds    []string // index kinds; empty: any
+	Genres   []string // any of them
+	Studios  []string // any of them
+	YearFrom int      // 0: no bound
+	YearTo   int
+	// Sort is "name", "premiereDate", "addedAt" or "communityRating".
+	Sort       string
+	Descending bool
+	Offset     int
+	Limit      int
+}
+
+var listOrder = map[string]string{
+	"name":            "sort_name COLLATE NOCASE",
+	"premiereDate":    "premiere_date",
+	"addedAt":         "added_at",
+	"communityRating": "community_rating",
+}
+
+// ListCatalog returns the item IDs of a listing's page, in order. What's
+// missing a sort value comes last, whichever the order.
+func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) {
+	order, ok := listOrder[q.Sort]
+	if !ok {
+		return nil, fmt.Errorf("store: unknown sort %q", q.Sort)
+	}
+	where := []string{"1 = 1"}
+	var args []any
+	if q.LibraryID != "" {
+		where, args = append(where, "library_id = ?"), append(args, q.LibraryID)
+	}
+	if q.ParentID != "" {
+		where, args = append(where, "(series_id = ? OR season_id = ?)"), append(args, q.ParentID, q.ParentID)
+	}
+	in := func(column string, values []string) {
+		marks := strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")
+		where = append(where, column+" IN ("+marks+")")
+		for _, v := range values {
+			args = append(args, v)
+		}
+	}
+	if len(q.Kinds) > 0 {
+		in("kind", q.Kinds)
+	}
+	for table, values := range map[string][]string{"catalog_genres": q.Genres, "catalog_studios": q.Studios} {
+		if len(values) == 0 {
+			continue
+		}
+		column := map[string]string{"catalog_genres": "genre", "catalog_studios": "studio"}[table]
+		marks := strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")
+		where = append(where, "EXISTS (SELECT 1 FROM "+table+" x WHERE x.item_id = catalog_items.id AND x."+column+" IN ("+marks+"))")
+		for _, v := range values {
+			args = append(args, v)
+		}
+	}
+	if q.YearFrom > 0 {
+		where, args = append(where, "year >= ?"), append(args, q.YearFrom)
+	}
+	if q.YearTo > 0 {
+		where, args = append(where, "year <= ?"), append(args, q.YearTo)
+	}
+	dir := "ASC"
+	if q.Descending {
+		dir = "DESC"
+	}
+	query := `SELECT id FROM catalog_items WHERE ` + strings.Join(where, " AND ") +
+		` ORDER BY ` + order + ` IS NULL, ` + order + ` ` + dir + `, sort_name COLLATE NOCASE, id LIMIT ? OFFSET ?`
+	rows, err := s.db.QueryContext(ctx, query, append(args, q.Limit, q.Offset)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

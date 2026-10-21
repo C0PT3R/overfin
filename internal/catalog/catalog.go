@@ -137,34 +137,52 @@ func (s *Sync) Changes(ctx context.Context) error {
 	return nil
 }
 
-// read reads the library (everything, or what was saved since since) and
-// stores it as seen by pass. It returns how many titles it read.
+// read reads the library, library by library (everything, or what was
+// saved since since), and stores it as seen by pass. It returns how many
+// titles it read.
 func (s *Sync) read(ctx context.Context, since time.Time, pass int64) (int, error) {
+	var libs []jellyfin.RawItem
+	if err := s.withService(ctx, func(a jellyfin.Auth, userID string) error {
+		var err error
+		libs, err = s.Jellyfin.Libraries(ctx, a, userID)
+		return err
+	}); err != nil {
+		return 0, err
+	}
 	n := 0
-	for start := 0; ; start += pageSize {
-		var page *jellyfin.ItemPage
-		err := s.withService(ctx, func(a jellyfin.Auth, userID string) error {
-			var err error
-			page, err = s.Jellyfin.CatalogPage(ctx, a, userID, jellyfin.CatalogQuery{StartIndex: start, Limit: pageSize, Since: since})
-			return err
-		})
+	for _, lib := range libs {
+		libID, err := jellyfin.NormalizeID(lib.Id)
 		if err != nil {
-			return n, err
+			continue
 		}
-		var items []store.CatalogItem
-		for _, raw := range page.Items {
-			if it, ok := convert(raw); ok {
-				items = append(items, it)
+		for start := 0; ; start += pageSize {
+			var page *jellyfin.ItemPage
+			err := s.withService(ctx, func(a jellyfin.Auth, userID string) error {
+				var err error
+				page, err = s.Jellyfin.CatalogPage(ctx, a, userID,
+					jellyfin.CatalogQuery{StartIndex: start, Limit: pageSize, Since: since, LibraryID: libID})
+				return err
+			})
+			if err != nil {
+				return n, err
+			}
+			var items []store.CatalogItem
+			for _, raw := range page.Items {
+				if it, ok := convert(raw); ok {
+					it.LibraryID = libID
+					items = append(items, it)
+				}
+			}
+			if err := s.Store.PutCatalog(ctx, items, pass); err != nil {
+				return n, err
+			}
+			n += len(items)
+			if len(page.Items) < pageSize {
+				break
 			}
 		}
-		if err := s.Store.PutCatalog(ctx, items, pass); err != nil {
-			return n, err
-		}
-		n += len(items)
-		if len(page.Items) < pageSize {
-			return n, nil
-		}
 	}
+	return n, nil
 }
 
 // sweep removes the titles the full pass didn't see, after asking Jellyfin
@@ -310,6 +328,27 @@ func convert(raw jellyfin.RawItem) (store.CatalogItem, bool) {
 	case "episode":
 		it.SeasonID, _ = jellyfin.NormalizeID(raw.SeasonId)
 		it.SeasonNumber, it.EpisodeNumber = raw.ParentIndexNumber, raw.IndexNumber
+	}
+	if t, err := time.Parse(time.RFC3339Nano, raw.DateCreated); err == nil {
+		it.AddedAt = t
+	}
+	if len(raw.PremiereDate) >= 10 {
+		if _, err := time.Parse("2006-01-02", raw.PremiereDate[:10]); err == nil {
+			it.PremiereDate = raw.PremiereDate[:10]
+		}
+	}
+	if r := raw.CommunityRating; r != nil && *r >= 0 && *r <= 10 {
+		it.CommunityRating = r
+	}
+	for _, g := range raw.Genres {
+		if name := textclean.Plain(g, 128); name != "" && len(it.Genres) < 20 {
+			it.Genres = append(it.Genres, name)
+		}
+	}
+	for _, st := range raw.Studios {
+		if name := textclean.Plain(st.Name, 128); name != "" && len(it.Studios) < 20 {
+			it.Studios = append(it.Studios, name)
+		}
 	}
 	it.PrimaryTag = matching(imageTag, raw.ImageTags["Primary"])
 	it.ThumbTag = matching(imageTag, raw.ImageTags["Thumb"])

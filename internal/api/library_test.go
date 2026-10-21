@@ -152,6 +152,9 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var items []map[string]any
 		for _, id := range strings.Split(q.Get("ids"), ",") {
 			n, _ := strconv.ParseInt(id, 16, 64)
+			if n > 1000 {
+				continue // hidden from this profile
+			}
 			items = append(items, movie(int(n)-1))
 		}
 		json.NewEncoder(w).Encode(map[string]any{"Items": items})
