@@ -141,6 +141,12 @@ func (p *Provider) discover(ctx context.Context) (*metadata, error) {
 	return p.meta, nil
 }
 
+// Check reads the provider's metadata and checks it, as a login would.
+func (p *Provider) Check(ctx context.Context) error {
+	_, err := p.discover(ctx)
+	return err
+}
+
 // ErrRevoked: the provider refused a code or refresh token outright, for
 // example because the user logged out, was disabled, or the code was used.
 var ErrRevoked = errors.New("oidc: grant refused")

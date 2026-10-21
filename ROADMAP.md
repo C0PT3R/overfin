@@ -280,9 +280,13 @@ provider.
    own client instead (served live, never outside the folder, with your
    CSP, optionally as a single-page app), or `"none"` to serve it
    elsewhere.
-5. **`overfin -check`**: tests the configuration, reaches Jellyfin, fetches
-   the provider's discovery document, checks the proxy is trusted, and says
-   in plain words what's wrong.
+5. ~~**`overfin -check`**~~ Done: tests the configuration, the secret key
+   against the database (read-only), the folders Overfin writes to,
+   Jellyfin (reachable, version 12, an administrator's key, libraries), the
+   identity provider's discovery document and the connector's token, says
+   in plain words what's wrong, one line each, and changes nothing. Whether
+   only the reverse proxy reaches Overfin can't be seen from Overfin alone:
+   the check reminds of it.
 6. ~~**The secret key generated on first start**~~ Done: into
    `/secrets/overfin.key` (a volume of its own in Docker), apart from the
    database it protects, for a new database only: an existing database

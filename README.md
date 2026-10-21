@@ -268,7 +268,9 @@ pure-Go SQLite). CI runs formatting, vet, staticcheck, govulncheck, the tests
 with the race detector, and a check that the API specification matches the
 routes.
 
-Useful to know: `SIGHUP` reloads the configuration without dropping
+Useful to know: `overfin -check` tests the configuration and what it points
+to (the secret key, Jellyfin, the identity provider) and says in plain words
+what's wrong, changing nothing; `SIGHUP` reloads the configuration without dropping
 playbacks; `-recover-tokens` gets you going again if the secret key is lost
 (PINs and logins are reset, history is kept).
 

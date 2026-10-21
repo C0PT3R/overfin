@@ -78,6 +78,12 @@ func (a *Authentik) People(ctx context.Context) (map[string]Person, error) {
 var ErrUnauthorized = errors.New("connector: Authentik refused the token: it must be an API Token " +
 	"(intent \"API\", not an app password), not expired, for an account allowed to view users")
 
+// Check reads one user, to tell whether the token works.
+func (a *Authentik) Check(ctx context.Context) error {
+	var res struct{}
+	return a.get(ctx, strings.TrimSuffix(a.BaseURL, "/")+"/api/v3/core/users/?page_size=1", &res)
+}
+
 func (a *Authentik) get(ctx context.Context, u string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {

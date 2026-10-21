@@ -73,7 +73,9 @@ type Build struct {
 func Run(b Build) {
 	modules, builtinSite = b.Modules, b.Site
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if err := run(logger); err != nil {
+	if err := run(logger); errors.Is(err, errCheckFailed) {
+		os.Exit(1) // what's wrong is already said, in plain words
+	} else if err != nil {
 		logger.Error("fatal", "err", err)
 		os.Exit(1)
 	}
@@ -112,10 +114,15 @@ func run(logger *slog.Logger) error {
 	configPath := flag.String("config", defaultPath, "path to the configuration file")
 	recoverTokens := flag.Bool("recover-tokens", false,
 		"after the secret key was lost: give every profile a fresh Jellyfin token sealed with the current key, then exit")
+	check := flag.Bool("check", false,
+		"test the configuration, the secret key, Jellyfin and the identity provider, say what's wrong, then exit; changes nothing")
 	flag.Parse()
 
 	if err := registerModules(); err != nil {
 		return err
+	}
+	if *check {
+		return checkSetup(*configPath, os.Getenv, os.Stdout)
 	}
 	cfg, err := config.Load(*configPath, os.Getenv)
 	if err != nil {

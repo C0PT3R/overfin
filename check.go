@@ -1,0 +1,181 @@
+package overfin
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/C0PT3R/overfin-gateway/internal/config"
+	"github.com/C0PT3R/overfin-gateway/internal/connector"
+	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-gateway/internal/keys"
+	"github.com/C0PT3R/overfin-gateway/internal/oidc"
+	"github.com/C0PT3R/overfin-gateway/internal/store"
+)
+
+// errCheckFailed: overfin -check found something wrong, and said what.
+var errCheckFailed = errors.New("the check failed")
+
+// checker writes one line per check: "ok" or "FAIL", then what it found,
+// in plain words.
+type checker struct {
+	w      io.Writer
+	failed bool
+}
+
+func (c *checker) ok(format string, args ...any) {
+	fmt.Fprintf(c.w, "ok    "+format+"\n", args...)
+}
+
+func (c *checker) fail(format string, args ...any) {
+	c.failed = true
+	fmt.Fprintf(c.w, "FAIL  "+format+"\n", args...)
+}
+
+// checkSetup tests the configuration and what it points to: the secret key
+// and the database, Jellyfin and its key, the identity provider, the
+// connector. It changes nothing: the database is only read, and Overfin
+// isn't started.
+func checkSetup(configPath string, getenv func(string) string, w io.Writer) error {
+	c := &checker{w: w}
+	cfg, err := config.Load(configPath, getenv)
+	if err != nil {
+		// Every problem with the file is listed, one per line.
+		for line := range strings.SplitSeq(err.Error(), "\n") {
+			c.fail("%s", strings.TrimPrefix(line, "config: "))
+		}
+		return errCheckFailed
+	}
+	c.ok("configuration: %s", configPath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	c.storage(ctx, cfg)
+	c.jellyfin(ctx, cfg)
+	c.identity(ctx, cfg)
+	if c.failed {
+		return errCheckFailed
+	}
+	return nil
+}
+
+// storage checks the secret key against the database, and that Overfin can
+// write where it needs to.
+func (c *checker) storage(ctx context.Context, cfg *config.Config) {
+	path := cfg.Storage.Path
+	_, err := os.Stat(path)
+	newDB := errors.Is(err, fs.ErrNotExist)
+	switch {
+	case err != nil && !newDB:
+		c.fail("database %s: %v", path, err)
+		return
+	case cfg.Secrets.Key == nil && newDB:
+		c.ok("secret key: none yet; Overfin generates it on its first start, in %s", config.KeyFile)
+		c.writable(filepath.Dir(config.KeyFile), "the secret key's folder")
+	case cfg.Secrets.Key == nil:
+		c.fail("secret key: OVERFIN_SECRET_KEY isn't set and %s doesn't exist, but the database does: "+
+			"restore the key from your backup (or, if it's lost for good, run overfin -recover-tokens once)", config.KeyFile)
+	case newDB:
+		c.ok("secret key: set")
+	default:
+		k, err := keys.Derive(cfg.Secrets.Key)
+		if err != nil {
+			c.fail("secret key: %v", err)
+			break
+		}
+		match, err := store.KeyMatches(ctx, path, k.Check)
+		switch {
+		case err != nil:
+			c.fail("secret key: %v", err)
+		case !match:
+			c.fail("secret key: it isn't the key this database was created with: restore the original one " +
+				"(or, if it's lost for good, run overfin -recover-tokens once)")
+		default:
+			c.ok("secret key: it's the one this database was created with")
+		}
+	}
+	if newDB {
+		c.ok("database: none yet; Overfin creates it in %s", path)
+	} else {
+		c.ok("database: %s", path)
+	}
+	c.writable(filepath.Dir(path), "the database's folder")
+}
+
+// writable tells whether Overfin may create files in dir, by creating one
+// and removing it.
+func (c *checker) writable(dir, what string) {
+	f, err := os.CreateTemp(dir, ".overfin-check-*")
+	if err != nil {
+		c.fail("%s (%s): Overfin can't write there: %v", what, dir, err)
+		return
+	}
+	f.Close()
+	os.Remove(f.Name())
+}
+
+func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
+	jf, err := jellyfin.New(cfg.Jellyfin.URL, Version)
+	if err != nil {
+		c.fail("Jellyfin: %v", err)
+		return
+	}
+	v, err := jf.Version(ctx)
+	if err != nil {
+		c.fail("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
+			"in a container, localhost is the container itself", cfg.Jellyfin.URL, err)
+		return
+	}
+	if !strings.HasPrefix(v, "12.") {
+		c.fail("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
+		return
+	}
+	c.ok("Jellyfin %s, at %s", v, cfg.Jellyfin.URL)
+
+	n, err := jf.CountLibraries(ctx, jellyfin.Auth{Token: cfg.Secrets.JellyfinAdminKey, DeviceID: "overfin-check"})
+	switch {
+	case jellyfin.IsStatus(err, http.StatusUnauthorized):
+		c.fail("Jellyfin's API key (OVERFIN_JELLYFIN_ADMIN_KEY): Jellyfin refuses it. Make one in its dashboard, under API Keys")
+	case jellyfin.IsStatus(err, http.StatusForbidden):
+		c.fail("Jellyfin's API key (OVERFIN_JELLYFIN_ADMIN_KEY): it isn't an administrator's. Make one in the dashboard, under API Keys")
+	case err != nil:
+		c.fail("Jellyfin's API key: %v", err)
+	case n == 0:
+		c.fail("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
+	default:
+		c.ok("Jellyfin's API key works; %d libraries", n)
+	}
+}
+
+func (c *checker) identity(ctx context.Context, cfg *config.Config) {
+	if cfg.OIDC.Enabled() {
+		p := &oidc.Provider{Issuer: cfg.OIDC.Issuer, ClientID: cfg.OIDC.ClientID, HTTP: oidc.NewClient(cfg.OIDC.Dial)}
+		if err := p.Check(ctx); err != nil {
+			c.fail("identity provider (%s): %v", cfg.OIDC.Issuer, err)
+		} else {
+			c.ok("identity provider: %s", cfg.OIDC.Issuer)
+		}
+	}
+	if cfg.Identity.Mode == "forwardauth" {
+		c.ok("identity: forward-auth, trusting %s; only your reverse proxy may reach Overfin",
+			strings.Join(cfg.Identity.TrustedProxies, ", "))
+	}
+	if cn := cfg.Connector; cn.Enabled() {
+		a := &connector.Authentik{BaseURL: cn.URL, Token: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
+		switch err := a.Check(ctx); {
+		case errors.Is(err, connector.ErrUnauthorized):
+			c.fail("connector (%s): its token (OVERFIN_CONNECTOR_TOKEN) is refused, or may not view users", cn.URL)
+		case err != nil:
+			c.fail("connector (%s): %v", cn.URL, err)
+		default:
+			c.ok("connector: %s", cn.URL)
+		}
+	}
+}

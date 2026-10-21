@@ -834,6 +834,26 @@ func (s *Store) CheckKey(ctx context.Context, check []byte) error {
 	return nil
 }
 
+// KeyMatches tells whether check is the key check recorded in the database
+// at path, opened read-only so nothing changes; true when none is recorded
+// yet.
+func KeyMatches(ctx context.Context, path string, check []byte) (bool, error) {
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return false, fmt.Errorf("store: %w", err)
+	}
+	defer db.Close()
+	var stored []byte
+	err = db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'key-check'`).Scan(&stored)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: reading the key check: %w", err)
+	}
+	return hmac.Equal(stored, check), nil
+}
+
 // SetKeyCheck records the key's check value, replacing any other.
 func (s *Store) SetKeyCheck(ctx context.Context, check []byte) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('key-check', ?)

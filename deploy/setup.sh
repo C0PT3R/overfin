@@ -128,4 +128,5 @@ Then, after a minute or two:
   - https://$site : the site;
   - the control panel: ssh -L 8081:localhost:8081 <this machine>, then
     http://localhost:8081, signed in as akadmin.
+If something's off: docker compose run --rm --no-deps overfin -check
 EOF

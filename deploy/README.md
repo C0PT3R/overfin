@@ -83,6 +83,9 @@ Overfin stores can't be read. Keep its copy apart from the others.
 
 ## If something's off
 
+- `docker compose run --rm --no-deps overfin -check` tests the setup
+  (the secret key, Jellyfin and its key, the sign-in) and says in plain
+  words what's wrong. It changes nothing, and works while Overfin runs.
 - `docker compose logs -f overfin` (or `authentik-server`, `caddy`).
 - On the very first start, Authentik may show the Overfin blueprint as
   failed for a moment: it's applied before Authentik's own defaults exist,
