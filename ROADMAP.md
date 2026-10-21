@@ -267,11 +267,11 @@ Overfin keeps holding as little as it can.
   item, so they come with the TMDB catalog and Seerr requests plugins (Seerr
   keeps watchlists of its own).
 - **Federation**, an important one. What Jellyfin users ask for under that
-    name is what Plex calls shared servers: a friend's libraries appear next to yours, in the same
-  site and apps, with one login. Jellyfin has no plans for it; people make do
-  with workarounds (a reverse proxy presenting several servers as one, a
-  plugin, or mounting each other's libraries over a VPN). Overfin could do it
-  gateway to gateway, each Jellyfin staying private:
+  name is what Plex calls shared servers: a friend's libraries appear next
+  to yours, in the same site and apps, with one login. Jellyfin has no plans
+  for it; people make do with workarounds (a reverse proxy presenting
+  several servers as one, a plugin, or mounting each other's libraries over
+  a VPN). Overfin does it gateway to gateway, each Jellyfin staying private:
 
   - **pairing, by people, never by announcement**: each gateway has a key
     pair and a short fingerprint. An operator creates a pairing invitation in
