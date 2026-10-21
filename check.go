@@ -21,6 +21,15 @@ import (
 	"github.com/C0PT3R/overfin-gateway/internal/store"
 )
 
+// problem is what's wrong, as a sentence for people to read: the setup
+// page shows it as is, so unlike Go's usual error messages it starts with a
+// capital letter.
+type problem string
+
+func (p problem) Error() string { return string(p) }
+
+func problemf(format string, args ...any) error { return problem(fmt.Sprintf(format, args...)) }
+
 // errCheckFailed: overfin -check found something wrong, and said what.
 var errCheckFailed = errors.New("the check failed")
 
@@ -166,30 +175,30 @@ func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
 // it as is.
 func testJellyfin(ctx context.Context, url, key string) (string, error) {
 	if err := config.CheckJellyfinURL(url); err != nil {
-		return "", fmt.Errorf("Jellyfin's address %s", err)
+		return "", problemf("Jellyfin's address %s", err)
 	}
 	jf, err := jellyfin.New(url, Version)
 	if err != nil {
-		return "", fmt.Errorf("Jellyfin's address: %v", err)
+		return "", problemf("Jellyfin's address: %v", err)
 	}
 	v, err := jf.Version(ctx)
 	if err != nil {
-		return "", fmt.Errorf("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
+		return "", problemf("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
 			"in a container, localhost is the container itself", url, err)
 	}
 	if !strings.HasPrefix(v, "12.") {
-		return "", fmt.Errorf("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
+		return "", problemf("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
 	}
 	n, err := jf.CountLibraries(ctx, jellyfin.Auth{Token: key, DeviceID: "overfin-check"})
 	switch {
 	case jellyfin.IsStatus(err, http.StatusUnauthorized):
-		return "", errors.New("Jellyfin refuses its API key. Make one in its dashboard, under API Keys")
+		return "", problemf("Jellyfin refuses its API key. Make one in its dashboard, under API Keys")
 	case jellyfin.IsStatus(err, http.StatusForbidden):
-		return "", errors.New("Jellyfin's API key isn't an administrator's. Make one in its dashboard, under API Keys")
+		return "", problemf("Jellyfin's API key isn't an administrator's. Make one in its dashboard, under API Keys")
 	case err != nil:
-		return "", fmt.Errorf("Jellyfin's API key: %v", err)
+		return "", problemf("Jellyfin's API key: %v", err)
 	case n == 0:
-		return "", errors.New("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
+		return "", problemf("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
 	}
 	libraries := "libraries"
 	if n == 1 {

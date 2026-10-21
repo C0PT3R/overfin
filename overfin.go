@@ -227,7 +227,7 @@ func run(logger *slog.Logger) error {
 		}
 		if !ok {
 			if adminSrv == nil {
-				return errors.New("Jellyfin isn't set up: set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY, " +
+				return errors.New("no Jellyfin set up: set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY, " +
 					"or switch on the control panel ([admin]) and use its setup page")
 			}
 			saved := make(chan [2]string, 1)
@@ -325,7 +325,7 @@ func runRecovery(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.
 	case err != nil:
 		return fmt.Errorf("%w. For the recovery, set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY", err)
 	case !saved:
-		return errors.New("Jellyfin isn't set up yet: there's nothing to recover")
+		return errors.New("nothing to recover: no Jellyfin set up yet")
 	default:
 		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
 	}
