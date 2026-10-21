@@ -227,14 +227,26 @@ export class Overfin {
 export function capabilities() {
   const video = document.createElement('video');
   const mse = globalThis.ManagedMediaSource || globalThis.MediaSource;
-  const can = (mime) => Boolean((mse && mse.isTypeSupported(mime)) || video.canPlayType(mime));
-  const pick = (table) => Object.entries(table).filter(([, mime]) => can(mime)).map(([name]) => name);
+  const can = (mime) => Boolean((mse && mse.isTypeSupported(mime)) || video.canPlayType(mime).replace('no', ''));
+  const any = (...mimes) => mimes.some(can);
+  const pick = (table) => Object.entries(table).filter(([, mimes]) => any(...[].concat(mimes))).map(([name]) => name);
   const pixels = Math.max(screen.width, screen.height) * (globalThis.devicePixelRatio || 1);
+  const { firefox, chromium, safari, mac } = browserFamily();
+  // Firefox says it plays Matroska, but loads the whole file before playing
+  // it, which streaming can't afford: it gets it repackaged instead.
+  const containers = pick({ mp4: 'video/mp4; codecs="avc1.640028"', webm: 'video/webm; codecs="vp9"' });
+  if (!firefox && any('video/x-matroska', 'video/mkv')) containers.push('mkv');
+  // Desktop Chromium browsers (Chrome, Edge…) and Safari map HDR video onto
+  // the screen themselves, whatever the screen; Firefox does only on macOS.
+  // Elsewhere, the screen says.
+  const hdr = matchMedia('(dynamic-range: high)').matches || chromium || safari || (firefox && mac);
   return {
-    containers: pick({ mp4: 'video/mp4; codecs="avc1.640028"', webm: 'video/webm; codecs="vp9"' }),
+    containers,
     videoCodecs: pick({
       h264: 'video/mp4; codecs="avc1.640028"',
-      hevc: 'video/mp4; codecs="hvc1.1.6.L120.90"',
+      // Main (8-bit) or Main 10, which most HDR films are.
+      hevc: ['video/mp4; codecs="hvc1.1.6.L120.90"', 'video/mp4; codecs="hev1.1.6.L120.90"',
+        'video/mp4; codecs="hvc1.2.4.L153.90"', 'video/mp4; codecs="hev1.2.4.L153.90"'],
       av1: 'video/mp4; codecs="av01.0.08M.08"',
       vp9: 'video/mp4; codecs="vp09.00.10.08"',
     }),
@@ -247,10 +259,21 @@ export function capabilities() {
       eac3: 'audio/mp4; codecs="ec-3"',
     }),
     maxHeight: pixels >= 3000 ? 2160 : 1080,
-    hdr: matchMedia('(dynamic-range: high)').matches ? ['hdr10'] : [],
+    hdr: hdr ? ['hdr10', 'hlg'] : [],
     subtitles: ['vtt'],
     maxAudioChannels: 2,
   };
+}
+
+// browserFamily tells the browsers apart where what they say they play
+// isn't enough: whether they map HDR themselves, and Firefox's Matroska.
+function browserFamily() {
+  const ua = navigator.userAgent;
+  const firefox = /Firefox\//.test(ua);
+  const mobile = /Mobile|Android/.test(ua);
+  const chromium = !firefox && /Chrom(e|ium)\//.test(ua) && !mobile;
+  const safari = !firefox && !/Chrom(e|ium)\//.test(ua) && /Safari\//.test(ua);
+  return { firefox, chromium, safari, mac: /Mac OS X|Macintosh/.test(ua) };
 }
 
 // ---- Player ---------------------------------------------------------------

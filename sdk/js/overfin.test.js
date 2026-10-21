@@ -2,7 +2,7 @@
 //   node --test sdk/js/overfin.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Overfin, OverfinError, Player } from './overfin.js';
+import { Overfin, OverfinError, Player, capabilities } from './overfin.js';
 
 // fakeServer answers fetch() from a table of handlers, and records calls.
 function fakeServer(handlers) {
@@ -202,3 +202,35 @@ test('without a start position, the player resumes where the profile left off', 
 test('Player is exported for clients that build their own', () => {
   assert.equal(typeof Player, 'function');
 });
+
+// A browser, as capabilities() sees it: its name, and what it says it
+// plays. The screen is a standard one.
+function asBrowser(userAgent, answers) {
+  Object.defineProperty(globalThis, 'navigator', { value: { userAgent }, configurable: true });
+  globalThis.document = { createElement: () => ({ canPlayType: (mime) => answers[mime] || '' }) };
+  globalThis.screen = { width: 3840, height: 2160 };
+  globalThis.matchMedia = () => ({ matches: false });
+  globalThis.MediaSource = undefined;
+}
+
+const plays = {
+  'video/mp4; codecs="avc1.640028"': 'probably',
+  'video/mp4; codecs="hvc1.2.4.L153.90"': 'probably', // Main 10 only
+  'video/x-matroska': 'maybe',
+};
+
+test('Chrome gets Matroska, 10-bit HEVC and HDR, whatever the screen', () => {
+  asBrowser('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36', plays);
+  const c = capabilities();
+  assert.ok(c.containers.includes('mkv'), c.containers);
+  assert.ok(c.videoCodecs.includes('hevc'), c.videoCodecs);
+  assert.deepEqual(c.hdr, ['hdr10', 'hlg']);
+});
+
+test('Firefox gets neither Matroska nor HDR on Linux, whatever it says', () => {
+  asBrowser('Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0', plays);
+  const c = capabilities();
+  assert.ok(!c.containers.includes('mkv'), c.containers);
+  assert.deepEqual(c.hdr, []);
+});
+
