@@ -221,8 +221,9 @@ comes from the internet, and media files can be written by anyone.
     never exposed, whatever the configuration.
 56. Counts (`totalCount`) only include what the active profile may see, so
     hidden items never show up as a number.
-57. Discovery is off until the operator connects Seerr: then what's trending, popular or upcoming, and titles'
-    details, are asked of Seerr (which asks TMDB) by the server, and their
+57. Discovery is off until the operator connects Seerr: then what's trending,
+    popular or upcoming, and titles' details, are asked of Seerr (which asks
+    TMDB) by the server, and their
     posters of TMDB's image server. Nothing about who's asking is sent;
     browsers never contact Seerr or TMDB (rule 43). Seerr's API key is kept
     sealed, like every token. TMDB's data is kept as its terms allow: five
