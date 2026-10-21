@@ -322,11 +322,14 @@ own do), so a title looks the same wherever it is.
      library, kind, genre, studio, year, a series' seasons and episodes,
      sorted by name, release, date added or rating. Each page is still
      read from Jellyfin as the profile, by the items' IDs, so nothing the
-     profile may not see shows (and progress comes along), and the total
-     is Jellyfin's own count for the profile, on the first page only.
-     Still through Jellyfin: kids profiles, personal filters (watched,
-     favorites, in progress), a person's titles, shuffling and last
-     played, until steps 2 and 3.
+     profile may not see shows, and the total is Jellyfin's own count for
+     the profile, on the first page only. Personal filters (watched,
+     favorites, in progress) are answered from it too, with Overfin's own
+     data (step 2), and so are kids profiles' listings, with only what
+     their ceilings allow and Overfin's own count (step 3). Still through
+     Jellyfin: a person's titles, shuffling, last played, "watched" for a
+     whole series or season, and kinds the index doesn't hold (music,
+     books), which are checked page by page.
 2. ~~Storage and import~~ Done: each profile's data (positions,
    watched, play counts, last played, favorites) is kept by title (a film
    by its TMDB ID, an episode by its show's and its numbers) and brought
@@ -341,8 +344,8 @@ own do), so a title looks the same wherever it is.
    Overfin's, and so are the watched, favorite and in-progress filters
    (series and seasons' "watched" still Jellyfin's), once the profile's
    data is imported. Each key lives in the index, computed after each
-   sync. Next: the site's buttons, removing a title from Continue
-   Watching, clearing it.
+   sync. ~~The site's buttons~~ Done: marking watched and favorites,
+   removing a title from Continue Watching, clearing the history.
    **Personal data in Overfin, for every title:** resume points, watched
    marks and counts, favorites, personal ratings, history, and titles
    hidden from "Continue Watching", kept by title, so the same film on two
