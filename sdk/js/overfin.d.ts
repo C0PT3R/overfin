@@ -52,6 +52,31 @@ export interface ImageRef {
   blurHash?: string;
 }
 
+/** A title known from TMDB, in the library or not. */
+export interface CatalogTitle {
+  tmdbId: string;
+  mediaKind: 'movie' | 'series' | (string & {});
+  name: string;
+  year?: number;
+  overview?: string;
+  images?: Images;
+  /** How much of it the library has: 'available', 'partiallyAvailable', 'missing'… */
+  availability: string;
+  /** The library item, when the library has it: play it like any other. */
+  libraryItem?: ItemSummary;
+}
+
+export interface CatalogDetail extends CatalogTitle {
+  genres?: string[];
+  cast?: { name: string; character?: string }[];
+  seasons?: { number: number; name?: string; episodeCount: number; availability: string }[];
+}
+
+export interface CatalogPage {
+  items: CatalogTitle[];
+  nextCursor?: string;
+}
+
 export interface Images {
   primary?: ImageRef;
   backdrops?: ImageRef[];
@@ -274,6 +299,10 @@ export class Overfin {
   nextUp(limit?: number): Promise<ItemSummary[]>;
   latest(libraryId: string, limit?: number): Promise<ItemSummary[]>;
   imageUrl(ref: ImageRef | undefined, size?: 'small' | 'medium' | 'large'): string;
+
+  discover(list: 'trending' | 'popular' | 'upcoming', mediaKind: 'movie' | 'series',
+    options?: { availability?: 'all' | 'library' | 'missing'; limit?: number; cursor?: string }): Promise<CatalogPage>;
+  catalogTitle(mediaKind: 'movie' | 'series', tmdbId: string): Promise<CatalogDetail>;
 
   watchlist(): Promise<ItemSummary[]>;
   onWatchlist(id: string): Promise<boolean>;

@@ -74,6 +74,21 @@ test('onWatchlist is a yes or no', async () => {
   assert.equal(await overfin.onWatchlist('item_off'), false);
 });
 
+test('discovery asks for its list and filters', async () => {
+  const calls = fakeServer({
+    'GET /api/v1/discover': () => [200, { items: [{ tmdbId: '949', availability: 'missing' }] }],
+    'GET /api/v1/catalog/movie/949': () => [200, { tmdbId: '949', genres: ['Crime'] }],
+  });
+  const overfin = new Overfin();
+  const page = await overfin.discover('trending', 'movie', { availability: 'missing', limit: 20 });
+  assert.equal(page.items[0].tmdbId, '949');
+  assert.match(calls[0].url, /list=trending/);
+  assert.match(calls[0].url, /mediaKind=movie/);
+  assert.match(calls[0].url, /availability=missing/);
+  assert.doesNotMatch(calls[0].url, /cursor=/);
+  assert.deepEqual((await overfin.catalogTitle('movie', '949')).genres, ['Crime']);
+});
+
 test('no content is null', async () => {
   fakeServer({ 'DELETE /api/v1/profiles/p1/pin': () => [204, null] });
   assert.equal(await new Overfin().removePin('p1'), null);

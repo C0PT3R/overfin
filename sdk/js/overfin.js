@@ -166,6 +166,20 @@ export class Overfin {
   addToWatchlist(id) { return this.request('PUT', `/me/watchlist/${enc(id)}`); }
   removeFromWatchlist(id) { return this.request('DELETE', `/me/watchlist/${enc(id)}`); }
 
+  // ---- Discovery (when the server has Seerr connected) ----------------------
+
+  /**
+   * A page of trending, popular or upcoming titles. list: 'trending',
+   * 'popular' or 'upcoming'; mediaKind: 'movie' or 'series'; availability:
+   * 'all' (the default), 'library' or 'missing'. A filtered page may hold
+   * fewer titles than asked for; nextCursor says whether there are more.
+   */
+  discover(list, mediaKind, { availability, limit, cursor } = {}) {
+    return this.request('GET', `/discover${toQuery({ list, mediaKind, availability, limit, cursor })}`);
+  }
+  /** A title's page, by its TMDB ID: genres, cast, and each season's place for series. */
+  catalogTitle(mediaKind, tmdbId) { return this.request('GET', `/catalog/${enc(mediaKind)}/${enc(tmdbId)}`); }
+
   /** The address of an image reference, in a size: 'small', 'medium' or 'large'. */
   imageUrl(ref, size = 'medium') { return ref ? `${ref.url}?size=${size}` : ''; }
 
