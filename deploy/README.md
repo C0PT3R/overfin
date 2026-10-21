@@ -27,8 +27,9 @@ people use is overfin-web, Overfin's own web client, served by Overfin
 itself; to serve your own client instead, see `[site]` in Overfin's
 README.
 
-Until Overfin's first release, build its image from this repository first:
-`docker compose build overfin`.
+The image is Overfin's release set in `.env` (`OVERFIN_IMAGE`); from a
+checkout of the repository, `docker compose build overfin` builds it
+instead.
 
 After a minute or two:
 

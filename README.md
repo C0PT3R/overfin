@@ -22,14 +22,15 @@ browser ──▶ the site (overfin-web, or your own)
 
 ## Where it stands
 
-Overfin is young. It started in October 2026, has no release yet, and is
-developed by one person with AI assistance. In practice:
+Overfin is young. It started in October 2026, its releases are early
+pre-releases (0.x), and it's developed by one person with AI assistance. In
+practice:
 
 - **It runs one real server**, every day, with its own web client
   (overfin-web), against Jellyfin 12. That is the extent of its real-world use.
-- **There are no releases or prebuilt images.** You build it from source.
-  The API, the settings and the database can still change between commits;
-  the database migrates itself.
+- **Releases are pre-releases.** Each comes as a signed image for x86 and
+  ARM (`ghcr.io/c0pt3r/overfin`). The API, the settings and the database
+  can still change between versions; the database migrates itself.
 - **Only Authentik has been tried** as the identity provider. Any OpenID
   Connect provider should work, but none other has been tested.
 - **Browser only.** There's no login for native apps yet, and Jellyfin's own
@@ -142,15 +143,16 @@ the control panel.
 | `OVERFIN_SECRET_KEY` | `openssl rand -base64 32`, kept safe: it seals what Overfin stores |
 | `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
 
-**5. Build and run:**
+**5. Run it** (the version from the
+[releases](https://github.com/C0PT3R/overfin-gateway/releases); `docker
+build -t overfin .` builds it from source instead):
 
 ```sh
-docker build -t overfin .
 docker run -d --name overfin --network proxy \
   -v "$PWD/overfin.toml:/etc/overfin/overfin.toml:ro" \
   -v overfin-data:/data \
   -e OVERFIN_JELLYFIN_ADMIN_KEY -e OVERFIN_SECRET_KEY -e OVERFIN_OIDC_CLIENT_SECRET \
-  overfin
+  ghcr.io/c0pt3r/overfin:0.1.0
 ```
 
 **6. The reverse proxy** handles HTTPS and passes everything to Overfin,

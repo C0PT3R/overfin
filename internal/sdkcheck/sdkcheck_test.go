@@ -19,11 +19,7 @@ func TestWebUsesTheSDK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundled, err := web.Files.ReadFile("overfin.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(sdk, bundled) {
+	if !bytes.Equal(sdk, web.SDK) {
 		t.Error("the overfin-web version in go.mod carries another SDK than sdk/js/overfin.js; update overfin-web")
 	}
 }
