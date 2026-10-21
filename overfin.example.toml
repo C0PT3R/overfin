@@ -124,6 +124,9 @@ spa_fallback = false
 # it; after that they're ignored (the log says so) and can be removed.
 
 [limits]
+# Playbacks re-encoding the video at once, on the whole server; 0 means no
+# cap. Repackaging (remux: only the container or the audio changes) costs
+# little and isn't counted.
 max_transcodes_total = 4
 # 0 means no cap.
 max_bitrate_kbps = 0

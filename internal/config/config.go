@@ -331,6 +331,8 @@ type Storage struct {
 }
 
 type Limits struct {
+	// MaxTranscodesTotal caps playbacks that re-encode the video, on the
+	// whole server; 0 means no cap. Remuxes aren't counted.
 	MaxTranscodesTotal int `toml:"max_transcodes_total" json:"maxTranscodesTotal"`
 	// MaxBitrateKbps caps every stream; 0 means no cap.
 	MaxBitrateKbps int `toml:"max_bitrate_kbps" json:"maxBitrateKbps"`

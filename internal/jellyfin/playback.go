@@ -76,7 +76,6 @@ type MediaSource struct {
 	IsRemote                   bool
 	RunTimeTicks               int64
 	SupportsDirectPlay         bool
-	SupportsDirectStream       bool
 	SupportsTranscoding        bool
 	TranscodingUrl             string
 	TranscodingSubProtocol     string

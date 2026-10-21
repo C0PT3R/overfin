@@ -100,7 +100,7 @@ function render(state, draft) {
       num('Wrong PINs before a lock', '3 to 10', 'limits.pinAttempts', 3)),
     h('section', {}, h('h2', {}, 'Streams'),
       choice('One stream too many', null, 'limits.onLimit', [['replace-oldest', 'Replace the oldest'], ['refuse', 'Refuse the new one']]),
-      num('Transcodes on the server', '0 means no limit', 'limits.maxTranscodesTotal', 0),
+      num('Transcodes on the server', 'Re-encoded video only, not repackaging; 0 means no limit', 'limits.maxTranscodesTotal', 0),
       num('Bitrate cap (kbps)', '0 means no cap', 'limits.maxBitrateKbps', 0)),
     h('section', {}, h('h2', {}, 'Privacy'),
       ...state.exposableFields.map((name) => listToggle(name, 'Hidden unless switched on', 'privacy.expose', name))),

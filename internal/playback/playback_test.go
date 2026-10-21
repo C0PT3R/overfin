@@ -74,9 +74,78 @@ func TestDecide(t *testing.T) {
 	if d, err := Decide(info(jellyfin.MediaSource{TranscodingUrl: dashed, TranscodingSubProtocol: "hls"}), item, false, "dev"); err != nil {
 		t.Errorf("dashed ID: %+v, %v", d, err)
 	}
-	d, err = Decide(info(jellyfin.MediaSource{TranscodingUrl: hls, TranscodingSubProtocol: "hls", SupportsDirectStream: true}), item, false, "dev")
+	remux := hls + "&TranscodeReasons=ContainerNotSupported%2CAudioCodecNotSupported"
+	d, err = Decide(info(jellyfin.MediaSource{TranscodingUrl: remux, TranscodingSubProtocol: "hls"}), item, false, "dev")
 	if err != nil || d.Method != "remux" {
 		t.Errorf("remux: %+v, %v", d, err)
+	}
+}
+
+func TestDecideRemuxOrTranscode(t *testing.T) {
+	hls := "/videos/" + item + "/master.m3u8?ApiKey=x"
+	tests := map[string]struct {
+		query string
+		audio bool
+		want  string
+	}{
+		"container only":         {"&TranscodeReasons=ContainerNotSupported", false, "remux"},
+		"audio re-encoded":       {"&TranscodeReasons=AudioCodecNotSupported,AudioChannelsNotSupported", false, "remux"},
+		"any case":               {"&transcodereasons=containernotsupported", false, "remux"},
+		"no reasons":             {"", false, "transcode"},
+		"video codec":            {"&TranscodeReasons=ContainerNotSupported,VideoCodecNotSupported", false, "transcode"},
+		"bitrate":                {"&TranscodeReasons=ContainerBitrateExceedsLimit", false, "transcode"},
+		"unknown reason":         {"&TranscodeReasons=SomethingNew", false, "transcode"},
+		"subtitles burned in":    {"&TranscodeReasons=ContainerNotSupported&SubtitleMethod=Encode", false, "transcode"},
+		"video copy not allowed": {"&TranscodeReasons=ContainerNotSupported&AllowVideoStreamCopy=false", false, "transcode"},
+		"split across keys":      {"&TranscodeReasons=ContainerNotSupported&transcodeReasons=VideoLevelNotSupported", false, "transcode"},
+		"audio item, container":  {"&TranscodeReasons=ContainerNotSupported", true, "remux"},
+		"audio item, re-encoded": {"&TranscodeReasons=AudioCodecNotSupported", true, "transcode"},
+	}
+	for name, tt := range tests {
+		u := hls + tt.query
+		if tt.audio {
+			u = "/audio/" + item + "/main.m3u8?ApiKey=x" + tt.query
+		}
+		d, err := Decide(info(jellyfin.MediaSource{TranscodingUrl: u, TranscodingSubProtocol: "hls"}), item, tt.audio, "dev")
+		if err != nil || d.Method != tt.want {
+			t.Errorf("%s: %+v, %v, want %s", name, d, err, tt.want)
+		}
+	}
+}
+
+func TestDecidePicksCheapestVersion(t *testing.T) {
+	const other = "11111111111111111111111111111111"
+	hls := "/videos/" + item + "/master.m3u8?ApiKey=x&TranscodeReasons="
+	transcode := jellyfin.MediaSource{Id: source, Protocol: "File", TranscodingSubProtocol: "hls", TranscodingUrl: hls + "VideoCodecNotSupported"}
+	remux := jellyfin.MediaSource{Id: other, Protocol: "File", TranscodingSubProtocol: "hls", TranscodingUrl: hls + "ContainerNotSupported"}
+	direct := jellyfin.MediaSource{Id: other, Protocol: "File", SupportsDirectPlay: true}
+	remote := jellyfin.MediaSource{Id: other, Protocol: "File", SupportsDirectPlay: true, IsRemote: true}
+
+	pick := func(srcs ...jellyfin.MediaSource) *Decision {
+		t.Helper()
+		d, err := Decide(&jellyfin.PlaybackInfo{MediaSources: srcs, PlaySessionId: "ps1"}, item, false, "dev")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if d := pick(transcode, remux); d.Method != "remux" || d.Source.Id != other {
+		t.Errorf("remux over transcode: %+v", d)
+	}
+	if d := pick(transcode, remux, direct); d.Method != "direct" {
+		t.Errorf("direct first: %+v", d)
+	}
+	if d := pick(remote, transcode); d.Method != "transcode" || d.Source.Id != source {
+		t.Errorf("remote skipped: %+v", d)
+	}
+	second := transcode
+	second.Id = other
+	if d := pick(transcode, second); d.Source.Id != source {
+		t.Errorf("Jellyfin's order between equals: %+v", d)
+	}
+	unsafe := jellyfin.MediaSource{Id: other, Protocol: "File", TranscodingSubProtocol: "hls", TranscodingUrl: "/System/Info"}
+	if _, err := Decide(&jellyfin.PlaybackInfo{MediaSources: []jellyfin.MediaSource{direct, unsafe}, PlaySessionId: "ps1"}, item, false, "dev"); !errors.Is(err, ErrUnsafeUpstream) {
+		t.Errorf("an unexpected URL in any version refuses: %v", err)
 	}
 }
 
@@ -111,12 +180,27 @@ func TestDecideRefuses(t *testing.T) {
 	}
 }
 
+func TestTranscodesCountsOnlyReencoding(t *testing.T) {
+	tk := NewTickets(time.Hour)
+	now := time.Now()
+	for _, m := range []string{"direct", "remux", "transcode"} {
+		proto := "hls"
+		if m == "direct" {
+			proto = "file"
+		}
+		tk.Add(&Stream{AccountID: "acct_a", ProfileID: "prof_a", ItemID: item, Decision: Decision{Method: m, Protocol: proto}}, 0, now)
+	}
+	if n := tk.Transcodes(); n != 1 {
+		t.Errorf("transcodes = %d, want 1", n)
+	}
+}
+
 func TestRegistry(t *testing.T) {
 	tk := NewTickets(24 * time.Hour)
 	now := time.Now()
 	old := &Stream{AccountID: "acct_a", ProfileID: "prof_a", ItemID: item}
 	tk.Add(old, 0, now)
-	newer := &Stream{AccountID: "acct_a", ProfileID: "prof_b", ItemID: item, Decision: Decision{Protocol: "hls"}}
+	newer := &Stream{AccountID: "acct_a", ProfileID: "prof_b", ItemID: item, Decision: Decision{Method: "transcode", Protocol: "hls"}}
 	tk.Add(newer, 0, now.Add(time.Second))
 
 	if len(old.Ticket) < 32 || !strings.HasPrefix(old.ID, "play_") {

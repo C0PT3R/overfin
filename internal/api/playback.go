@@ -400,7 +400,7 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if dec.Protocol == "hls" && pb.MaxTranscodes > 0 && pb.Tickets.Transcodes() >= pb.MaxTranscodes {
+	if dec.Method == "transcode" && pb.MaxTranscodes > 0 && pb.Tickets.Transcodes() >= pb.MaxTranscodes {
 		problem.Send(w, problem.ServerBusy, "")
 		return
 	}

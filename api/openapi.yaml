@@ -3151,7 +3151,11 @@ components:
           $ref: "#/components/schemas/ItemSummary"
         method:
           type: string
-          description: How the media reaches the client. Open set.
+          description: >-
+            How the media reaches the client. `direct` is the file as it is,
+            `remux` repackages it (only the container or the audio changes),
+            `transcode` re-encodes the video. Only transcodes count toward
+            the server's transcode limit. Open set.
           examples: [direct, remux, transcode]
         stream:
           type: object

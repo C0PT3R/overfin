@@ -162,19 +162,43 @@ type Decision struct {
 	Upstream Upstream
 }
 
-// Decide picks how to play from Jellyfin's answer. For direct play, Overfin
-// builds the upstream URL itself; for HLS it accepts Jellyfin's URL only as a
-// relative path on a known streaming route (rule 5).
+// Decide picks how to play from Jellyfin's answer. When it offers several
+// versions, the one that costs the server least wins: direct play, then
+// remux, then transcode; between equals, Jellyfin's order. For direct play,
+// Overfin builds the upstream URL itself; for HLS it accepts Jellyfin's URL
+// only as a relative path on a known streaming route (rule 5).
 func Decide(info *jellyfin.PlaybackInfo, itemID string, audioItem bool, deviceID string) (*Decision, error) {
-	if info.ErrorCode != "" || len(info.MediaSources) == 0 {
+	if info.ErrorCode != "" || !playSession.MatchString(info.PlaySessionId) {
 		return nil, ErrNotPlayable
 	}
-	src := info.MediaSources[0]
+	var best *Decision
+	for _, src := range info.MediaSources {
+		d, err := decideSource(src, info.PlaySessionId, itemID, audioItem, deviceID)
+		if errors.Is(err, ErrNotPlayable) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if best == nil || cost[d.Method] < cost[best.Method] {
+			best = d
+		}
+	}
+	if best == nil {
+		return nil, ErrNotPlayable
+	}
+	return best, nil
+}
+
+// cost orders the methods by what they cost the server.
+var cost = map[string]int{"direct": 0, "remux": 1, "transcode": 2}
+
+func decideSource(src jellyfin.MediaSource, playSessionID, itemID string, audioItem bool, deviceID string) (*Decision, error) {
 	if src.IsRemote || !strings.EqualFold(src.Protocol, "File") {
 		return nil, ErrNotPlayable
 	}
 	sourceID, err := jellyfin.NormalizeID(src.Id)
-	if err != nil || !playSession.MatchString(info.PlaySessionId) {
+	if err != nil {
 		return nil, ErrNotPlayable
 	}
 
@@ -188,7 +212,7 @@ func Decide(info *jellyfin.PlaybackInfo, itemID string, audioItem bool, deviceID
 			Upstream: Upstream{Path: route + itemID + "/stream", Query: url.Values{
 				"static":        {"true"},
 				"mediaSourceId": {sourceID},
-				"playSessionId": {info.PlaySessionId},
+				"playSessionId": {playSessionID},
 				"deviceId":      {deviceID},
 			}},
 		}, nil
@@ -213,12 +237,72 @@ func Decide(info *jellyfin.PlaybackInfo, itemID string, audioItem bool, deviceID
 		return nil, fmt.Errorf("%w: path %q", ErrUnsafeUpstream, textclean.Plain(u.Path, 200))
 	}
 	method := "transcode"
-	if src.SupportsDirectStream {
+	if keepsMainStream(u.Query(), audioItem) {
 		method = "remux"
 	}
 	return &Decision{Method: method, Protocol: "hls", Source: src,
 		Upstream: Upstream{Path: u.Path, Query: u.Query()}}, nil
 }
+
+// Jellyfin's reasons for an HLS stream that leave the video as it is: only
+// the container or the audio changes. For a music track or an audiobook,
+// only a new container leaves it as it is.
+var (
+	videoKeptReasons = []string{
+		"ContainerNotSupported", "AudioCodecNotSupported", "AudioIsExternal",
+		"SecondaryAudioNotSupported", "AudioChannelsNotSupported", "AudioProfileNotSupported",
+		"AudioSampleRateNotSupported", "AudioBitDepthNotSupported", "AudioBitrateNotSupported",
+		"UnknownAudioStreamInfo",
+	}
+	audioKeptReasons = []string{"ContainerNotSupported"}
+)
+
+// keepsMainStream says whether an HLS stream only repackages the item's
+// video (or, for audio items, its audio) instead of re-encoding it. Jellyfin
+// tells why it streams over HLS only in the stream URL's query. Anything
+// unclear counts as re-encoding, so limits on transcodes are never too
+// loose.
+func keepsMainStream(q url.Values, audioItem bool) bool {
+	kept := videoKeptReasons
+	if audioItem {
+		kept = audioKeptReasons
+	} else if slices.ContainsFunc(param(q, "AllowVideoStreamCopy"), isFalse) {
+		return false
+	}
+	if slices.ContainsFunc(param(q, "SubtitleMethod"), isEncode) {
+		return false // subtitles burned into the video
+	}
+	var reasons []string
+	for _, v := range param(q, "TranscodeReasons") {
+		for r := range strings.SplitSeq(v, ",") {
+			reasons = append(reasons, strings.TrimSpace(r))
+		}
+	}
+	if len(reasons) == 0 {
+		return false
+	}
+	for _, r := range reasons {
+		if !slices.ContainsFunc(kept, func(k string) bool { return strings.EqualFold(k, r) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// param returns a query parameter's values whatever its case, as Jellyfin
+// reads its own queries.
+func param(q url.Values, name string) []string {
+	var out []string
+	for k, vs := range q {
+		if strings.EqualFold(k, name) {
+			out = append(out, vs...)
+		}
+	}
+	return out
+}
+
+func isFalse(v string) bool  { return strings.EqualFold(v, "false") }
+func isEncode(v string) bool { return strings.EqualFold(v, "encode") }
 
 // Describe gives a version a neutral name from its streams, such as
 // "2160p HDR · HEVC". Jellyfin's own version names come from file names,

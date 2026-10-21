@@ -203,13 +203,14 @@ func (t *Tickets) ForAccount(accountID string) []*Stream {
 	return out
 }
 
-// Transcodes counts playbacks that make Jellyfin transcode or repackage.
+// Transcodes counts playbacks that make Jellyfin re-encode the media;
+// repackaging (remux) costs little and isn't counted.
 func (t *Tickets) Transcodes() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := 0
 	for _, s := range t.byID {
-		if s.Decision.Protocol == "hls" {
+		if s.Decision.Method == "transcode" {
 			n++
 		}
 	}
