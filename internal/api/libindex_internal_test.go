@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // What the index answers, and what goes to Jellyfin.

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/C0PT3R/overfin-gateway/internal/store"
-	"github.com/C0PT3R/overfin-gateway/internal/textclean"
+	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/textclean"
 )
 
 // Account templates: what accounts may do. Accounts follow theirs live, so

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // DefaultMaxFailures is how many wrong PINs in a row lock a profile, unless

@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/config"
-	"github.com/C0PT3R/overfin-gateway/internal/images"
-	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
-	"github.com/C0PT3R/overfin-gateway/internal/keys"
-	"github.com/C0PT3R/overfin-gateway/internal/playback"
-	"github.com/C0PT3R/overfin-gateway/internal/seal"
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/config"
+	"github.com/C0PT3R/overfin-server/internal/images"
+	"github.com/C0PT3R/overfin-server/internal/jellyfin"
+	"github.com/C0PT3R/overfin-server/internal/keys"
+	"github.com/C0PT3R/overfin-server/internal/playback"
+	"github.com/C0PT3R/overfin-server/internal/seal"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 const baseConfig = `

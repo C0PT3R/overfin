@@ -7,14 +7,14 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/C0PT3R/overfin-gateway/internal/feature"
-	"github.com/C0PT3R/overfin-gateway/internal/identity"
-	"github.com/C0PT3R/overfin-gateway/internal/images"
-	"github.com/C0PT3R/overfin-gateway/internal/pin"
-	"github.com/C0PT3R/overfin-gateway/internal/plugin"
-	"github.com/C0PT3R/overfin-gateway/internal/problem"
-	"github.com/C0PT3R/overfin-gateway/internal/provision"
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/feature"
+	"github.com/C0PT3R/overfin-server/internal/identity"
+	"github.com/C0PT3R/overfin-server/internal/images"
+	"github.com/C0PT3R/overfin-server/internal/pin"
+	"github.com/C0PT3R/overfin-server/internal/plugin"
+	"github.com/C0PT3R/overfin-server/internal/problem"
+	"github.com/C0PT3R/overfin-server/internal/provision"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // Account serves the current account.

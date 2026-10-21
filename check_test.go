@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0PT3R/overfin-gateway/internal/config"
-	"github.com/C0PT3R/overfin-gateway/internal/keys"
-	"github.com/C0PT3R/overfin-gateway/internal/seal"
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/config"
+	"github.com/C0PT3R/overfin-server/internal/keys"
+	"github.com/C0PT3R/overfin-server/internal/seal"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // fakeJellyfin answers what -check asks: its version and server ID, and

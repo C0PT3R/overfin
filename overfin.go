@@ -18,27 +18,27 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/admin"
-	"github.com/C0PT3R/overfin-gateway/internal/api"
-	"github.com/C0PT3R/overfin-gateway/internal/catalog"
-	"github.com/C0PT3R/overfin-gateway/internal/config"
-	"github.com/C0PT3R/overfin-gateway/internal/connector"
-	"github.com/C0PT3R/overfin-gateway/internal/images"
-	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
-	"github.com/C0PT3R/overfin-gateway/internal/keys"
-	"github.com/C0PT3R/overfin-gateway/internal/oidc"
-	"github.com/C0PT3R/overfin-gateway/internal/playback"
-	"github.com/C0PT3R/overfin-gateway/internal/provision"
-	"github.com/C0PT3R/overfin-gateway/internal/seal"
-	"github.com/C0PT3R/overfin-gateway/internal/seerr"
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/admin"
+	"github.com/C0PT3R/overfin-server/internal/api"
+	"github.com/C0PT3R/overfin-server/internal/catalog"
+	"github.com/C0PT3R/overfin-server/internal/config"
+	"github.com/C0PT3R/overfin-server/internal/connector"
+	"github.com/C0PT3R/overfin-server/internal/images"
+	"github.com/C0PT3R/overfin-server/internal/jellyfin"
+	"github.com/C0PT3R/overfin-server/internal/keys"
+	"github.com/C0PT3R/overfin-server/internal/oidc"
+	"github.com/C0PT3R/overfin-server/internal/playback"
+	"github.com/C0PT3R/overfin-server/internal/provision"
+	"github.com/C0PT3R/overfin-server/internal/seal"
+	"github.com/C0PT3R/overfin-server/internal/seerr"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // builtinSite is the web client this build includes, if any.
 var builtinSite fs.FS
 
 // Version is set at build time with
-// -ldflags "-X github.com/C0PT3R/overfin-gateway.Version=…".
+// -ldflags "-X github.com/C0PT3R/overfin-server.Version=…".
 var Version = "dev"
 
 // Run runs Overfin, serving site as its web client when the configuration

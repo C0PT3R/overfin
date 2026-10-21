@@ -10,7 +10,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/C0PT3R/overfin-gateway.Version=${VERSION}" -o /overfin ./cmd/overfin
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/C0PT3R/overfin-server.Version=${VERSION}" -o /overfin ./cmd/overfin
 # The final image has no shell, so the data and secrets folders are
 # prepared here.
 RUN mkdir /data /secrets

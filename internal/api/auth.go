@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/identity"
-	"github.com/C0PT3R/overfin-gateway/internal/oidc"
-	"github.com/C0PT3R/overfin-gateway/internal/plugin"
-	"github.com/C0PT3R/overfin-gateway/internal/problem"
-	"github.com/C0PT3R/overfin-gateway/internal/provision"
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/identity"
+	"github.com/C0PT3R/overfin-server/internal/oidc"
+	"github.com/C0PT3R/overfin-server/internal/plugin"
+	"github.com/C0PT3R/overfin-server/internal/problem"
+	"github.com/C0PT3R/overfin-server/internal/provision"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 const (

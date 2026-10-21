@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/C0PT3R/overfin-gateway"
+	"github.com/C0PT3R/overfin-server"
 	web "github.com/C0PT3R/overfin-web"
 )
 

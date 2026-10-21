@@ -3,7 +3,7 @@
 # registry, with a signed attestation of where and how it was built, and a
 # GitHub release with notes from the commits.
 #
-# Verify an image: gh attestation verify oci://ghcr.io/c0pt3r/overfin:<version> -R C0PT3R/overfin-gateway
+# Verify an image: gh attestation verify oci://ghcr.io/c0pt3r/overfin:<version> -R C0PT3R/overfin-server
 name: Release
 
 on:

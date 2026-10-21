@@ -11,15 +11,15 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/C0PT3R/overfin-gateway/internal/creation"
-	"github.com/C0PT3R/overfin-gateway/internal/feature"
-	"github.com/C0PT3R/overfin-gateway/internal/identity"
-	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
-	"github.com/C0PT3R/overfin-gateway/internal/library"
-	"github.com/C0PT3R/overfin-gateway/internal/plugin"
-	"github.com/C0PT3R/overfin-gateway/internal/problem"
-	"github.com/C0PT3R/overfin-gateway/internal/provision"
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/creation"
+	"github.com/C0PT3R/overfin-server/internal/feature"
+	"github.com/C0PT3R/overfin-server/internal/identity"
+	"github.com/C0PT3R/overfin-server/internal/jellyfin"
+	"github.com/C0PT3R/overfin-server/internal/library"
+	"github.com/C0PT3R/overfin-server/internal/plugin"
+	"github.com/C0PT3R/overfin-server/internal/problem"
+	"github.com/C0PT3R/overfin-server/internal/provision"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // Mount grafts a module onto the core: its routes go through the same

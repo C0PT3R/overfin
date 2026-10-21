@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/seerr"
-	"github.com/C0PT3R/overfin-gateway/internal/store"
+	"github.com/C0PT3R/overfin-server/internal/seerr"
+	"github.com/C0PT3R/overfin-server/internal/store"
 )
 
 // Lists keeps discovery's lists (trending, popular and upcoming films and

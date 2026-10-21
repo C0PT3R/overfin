@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/ids"
-	"github.com/C0PT3R/overfin-gateway/internal/jellyfin"
+	"github.com/C0PT3R/overfin-server/internal/ids"
+	"github.com/C0PT3R/overfin-server/internal/jellyfin"
 )
 
 // Stream is one active playback, as Overfin keeps it. Playback state is

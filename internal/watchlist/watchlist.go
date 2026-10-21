@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/feature"
+	"github.com/C0PT3R/overfin-server/internal/feature"
 )
 
 //go:embed migrations/*.sql

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin-gateway/internal/textclean"
+	"github.com/C0PT3R/overfin-server/internal/textclean"
 )
 
 // maxResponse bounds every response read from Seerr.

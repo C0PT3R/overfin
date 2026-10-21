@@ -152,7 +152,7 @@ control panel.
 | `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
 
 **5. Run it** (the version from the
-[releases](https://github.com/C0PT3R/overfin-gateway/releases); `docker
+[releases](https://github.com/C0PT3R/overfin-server/releases); `docker
 build -t overfin .` builds it from source instead):
 
 ```sh

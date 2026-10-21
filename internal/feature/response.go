@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/C0PT3R/overfin-gateway/internal/library"
-	"github.com/C0PT3R/overfin-gateway/internal/problem"
+	"github.com/C0PT3R/overfin-server/internal/library"
+	"github.com/C0PT3R/overfin-server/internal/problem"
 )
 
 // Item is a title in the API's own format (see api/openapi.yaml,

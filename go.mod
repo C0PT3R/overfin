@@ -1,4 +1,4 @@
-module github.com/C0PT3R/overfin-gateway
+module github.com/C0PT3R/overfin-server
 
 go 1.26.10
 
