@@ -346,8 +346,7 @@ Overfin keeps holding as little as it can.
 ## Planned, not designed yet
 
 - **Playback extras:** changing tracks or quality mid-playback (`PATCH`),
-  queues and "advance", and degrading (direct play, lower quality) before
-  refusing when the server is busy.
+  queues and "advance".
 
 - **Native-app login.** Today's login works in browsers (and webview apps).
   Native apps, including third-party ones, need:
