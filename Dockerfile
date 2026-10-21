@@ -18,14 +18,18 @@ ARG MODULES=""
 RUN set -f; target=./cmd/overfin; \
     if [ -n "$MODULES" ]; then go run ./cmd/overfin-build $MODULES && target=./cmd/custom; fi; \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/C0PT3R/overfin-gateway.Version=${VERSION}" -o /overfin "$target"
-# The final image has no shell, so the data folder is prepared here.
-RUN mkdir /data
+# The final image has no shell, so the data and secrets folders are
+# prepared here.
+RUN mkdir /data /secrets
 
 # distroless/static: no shell, no package manager, runs as a non-root user.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /overfin /overfin
 # 65532 is the distroless "nonroot" user the container runs as.
 COPY --from=build --chown=65532:65532 /data /data
-VOLUME /data
+# The secret key Overfin generates on its first start, when none is given:
+# a volume of its own, so a copy of the data never carries its key.
+COPY --from=build --chown=65532:65532 /secrets /secrets
+VOLUME /data /secrets
 EXPOSE 8080 8081
 ENTRYPOINT ["/overfin"]

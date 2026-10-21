@@ -140,7 +140,7 @@ the control panel.
 | Variable | |
 | --- | --- |
 | `OVERFIN_JELLYFIN_ADMIN_KEY` | The Jellyfin API key |
-| `OVERFIN_SECRET_KEY` | `openssl rand -base64 32`, kept safe: it seals what Overfin stores |
+| `OVERFIN_SECRET_KEY` | Optional: without it, Overfin generates one on its first start, in `/secrets/overfin.key`. Either way, back it up: it seals what Overfin stores |
 | `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
 
 **5. Run it** (the version from the
@@ -150,8 +150,8 @@ build -t overfin .` builds it from source instead):
 ```sh
 docker run -d --name overfin --network proxy \
   -v "$PWD/overfin.toml:/etc/overfin/overfin.toml:ro" \
-  -v overfin-data:/data \
-  -e OVERFIN_JELLYFIN_ADMIN_KEY -e OVERFIN_SECRET_KEY -e OVERFIN_OIDC_CLIENT_SECRET \
+  -v overfin-data:/data -v overfin-secrets:/secrets \
+  -e OVERFIN_JELLYFIN_ADMIN_KEY -e OVERFIN_OIDC_CLIENT_SECRET \
   ghcr.io/c0pt3r/overfin:0.1.0
 ```
 

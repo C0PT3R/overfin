@@ -76,8 +76,10 @@ Versions are set in `.env` (`OVERFIN_IMAGE`, `AUTHENTIK_TAG`, `CADDY_TAG`).
 Change one, then `docker compose up -d`. Read Authentik's release notes
 before a major upgrade.
 
-Back up `.env`, `overfin.toml` and the Docker volumes
-(`overfin-data`, `database`, `authentik-data`).
+Back up `.env`, `overfin.toml` and the Docker volumes (`overfin-data`,
+`overfin-secrets`, `database`, `authentik-data`). `overfin-secrets` holds
+the secret key Overfin generated on its first start: without it, what
+Overfin stores can't be read. Keep its copy apart from the others.
 
 ## If something's off
 

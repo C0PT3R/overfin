@@ -283,9 +283,11 @@ provider.
 5. **`overfin -check`**: tests the configuration, reaches Jellyfin, fetches
    the provider's discovery document, checks the proxy is trusted, and says
    in plain words what's wrong.
-6. **The secret key generated on first start**, into its own secrets
-   folder, apart from the database it protects; operators who want more
-   still supply their own.
+6. ~~**The secret key generated on first start**~~ Done: into
+   `/secrets/overfin.key` (a volume of its own in Docker), apart from the
+   database it protects, for a new database only: an existing database
+   without its key is a lost key, so Overfin stops and says how to recover.
+   Operators who want more still supply their own.
 
 ## Milestone 4: Overfin owns people, Jellyfin plays media
 

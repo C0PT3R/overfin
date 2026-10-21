@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -99,14 +100,6 @@ func TestLoadRejects(t *testing.T) {
 			wantErr: "identity.mode",
 		},
 		{
-			name: "missing secret key",
-			file: goodFile,
-			env: map[string]string{
-				"OVERFIN_JELLYFIN_ADMIN_KEY": "admin-key",
-			},
-			wantErr: "OVERFIN_SECRET_KEY is required",
-		},
-		{
 			name: "short secret key",
 			file: goodFile,
 			env: map[string]string{
@@ -149,6 +142,51 @@ func TestSecretFromFile(t *testing.T) {
 }
 
 // Secrets must never end up in error messages, which may be logged.
+func TestGeneratedKey(t *testing.T) {
+	KeyFile = filepath.Join(t.TempDir(), "overfin.key")
+	t.Cleanup(func() { KeyFile = "/secrets/overfin.key" })
+	vars := map[string]string{"OVERFIN_JELLYFIN_ADMIN_KEY": "admin-key"}
+	path := writeFile(t, goodFile)
+
+	// No key given and none generated yet: Load leaves it to the caller.
+	cfg, err := Load(path, env(vars))
+	if err != nil || cfg.Secrets.Key != nil {
+		t.Fatalf("before generating: key %v, err %v", cfg.Secrets.Key, err)
+	}
+	key, err := GenerateKey()
+	if err != nil || len(key) != MinKeyBytes {
+		t.Fatalf("GenerateKey: %d bytes, %v", len(key), err)
+	}
+	if info, err := os.Stat(KeyFile); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("key file: %v, %v", info, err)
+	}
+	// Later starts and reloads read it back.
+	if cfg, err := Load(path, env(vars)); err != nil || !bytes.Equal(cfg.Secrets.Key, key) {
+		t.Errorf("reading it back: %v", err)
+	}
+	// A key already there is never replaced.
+	if _, err := GenerateKey(); err == nil {
+		t.Error("GenerateKey replaced an existing key")
+	}
+	if again, _ := os.ReadFile(KeyFile); !strings.Contains(string(again), base64.StdEncoding.EncodeToString(key)) {
+		t.Error("the key file changed")
+	}
+	// A key given in the environment wins over the generated one.
+	given := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	vars["OVERFIN_SECRET_KEY"] = given
+	if cfg, err := Load(path, env(vars)); err != nil || cfg.Secrets.Key[0] != 7 {
+		t.Errorf("given key: %v", err)
+	}
+	// An empty key file named on purpose is a mistake, not "no key".
+	delete(vars, "OVERFIN_SECRET_KEY")
+	empty := filepath.Join(t.TempDir(), "empty")
+	os.WriteFile(empty, nil, 0o600)
+	vars["OVERFIN_SECRET_KEY_FILE"] = empty
+	if _, err := Load(path, env(vars)); err == nil || !strings.Contains(err.Error(), "empty file") {
+		t.Errorf("empty key file: %v", err)
+	}
+}
+
 func TestErrorsNeverEchoSecrets(t *testing.T) {
 	vars := goodEnv()
 	vars["OVERFIN_SECRET_KEY"] = "not base64 but very secret!"

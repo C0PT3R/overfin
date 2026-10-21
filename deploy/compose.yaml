@@ -38,13 +38,16 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
-      OVERFIN_SECRET_KEY: ${OVERFIN_SECRET_KEY:?run ./setup.sh first}
+      # Overfin generates its secret key on the first start, into
+      # overfin-secrets; installs that set one in .env keep using it.
+      OVERFIN_SECRET_KEY: ${OVERFIN_SECRET_KEY:-}
       OVERFIN_JELLYFIN_ADMIN_KEY: ${OVERFIN_JELLYFIN_ADMIN_KEY:?run ./setup.sh first}
       OVERFIN_OIDC_CLIENT_SECRET: ${OVERFIN_OIDC_CLIENT_SECRET:?run ./setup.sh first}
       OVERFIN_CONNECTOR_TOKEN: ${OVERFIN_CONNECTOR_TOKEN:?run ./setup.sh first}
     volumes:
       - ./overfin.toml:/etc/overfin/overfin.toml:ro,z
       - overfin-data:/data
+      - overfin-secrets:/secrets
     ports:
       # The control panel, on this machine only: reach it through an SSH
       # tunnel. Never publish it on another address.
@@ -127,5 +130,6 @@ volumes:
   caddy-data:
   caddy-config:
   overfin-data:
+  overfin-secrets:
   authentik-data:
   database:

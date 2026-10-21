@@ -214,3 +214,40 @@ func TestAdoptionMovesToTheMigrationModule(t *testing.T) {
 		t.Errorf("saved: %s", raw)
 	}
 }
+
+func TestFirstKey(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	setup := func(t *testing.T, dbExists bool) *config.Config {
+		dir := t.TempDir()
+		config.KeyFile = filepath.Join(dir, "secrets", "overfin.key")
+		t.Cleanup(func() { config.KeyFile = "/secrets/overfin.key" })
+		os.Mkdir(filepath.Dir(config.KeyFile), 0o700)
+		cfg := &config.Config{Storage: config.Storage{Path: filepath.Join(dir, "overfin.db")}}
+		if dbExists {
+			os.WriteFile(cfg.Storage.Path, []byte("data"), 0o600)
+		}
+		return cfg
+	}
+
+	// A first start: the key is made, and kept for the next starts.
+	cfg := setup(t, false)
+	if err := firstKey(cfg, false, logger); err != nil || len(cfg.Secrets.Key) != config.MinKeyBytes {
+		t.Fatalf("first start: %v", err)
+	}
+	if _, err := os.Stat(config.KeyFile); err != nil {
+		t.Errorf("key file: %v", err)
+	}
+
+	// A database without its key: a lost key, never replaced quietly.
+	cfg = setup(t, true)
+	if err := firstKey(cfg, false, logger); err == nil || !strings.Contains(err.Error(), "-recover-tokens") {
+		t.Errorf("existing database: %v", err)
+	}
+	if _, err := os.Stat(config.KeyFile); err == nil {
+		t.Error("a key was made for an existing database")
+	}
+	// Unless that's what the operator is recovering from.
+	if err := firstKey(cfg, true, logger); err != nil || cfg.Secrets.Key == nil {
+		t.Errorf("recovering: %v", err)
+	}
+}

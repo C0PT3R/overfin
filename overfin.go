@@ -79,6 +79,27 @@ func Run(b Build) {
 	}
 }
 
+// firstKey generates the secret key when none was given and none was
+// generated yet, for a database that doesn't exist yet only. An existing
+// database without its key is a lost key, not a first start: a new key
+// couldn't read it, so Overfin stops, unless it's recovering from exactly
+// that (-recover-tokens).
+func firstKey(cfg *config.Config, recovering bool, logger *slog.Logger) error {
+	_, err := os.Stat(cfg.Storage.Path)
+	if !errors.Is(err, fs.ErrNotExist) && !recovering {
+		return fmt.Errorf("no secret key: OVERFIN_SECRET_KEY isn't set and %s doesn't exist, but the database "+
+			"does. Restore the key from your backup; if it's lost for good, run overfin -recover-tokens once "+
+			"to make a new one (profiles keep their history; PINs and logins are reset)", config.KeyFile)
+	}
+	key, err := config.GenerateKey()
+	if err != nil {
+		return err
+	}
+	cfg.Secrets.Key = key
+	logger.Warn("generated a new secret key: back it up, apart from the database", "file", config.KeyFile)
+	return nil
+}
+
 func run(logger *slog.Logger) error {
 	// Everything Overfin creates (database, cache) is readable by its own
 	// user only.
@@ -101,6 +122,11 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	addr := cfg.Listen
+	if cfg.Secrets.Key == nil {
+		if err := firstKey(cfg, *recoverTokens, logger); err != nil {
+			return err
+		}
+	}
 
 	k, err := keys.Derive(cfg.Secrets.Key)
 	if err != nil {

@@ -2,15 +2,18 @@
 //
 // Settings come from a TOML file. Secrets never do: they come from
 // environment variables, or from files named by NAME_FILE variables (the
-// Docker secrets convention). Anything unknown or invalid stops Overfin at
-// startup instead of being guessed at.
+// Docker secrets convention). The secret key may also be one Overfin
+// generated itself, in KeyFile. Anything unknown or invalid stops Overfin
+// at startup instead of being guessed at.
 package config
 
 import (
 	"cmp"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net"
 	"net/netip"
@@ -346,7 +349,9 @@ type Limits struct {
 type Secrets struct {
 	// JellyfinAdminKey is used only for provisioning (SECURITY.md rule 3).
 	JellyfinAdminKey string
-	// Key encrypts tokens and keys PIN hashes, cursors and log IDs.
+	// Key encrypts tokens and keys PIN hashes, cursors and log IDs. It's
+	// nil when none was given and KeyFile doesn't exist yet: Overfin then
+	// generates one, on a first start only (GenerateKey).
 	Key []byte
 	// OIDCClientSecret is the client secret at the identity provider,
 	// required only with [oidc].
@@ -444,19 +449,69 @@ func loadSecrets(s *Secrets, getenv func(string) string) error {
 	s.JellyfinAdminKey = adminKey
 
 	encoded, err := secret("OVERFIN_SECRET_KEY", getenv)
-	if err != nil {
+	if errors.Is(err, errMissing) {
+		// No key given: the one Overfin generated, if there's one yet.
+		b, err := os.ReadFile(KeyFile)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("config: reading the secret key: %w", err)
+		}
+		encoded = strings.TrimSpace(string(b))
+	} else if err != nil {
 		return err
 	}
-	key, err := base64.StdEncoding.DecodeString(encoded)
+	key, err := decodeKey(encoded)
 	if err != nil {
-		return errors.New("config: OVERFIN_SECRET_KEY must be base64")
-	}
-	if len(key) < MinKeyBytes {
-		return fmt.Errorf("config: OVERFIN_SECRET_KEY must decode to at least %d bytes", MinKeyBytes)
+		return err
 	}
 	s.Key = key
 	return nil
 }
+
+// KeyFile is where Overfin keeps the secret key it generated itself, when
+// none is given: its own folder (a volume of its own in Docker), apart from
+// the database it protects, so a copy of the data never carries its key.
+var KeyFile = "/secrets/overfin.key"
+
+func decodeKey(encoded string) ([]byte, error) {
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, errors.New("config: OVERFIN_SECRET_KEY must be base64")
+	}
+	if len(key) < MinKeyBytes {
+		return nil, fmt.Errorf("config: OVERFIN_SECRET_KEY must decode to at least %d bytes", MinKeyBytes)
+	}
+	return key, nil
+}
+
+// GenerateKey makes a new secret key and writes it to KeyFile, readable by
+// Overfin's user only. It never replaces a file already there. Callers make
+// sure it's a first start: a new key can't open existing data.
+func GenerateKey() ([]byte, error) {
+	key := make([]byte, MinKeyBytes)
+	rand.Read(key)
+	f, err := os.OpenFile(KeyFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("config: creating the secret key: %w", err)
+	}
+	_, err = f.WriteString(base64.StdEncoding.EncodeToString(key) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(KeyFile)
+		return nil, fmt.Errorf("config: writing the secret key: %w", err)
+	}
+	return key, nil
+}
+
+// errMissing: neither NAME nor NAME_FILE is set.
+var errMissing = errors.New("is required")
 
 // secret reads a required secret from NAME, or from the file named by
 // NAME_FILE. Error messages name the variable but never echo its value.
@@ -472,9 +527,12 @@ func secret(name string, getenv func(string) string) (string, error) {
 			return "", fmt.Errorf("config: reading %s_FILE: %w", name, err)
 		}
 		value = strings.TrimSpace(string(b))
+		if value == "" {
+			return "", fmt.Errorf("config: %s_FILE names an empty file", name)
+		}
 	}
 	if value == "" {
-		return "", fmt.Errorf("config: %s is required", name)
+		return "", fmt.Errorf("config: %s %w", name, errMissing)
 	}
 	return value, nil
 }

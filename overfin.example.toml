@@ -6,8 +6,10 @@
 # environment variables (or NAME_FILE pointing to a file, for Docker secrets):
 #
 #   OVERFIN_JELLYFIN_ADMIN_KEY   Jellyfin API key, used only to create users
-#   OVERFIN_SECRET_KEY           base64, at least 32 random bytes:
-#                                  openssl rand -base64 32
+#   OVERFIN_SECRET_KEY           optional: base64, at least 32 random bytes
+#                                (openssl rand -base64 32). Without it,
+#                                Overfin generates one on its first start, in
+#                                /secrets/overfin.key (back it up).
 #   OVERFIN_OIDC_CLIENT_SECRET   with [oidc]: the client secret at the
 #                                identity provider
 #   OVERFIN_CONNECTOR_TOKEN      with [connector]: the identity provider API

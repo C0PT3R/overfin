@@ -62,7 +62,8 @@ admin_password=$(secret 12)
 umask 077
 cat > .env <<EOF
 # Written by setup.sh. Every secret of this install: keep it private, and
-# keep a copy somewhere safe (losing OVERFIN_SECRET_KEY resets people's PINs).
+# keep a copy somewhere safe. Overfin's own secret key is generated on its
+# first start, in the overfin-secrets volume: back that up too.
 OVERFIN_DOMAIN=$site
 AUTH_DOMAIN=$auth
 OVERFIN_SITE_NAME="$name"
@@ -76,7 +77,6 @@ EDGE_SUBNET=$edge_subnet
 EDGE_RANGE=$edge_range
 CADDY_IP=$caddy_ip
 
-OVERFIN_SECRET_KEY=$(openssl rand -base64 32)
 OVERFIN_JELLYFIN_ADMIN_KEY=$jfkey
 OVERFIN_OIDC_CLIENT_SECRET=$(secret 32)
 OVERFIN_CONNECTOR_TOKEN=$(secret 32)
