@@ -130,6 +130,25 @@ own.
 Build it with `go build`, then switch your module on in the control panel,
 like any other. Nothing is ever loaded while Overfin runs.
 
+## The core has authority
+
+The core is like a kernel, and modules like programs: a module asks, through
+its `Host`, and the core decides.
+
+- **A module talks only to the core**: never to another module, never to
+  the media server, never to the core's own data.
+- **What several modules need is a core service**, offered through the host
+  and governed by the core's rules, like the backend (`c.Backend`). If two
+  modules would share something, it moves into the core.
+- **`Needs` means "switch this on too"**, never "call into this".
+- **The core can refuse**: guards, limits, and switching modules on and off
+  are the core's decisions, not the module's.
+
+Modules are compiled into Overfin, so this is authority by design, not a
+sandbox. One gap remains today: `h.DB()` is the whole database, so keep to
+your own tables; each module getting a database of its own is on the
+roadmap.
+
 ## The rules that keep everyone safe
 
 Modules live inside the gateway, so they follow its rules

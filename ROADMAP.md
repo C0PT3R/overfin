@@ -124,6 +124,17 @@ across all. Item IDs are ready for it: `item_<id>` means the default
 backend, and any other backend's IDs will name it (`item_<backend>_<id>`), so
 nothing stored today ever breaks.
 
+**The core has authority over modules**, like a kernel: a module talks only
+to the core (never to another module, the media server or the core's data),
+and what several modules need becomes a core service. **Overfin's own
+catalog** of titles (stable TMDB or IMDb IDs, metadata, ratings normalized
+through TMDB's certifications for the operator's country) is the first such
+service: kids limits, the TMDB catalog module, requests, the watchlist's
+titles not in the library and federation all rest on it, fed by Jellyfin's
+data and enriched by TMDB when the operator gives a key. Next, **a database
+per module**, so a module only ever sees its own tables and reaches the
+core's data through its host, making the rule structural.
+
 **Connectors to sibling tools**, later: for example Stewarr (storage
 intelligence for the *arr stack), which could read what Overfin knows
 (watchlist counts per title, never who) and tell Overfin what's leaving soon.

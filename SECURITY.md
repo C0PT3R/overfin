@@ -255,7 +255,10 @@ comes from the internet, and media files can be written by anyone.
     modules safe, but it's a convention, not a sandbox: a module runs with
     Overfin's full power. These rules cover the core and the official
     modules; a third-party module is its developer's responsibility, and the
-    operator's for running it.
+    operator's for running it. The core has authority over modules, like a
+    kernel: a module talks only to the core, never to another module, the
+    media server or the core's own data, and what modules share is a core
+    service the core governs.
 
 ### Invitations
 63. Invitation links carry 128 random bits; only their SHA-256 is kept, and
