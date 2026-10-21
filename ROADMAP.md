@@ -22,7 +22,7 @@ servers. The apps hold the experience, and nothing else.
 - **A client of one's own is an equal.** The server enforces the rules, so a
   custom client can do everything the official ones do, never more, with
   total freedom on looks and feel. At worst it breaks its own features,
-  never the rules. That's what a good backend is for.
+  never the rules. That's the sign of a great backend.
 - **Few choices, real ones.** Overfin decides how it works; operators set
   only what really differs from one server to another, such as limits that
   depend on the hardware, or who may sign up. A feature that does nothing
