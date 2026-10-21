@@ -207,5 +207,5 @@ Then, after a minute or two:
   - https://$site : the site;
   - the control panel, later: same address as the setup page, signed in as
     akadmin.
-If something's off: docker compose run --rm --no-deps overfin -check
+If something's off: docker compose exec overfin /overfin -check
 EOF
