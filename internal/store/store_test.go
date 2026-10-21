@@ -402,8 +402,10 @@ func TestMoveModuleTables(t *testing.T) {
 
 type recorder struct{ profiles, accounts []string }
 
-func (r *recorder) ForgetProfiles(_ context.Context, ids []string) { r.profiles = append(r.profiles, ids...) }
-func (r *recorder) ForgetAccount(_ context.Context, id string)     { r.accounts = append(r.accounts, id) }
+func (r *recorder) ForgetProfiles(_ context.Context, ids []string) {
+	r.profiles = append(r.profiles, ids...)
+}
+func (r *recorder) ForgetAccount(_ context.Context, id string) { r.accounts = append(r.accounts, id) }
 
 // Deleting profiles and accounts tells the forgetter, which tells modules.
 func TestDeletionsAreForgotten(t *testing.T) {
