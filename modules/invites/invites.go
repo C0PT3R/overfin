@@ -159,6 +159,16 @@ func (Module) AccountCreated(ctx context.Context, h module.Host, _ *http.Request
 	return nil
 }
 
+// ForgetProfiles has nothing to do: invitations belong to accounts.
+func (Module) ForgetProfiles(context.Context, *sql.DB, []string) error { return nil }
+
+// ForgetAccount cuts a deleted account's link to the invitation it used; the
+// use stays counted, so a used single-use link never works again.
+func (Module) ForgetAccount(ctx context.Context, db *sql.DB, accountID string) error {
+	_, err := db.ExecContext(ctx, `UPDATE invites_uses SET account_id = NULL WHERE account_id = ?`, accountID)
+	return err
+}
+
 type invite struct {
 	ID              string `json:"id"`
 	Label           string `json:"label"`

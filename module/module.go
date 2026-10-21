@@ -57,9 +57,10 @@ type Info struct {
 	// panel; Host.Setting reads them.
 	Settings []Setting
 	// Migrations holds the module's own SQL migrations, named 001_….sql,
-	// 002_….sql and so on, applied in order and only once. Tables should
-	// start with the module's name, and rows belonging to a profile should
-	// reference profiles(id) ON DELETE CASCADE, so they go with it.
+	// 002_….sql and so on, applied in order and only once, to the module's
+	// own database. Tables start with the module's name. The core's tables
+	// aren't there: rows belonging to a profile or an account are deleted
+	// with it through Forgetter.
 	Migrations fs.FS
 }
 
@@ -99,7 +100,8 @@ type Host interface {
 	// SiteURL is the site's address, e.g. "https://example.org", for links
 	// to it; empty when the core doesn't know it.
 	SiteURL() string
-	// DB is the database, for the module's own tables.
+	// DB is the module's own database: its tables, and nothing else. The
+	// core's data is reached through the host, never directly.
 	DB() *sql.DB
 	// Logger is the module's logger. Never log tokens, passwords, PINs or
 	// what people watch.
@@ -131,6 +133,16 @@ type Backend interface {
 	// Items returns the titles among ids this profile can see, in no
 	// particular order; the others are left out.
 	Items(ctx context.Context, ids []string) ([]Item, error)
+}
+
+// Forgetter is implemented by a module that keeps data about profiles or
+// accounts: when the core deletes some, it tells every module that has
+// them, switched on or not, and the module deletes what it holds about
+// them (or, for what must stay counted, cuts the link). db is the module's
+// own database. An error is logged; the deletion itself goes on.
+type Forgetter interface {
+	ForgetProfiles(ctx context.Context, db *sql.DB, profileIDs []string) error
+	ForgetAccount(ctx context.Context, db *sql.DB, accountID string) error
 }
 
 // Exporter is implemented by a module that holds data about a profile, so

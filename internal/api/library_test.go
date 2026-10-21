@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -234,6 +235,8 @@ type options struct {
 	admin *http.ServeMux
 	// site serves overfin-web beside the API, as Overfin does by default.
 	site bool
+	// dbs, when set, receives the modules' own databases, by name.
+	dbs *map[string]*sql.DB
 	// template, when set, receives the ID of the test account's template
 	// (3 profiles).
 	template *string
@@ -302,21 +305,32 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger}
 	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
-	// The watchlist module, mounted as the real program mounts it.
-	if err := st.MigrateModule(context.Background(), "watchlist", watchlist.Module{}.Info().Migrations); err != nil {
-		t.Fatal(err)
-	}
-	// So is migration, bringing accounts over in "move" mode.
-	mounts := []api.Mount{
-		{Module: watchlist.Module{}, Library: lib, DB: st.DB(), Logger: logger},
-		{Module: migration.Module{}, Library: lib, DB: st.DB(), Logger: logger, Settings: map[string]string{"mode": "move"}},
-	}
-	for _, m := range o.modules {
-		if err := st.MigrateModule(context.Background(), m.Info().Name, m.Info().Migrations); err != nil {
+	// The watchlist and migration modules, mounted as the real program
+	// mounts them, each with a database of its own; migration brings
+	// accounts over in "move" mode.
+	dbs := map[string]*sql.DB{}
+	moduleDB := func(m module.Module) *sql.DB {
+		db, err := store.OpenModule(context.Background(), m.Info().Name,
+			filepath.Join(t.TempDir(), m.Info().Name+".db"), m.Info().Migrations)
+		if err != nil {
 			t.Fatal(err)
 		}
-		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: st.DB(), Logger: logger,
+		t.Cleanup(func() { db.Close() })
+		dbs[m.Info().Name] = db
+		return db
+	}
+	all := append([]module.Module{watchlist.Module{}, migration.Module{}}, o.modules...)
+	mounts := []api.Mount{
+		{Module: watchlist.Module{}, Library: lib, DB: moduleDB(watchlist.Module{}), Logger: logger},
+		{Module: migration.Module{}, Library: lib, DB: moduleDB(migration.Module{}), Logger: logger, Settings: map[string]string{"mode": "move"}},
+	}
+	for _, m := range o.modules {
+		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: moduleDB(m), Logger: logger,
 			Settings: o.settings[m.Info().Name], Admin: o.admin})
+	}
+	st.SetForgetter(testForgetter{modules: all, dbs: dbs})
+	if o.dbs != nil {
+		*o.dbs = dbs
 	}
 	for i := range mounts {
 		mounts[i].Peers = mounts
@@ -774,5 +788,28 @@ func TestPerson(t *testing.T) {
 	}
 	if code, _ := getAs(t, srv, subject, "/api/v1/people/item_"+fmt.Sprintf("%032x", 99)); code != 404 {
 		t.Errorf("wrong prefix accepted: %d", code)
+	}
+}
+
+// testForgetter tells the modules of deleted profiles and accounts, as the
+// real program does.
+type testForgetter struct {
+	modules []module.Module
+	dbs     map[string]*sql.DB
+}
+
+func (f testForgetter) ForgetProfiles(ctx context.Context, ids []string) {
+	for _, m := range f.modules {
+		if mf, ok := m.(module.Forgetter); ok {
+			mf.ForgetProfiles(ctx, f.dbs[m.Info().Name], ids)
+		}
+	}
+}
+
+func (f testForgetter) ForgetAccount(ctx context.Context, id string) {
+	for _, m := range f.modules {
+		if mf, ok := m.(module.Forgetter); ok {
+			mf.ForgetAccount(ctx, f.dbs[m.Info().Name], id)
+		}
 	}
 }

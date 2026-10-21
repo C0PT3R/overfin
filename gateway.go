@@ -3,6 +3,7 @@ package overfin
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -34,12 +35,14 @@ import (
 // database, the keys, the Jellyfin client, the image cache and the
 // playbacks in progress.
 type shared struct {
-	logger  *slog.Logger
-	db      *store.Store
-	keys    *keys.Keys
-	jf      *jellyfin.Client
-	images  *images.Pipeline
-	tickets *playback.Tickets
+	logger *slog.Logger
+	db     *store.Store
+	// moduleDBs are the modules' own databases, by module name.
+	moduleDBs map[string]*sql.DB
+	keys      *keys.Keys
+	jf        *jellyfin.Client
+	images    *images.Pipeline
+	tickets   *playback.Tickets
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -117,7 +120,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	for _, m := range modules {
 		info := m.Info()
 		if cfg.Plugins.Enabled(info.Name) {
-			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: db.DB(), Logger: logger, Admin: b.admin,
+			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: sh.moduleDBs[info.Name], Logger: logger, Admin: b.admin,
 				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg)})
 			b.tabs = append(b.tabs, admin.Tab{Name: info.Name, Description: info.Description, UI: info.AdminUI})
 		}

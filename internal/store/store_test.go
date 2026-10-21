@@ -316,22 +316,117 @@ func TestLinkedProfiles(t *testing.T) {
 
 func TestModuleMigrations(t *testing.T) {
 	ctx := context.Background()
-	s := openTest(t)
+	path := filepath.Join(t.TempDir(), "demo.db")
 	m := fstest.MapFS{
 		"001_first.sql":  {Data: []byte(`CREATE TABLE demo_things (id TEXT PRIMARY KEY) STRICT;`)},
 		"002_second.sql": {Data: []byte(`ALTER TABLE demo_things ADD COLUMN note TEXT;`)},
 	}
 	for i := 0; i < 2; i++ { // twice: the second run applies nothing
-		if err := s.MigrateModule(ctx, "demo", m); err != nil {
+		db, err := OpenModule(ctx, "demo", path, m)
+		if err != nil {
 			t.Fatalf("run %d: %v", i, err)
 		}
+		db.Close()
 	}
-	if _, err := s.db.Exec(`INSERT INTO demo_things (id, note) VALUES ('a', 'b')`); err != nil {
+	db, _ := OpenModule(ctx, "demo", path, m)
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO demo_things (id, note) VALUES ('a', 'b')`); err != nil {
 		t.Errorf("table not migrated: %v", err)
 	}
 	bad := fstest.MapFS{"002_skip.sql": {Data: []byte(`SELECT 1;`)}}
-	if err := s.MigrateModule(ctx, "other", bad); err == nil {
+	if _, err := OpenModule(ctx, "other", filepath.Join(t.TempDir(), "other.db"), bad); err == nil {
 		t.Error("an out-of-sequence migration was accepted")
+	}
+}
+
+// A module's own database holds its tables only: the core's aren't there.
+func TestModuleDatabaseIsItsOwn(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	s.CreateAccount(ctx, "subject", owner("1"))
+	db, err := OpenModule(ctx, "demo", filepath.Join(t.TempDir(), "demo.db"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, table := range []string{"accounts", "profiles", "sessions"} {
+		if _, err := db.Exec(`SELECT count(*) FROM ` + table); err == nil {
+			t.Errorf("a module's database reaches the core's %s", table)
+		}
+	}
+}
+
+// Installs from before modules had their own databases kept modules' tables
+// in the core's: they move, once.
+func TestMoveModuleTables(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	m := fstest.MapFS{"001_lists.sql": {Data: []byte(`
+		CREATE TABLE demo (id TEXT PRIMARY KEY, name TEXT NOT NULL) STRICT;
+		CREATE TABLE demo_items (list TEXT NOT NULL REFERENCES demo(id) ON DELETE CASCADE, item TEXT NOT NULL) STRICT;`)}}
+	// The old way: the module's tables in the core's database.
+	if _, err := s.db.Exec(string(m["001_lists.sql"].Data) + `
+		INSERT INTO demo VALUES ('l1', 'Films');
+		INSERT INTO demo_items VALUES ('l1', 'item_a'), ('l1', 'item_b');
+		INSERT INTO module_migrations (module, version) VALUES ('demo', 1);
+		CREATE TABLE demonstration (x TEXT);`); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "demo.db")
+	db, err := OpenModule(ctx, "demo", path, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	moved, err := s.MoveModuleTables(ctx, "demo", path)
+	if err != nil || moved != 2 {
+		t.Fatalf("moved %d tables: %v", moved, err)
+	}
+	var n int
+	db.QueryRow(`SELECT count(*) FROM demo_items`).Scan(&n)
+	if n != 2 {
+		t.Errorf("rows in the module's database: %d", n)
+	}
+	if _, err := s.db.Exec(`SELECT count(*) FROM demo_items`); err == nil {
+		t.Error("the old table is still in the core's database")
+	}
+	// Another module's table that only starts with the same letters stays.
+	if _, err := s.db.Exec(`SELECT count(*) FROM demonstration`); err != nil {
+		t.Errorf("a table not the module's was moved: %v", err)
+	}
+	// Once only.
+	if moved, err := s.MoveModuleTables(ctx, "demo", path); err != nil || moved != 0 {
+		t.Errorf("second move: %d %v", moved, err)
+	}
+}
+
+type recorder struct{ profiles, accounts []string }
+
+func (r *recorder) ForgetProfiles(_ context.Context, ids []string) { r.profiles = append(r.profiles, ids...) }
+func (r *recorder) ForgetAccount(_ context.Context, id string)     { r.accounts = append(r.accounts, id) }
+
+// Deleting profiles and accounts tells the forgetter, which tells modules.
+func TestDeletionsAreForgotten(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	r := &recorder{}
+	s.SetForgetter(r)
+	a, own, _ := s.CreateAccount(ctx, "subject", owner("1"))
+	kid, err := s.AddProfile(ctx, a.ID, newProfile("Kid", "k"), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteProfile(ctx, a.ID, kid.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.profiles) != 1 || r.profiles[0] != kid.ID {
+		t.Errorf("profile deletion: %v", r.profiles)
+	}
+	if err := s.DeleteAccount(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.profiles) != 2 || r.profiles[1] != own.ID || len(r.accounts) != 1 || r.accounts[0] != a.ID {
+		t.Errorf("account deletion: %v %v", r.profiles, r.accounts)
 	}
 }
 

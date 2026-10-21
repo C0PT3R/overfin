@@ -54,6 +54,19 @@ func (Module) Setup(h module.Host) error {
 	return nil
 }
 
+// ForgetProfiles deletes deleted profiles' watchlists.
+func (Module) ForgetProfiles(ctx context.Context, db *sql.DB, profileIDs []string) error {
+	for _, id := range profileIDs {
+		if _, err := db.ExecContext(ctx, `DELETE FROM watchlist WHERE profile_id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForgetAccount has nothing to do: watchlists belong to profiles.
+func (Module) ForgetAccount(context.Context, *sql.DB, string) error { return nil }
+
 // Export includes the profile's watchlist in "Download my data".
 func (Module) Export(ctx context.Context, h module.Host, c *module.Caller) (any, error) {
 	return items(ctx, h.DB(), c)

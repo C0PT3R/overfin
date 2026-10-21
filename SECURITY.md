@@ -257,8 +257,10 @@ comes from the internet, and media files can be written by anyone.
     modules; a third-party module is its developer's responsibility, and the
     operator's for running it. The core has authority over modules, like a
     kernel: a module talks only to the core, never to another module, the
-    media server or the core's own data, and what modules share is a core
-    service the core governs.
+    media server or the core's own data (each module has a database of its
+    own, holding only its tables), and what modules share is a core service
+    the core governs. The core tells modules of deleted profiles and
+    accounts, and they delete what they hold about them.
 
 ### Invitations
 63. Invitation links carry 128 random bits; only their SHA-256 is kept, and

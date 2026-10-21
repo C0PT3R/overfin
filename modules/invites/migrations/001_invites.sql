@@ -23,10 +23,11 @@ CREATE TABLE invites (
 ) STRICT;
 
 -- Each use of an invitation. A use stays counted when its account is
--- deleted, so a used single-use link never works again.
+-- deleted (the core tells the module, which forgets the account), so a used
+-- single-use link never works again.
 CREATE TABLE invites_uses (
     invite_id  TEXT NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
-    account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+    account_id TEXT,
     used_at    INTEGER NOT NULL
 ) STRICT;
 CREATE INDEX invites_uses_invite ON invites_uses (invite_id);

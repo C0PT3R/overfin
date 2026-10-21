@@ -3,6 +3,8 @@
 package hello
 
 import (
+	"context"
+	"database/sql"
 	"embed"
 	"io/fs"
 	"net/http"
@@ -54,3 +56,16 @@ func (Module) Setup(h module.Host) error {
 		module.JSON(w, map[string]any{"kind": c.Kind, "owner": c.Owner, "visits": visits})
 	})
 }
+
+// ForgetProfiles deletes deleted profiles' visits.
+func (Module) ForgetProfiles(ctx context.Context, db *sql.DB, profileIDs []string) error {
+	for _, id := range profileIDs {
+		if _, err := db.ExecContext(ctx, `DELETE FROM hello_visits WHERE profile_id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForgetAccount has nothing to do: visits belong to profiles.
+func (Module) ForgetAccount(context.Context, *sql.DB, string) error { return nil }

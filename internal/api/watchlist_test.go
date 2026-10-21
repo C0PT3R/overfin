@@ -1,9 +1,11 @@
 package api_test
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The watchlist module, end to end through the core: its routes, the
@@ -46,5 +48,32 @@ func TestWatchlistModule(t *testing.T) {
 	// From that profile (no PIN), its own export includes its (empty) list.
 	if code, body := post(t, srv, "/api/v1/me/export", `{}`); code != 200 || !strings.Contains(body, `"watchlist":[]`) {
 		t.Errorf("export with the module's part: %d %s", code, body)
+	}
+}
+
+// A deleted account's watchlists go with it, from the watchlist's own
+// database: the core tells the module.
+func TestDeletedAccountsWatchlistIsForgotten(t *testing.T) {
+	idp := newFakeIdP(t)
+	var dbs map[string]*sql.DB
+	srv, _ := newServerWith(t, options{provider: idp.provider(), dbs: &dbs})
+	movie1 := "item_" + fmt.Sprintf("%032x", 1)
+	owner := ownerID(t, srv)
+	if code, body := put(t, srv, "PUT", "/api/v1/me/watchlist/"+movie1, ""); code != 204 {
+		t.Fatalf("watchlist: %d %s", code, body)
+	}
+	count := func() (n int) {
+		dbs["watchlist"].QueryRow(`SELECT count(*) FROM watchlist WHERE profile_id = ?`, owner).Scan(&n)
+		return n
+	}
+	if count() != 1 {
+		t.Fatalf("watchlist rows before: %d", count())
+	}
+	stepUp(t, srv, idp, subject, time.Now())
+	if code, body := put(t, srv, "DELETE", "/api/v1/me", ""); code != 200 {
+		t.Fatalf("delete the account: %d %s", code, body)
+	}
+	if n := count(); n != 0 {
+		t.Errorf("the deleted account's watchlist stayed: %d rows", n)
 	}
 }

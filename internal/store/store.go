@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -36,9 +35,10 @@ var ErrNotFound = errors.New("store: not found")
 
 // Store is the database. It is safe for concurrent use.
 type Store struct {
-	db  *sql.DB
-	box *seal.Box
-	now func() time.Time
+	db     *sql.DB
+	box    *seal.Box
+	now    func() time.Time
+	forget Forgetter
 }
 
 // Open opens (or creates) the database at path and applies any pending
@@ -690,7 +690,11 @@ func (s *Store) ReplacePIN(ctx context.Context, accountID, profileID string, has
 func (s *Store) DeleteProfile(ctx context.Context, accountID, profileID string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM profiles WHERE id = ? AND account_id = ? AND owner = 0`,
 		profileID, accountID)
-	return oneRow(res, err)
+	if err := oneRow(res, err); err != nil {
+		return err
+	}
+	s.forgotten(ctx, []string{profileID}, "")
+	return nil
 }
 
 // oneRow turns "no row changed" into ErrNotFound.
@@ -940,13 +944,35 @@ func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 		}
 		return err
 	}
+	var profileIDs []string
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM profiles WHERE account_id = ?`, accountID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		profileIDs = append(profileIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM logins WHERE subject = ?`, subject); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, accountID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Modules' own databases forget them too.
+	s.forgotten(ctx, profileIDs, accountID)
+	return nil
 }
 
 // ---- Feature settings ----------------------------------------------------------
@@ -1047,66 +1073,6 @@ func (s *Store) UnlockPIN(ctx context.Context, profileID string) error {
 }
 
 // ---- Modules -------------------------------------------------------------------------
-
-// DB is the database, for modules' own tables.
-func (s *Store) DB() *sql.DB { return s.db }
-
-var moduleMigrationName = regexp.MustCompile(`^(\d{3})_[a-z0-9_]+\.sql$`)
-
-// MigrateModule applies a module's own migrations (001_….sql, 002_….sql…)
-// that haven't run yet, each in its own transaction.
-func (s *Store) MigrateModule(ctx context.Context, module string, migrations fs.FS) error {
-	if migrations == nil {
-		return nil
-	}
-	var current int
-	err := s.db.QueryRowContext(ctx, `SELECT version FROM module_migrations WHERE module = ?`, module).Scan(&current)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	entries, err := fs.ReadDir(migrations, ".")
-	if err != nil {
-		return fmt.Errorf("store: module %s migrations: %w", module, err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	for i, name := range names {
-		version := i + 1
-		m := moduleMigrationName.FindStringSubmatch(name)
-		if m == nil || m[1] != fmt.Sprintf("%03d", version) {
-			return fmt.Errorf("store: module %s migration %s is misnamed or out of sequence", module, name)
-		}
-		if version <= current {
-			continue
-		}
-		body, err := fs.ReadFile(migrations, name)
-		if err != nil {
-			return err
-		}
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("store: module %s, applying %s: %w", module, name, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO module_migrations (module, version) VALUES (?, ?)
-			ON CONFLICT (module) DO UPDATE SET version = excluded.version`, module, version); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // ---- Account templates ----------------------------------------------------------
 

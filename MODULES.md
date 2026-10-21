@@ -43,8 +43,16 @@ Through the `Host`, the core gives it:
   `c.Backend.Items` return titles in the API's own format, with the
   profile's own limits applied (a kids rating ceiling, say). A module never
   gets the server's admin key.
-- **Its own tables**: `h.DB()`, plus SQL migrations it ships in
-  `Info().Migrations` (`001_….sql`, `002_….sql`…), applied once each, in order.
+- **A database of its own**: `h.DB()` is the module's own SQLite file
+  (`modules/<name>.db`, next to the core's), with only its tables in it,
+  created by the SQL migrations it ships in `Info().Migrations`
+  (`001_….sql`, `002_….sql`…), applied once each, in order. The core's
+  tables aren't there: what the module needs of the core's data comes
+  through its host.
+- **Word of deleted profiles and accounts**, by implementing
+  `module.Forgetter`: the core tells every module that has the interface,
+  switched on or not, and the module deletes what it holds about them (or,
+  for what must stay counted, cuts the link).
 - **Errors in the API's standard form**: `module.Problem(w, module.NotFound, "")`.
 - **A logger**: `h.Logger()`.
 - **A part of "Download my data"**, by also implementing `module.Exporter`.
@@ -144,10 +152,9 @@ its `Host`, and the core decides.
 - **The core can refuse**: guards, limits, and switching modules on and off
   are the core's decisions, not the module's.
 
-Modules are compiled into Overfin, so this is authority by design, not a
-sandbox. One gap remains today: `h.DB()` is the whole database, so keep to
-your own tables; each module getting a database of its own is on the
-roadmap.
+Each module's database is its own, so a module can't reach the core's
+data or another module's through it. Modules are still compiled into
+Overfin, so this is authority by design, not a sandbox.
 
 ## The rules that keep everyone safe
 
@@ -157,9 +164,9 @@ Modules live inside the gateway, so they follow its rules
 - **Act only as the calling profile.** Never return another profile's or
   another account's data. Use `c.Backend`, so the profile's limits apply.
 - **Keep little, and keep it with the profile.** Name tables after your
-  module, and give rows that belong to a profile a
-  `REFERENCES profiles(id) ON DELETE CASCADE`, so deleting a profile or an
-  account deletes them. Offer them in "Download my data".
+  module, key rows that belong to a profile or an account by its ID, and
+  implement `module.Forgetter` so they're deleted with it. Offer them in
+  "Download my data".
 - **Log nothing private.** No tokens, passwords, PINs, or what people watch.
 - **Treat IDs as opaque.** Store the API's own IDs (`item_…`) as they are.
 - **Never name the media server to users.** People see your site, not the

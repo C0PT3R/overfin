@@ -2,7 +2,11 @@ package overfin
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/C0PT3R/overfin-gateway/internal/config"
@@ -42,13 +46,67 @@ func registerModules() error {
 	return nil
 }
 
-// migrateModules applies each module's own migrations.
-func migrateModules(ctx context.Context, db *store.Store) error {
+// openModules opens each module's own database, in a modules folder next
+// to the core's, migrated, and with its tables moved there from the core's
+// database where modules used to keep them. The core then tells modules of
+// deleted profiles and accounts. The caller closes the databases.
+func openModules(ctx context.Context, db *store.Store, storagePath string, logger *slog.Logger) (map[string]*sql.DB, error) {
+	dir := filepath.Join(filepath.Dir(storagePath), "modules")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	dbs := map[string]*sql.DB{}
 	for _, m := range modules {
 		info := m.Info()
-		if err := db.MigrateModule(ctx, info.Name, info.Migrations); err != nil {
-			return err
+		path := filepath.Join(dir, info.Name+".db")
+		mdb, err := store.OpenModule(ctx, info.Name, path, info.Migrations)
+		if err != nil {
+			closeModules(dbs)
+			return nil, err
+		}
+		dbs[info.Name] = mdb
+		moved, err := db.MoveModuleTables(ctx, info.Name, path)
+		if err != nil {
+			closeModules(dbs)
+			return nil, fmt.Errorf("module %s: moving its tables to its own database: %w", info.Name, err)
+		}
+		if moved > 0 {
+			logger.Info("a module's tables moved to its own database", "module", info.Name, "tables", moved)
 		}
 	}
-	return nil
+	db.SetForgetter(forgetter{dbs: dbs, logger: logger})
+	return dbs, nil
+}
+
+func closeModules(dbs map[string]*sql.DB) {
+	for _, mdb := range dbs {
+		mdb.Close()
+	}
+}
+
+// forgetter tells every module that keeps data about profiles or accounts,
+// switched on or not, that some are gone.
+type forgetter struct {
+	dbs    map[string]*sql.DB
+	logger *slog.Logger
+}
+
+func (f forgetter) ForgetProfiles(ctx context.Context, profileIDs []string) {
+	for _, m := range modules {
+		if mf, ok := m.(module.Forgetter); ok {
+			if err := mf.ForgetProfiles(ctx, f.dbs[m.Info().Name], profileIDs); err != nil {
+				f.logger.Error("a module couldn't forget deleted profiles", "module", m.Info().Name, "err", err)
+			}
+		}
+	}
+}
+
+func (f forgetter) ForgetAccount(ctx context.Context, accountID string) {
+	for _, m := range modules {
+		if mf, ok := m.(module.Forgetter); ok {
+			if err := mf.ForgetAccount(ctx, f.dbs[m.Info().Name], accountID); err != nil {
+				f.logger.Error("a module couldn't forget a deleted account", "module", m.Info().Name, "err", err)
+			}
+		}
+	}
 }

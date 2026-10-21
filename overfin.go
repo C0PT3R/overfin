@@ -116,9 +116,11 @@ func run(logger *slog.Logger) error {
 	}
 	defer db.Close()
 	logger.Info("database ready", "path", cfg.Storage.Path)
-	if err := migrateModules(context.Background(), db); err != nil {
+	moduleDBs, err := openModules(context.Background(), db, cfg.Storage.Path, logger)
+	if err != nil {
 		return err
 	}
+	defer closeModules(moduleDBs)
 	if !*recoverTokens {
 		if err := db.CheckKey(context.Background(), k.Check); errors.Is(err, store.ErrWrongKey) {
 			return fmt.Errorf("%w. Restore the original key; if it's lost for good, run overfin -recover-tokens once "+
@@ -132,7 +134,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sh := &shared{logger: logger, db: db, keys: k, jf: jf,
+	sh := &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
 		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour)}
 
 	if *recoverTokens {

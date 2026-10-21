@@ -131,9 +131,11 @@ catalog** of titles (stable TMDB or IMDb IDs, metadata, ratings normalized
 through TMDB's certifications for the operator's country) is the first such
 service: kids limits, the TMDB catalog module, requests, the watchlist's
 titles not in the library and federation all rest on it, fed by Jellyfin's
-data and enriched by TMDB when the operator gives a key. Next, **a database
-per module**, so a module only ever sees its own tables and reaches the
-core's data through its host, making the rule structural.
+data and enriched by TMDB when the operator gives a key. ~~A database per
+module~~ Done: each module has its own SQLite file, so it only ever sees
+its own tables and reaches the core's data through its host; the core
+tells modules of deleted profiles and accounts (`module.Forgetter`), and
+existing installs' module tables moved there once.
 
 **Connectors to sibling tools**, later: for example Stewarr (storage
 intelligence for the *arr stack), which could read what Overfin knows
