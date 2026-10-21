@@ -15,13 +15,19 @@ up for Overfin by a blueprint, so there's nothing to click through there.
 
 ## Setting up
 
+Get this folder from the release you want, then run the setup:
+
 ```sh
+git clone --depth 1 --branch v0.1.0 https://github.com/C0PT3R/overfin-gateway
+cd overfin-gateway/deploy
 ./setup.sh
 docker compose up -d
 ```
 
 `setup.sh` asks for the two names, your site's name, Jellyfin's address and
-API key, and your email. It generates every secret into `.env` (readable by
+API key, and your email. Jellyfin's address is the one Overfin's container
+reaches it by: its address on your network, never `localhost` (inside the
+container, that's Overfin itself), even when Jellyfin runs on this machine. It generates every secret into `.env` (readable by
 you only: keep a copy somewhere safe) and writes `overfin.toml`. The site
 people use is overfin-web, Overfin's own web client, served by Overfin
 itself; to serve your own client instead, see `[site]` in Overfin's

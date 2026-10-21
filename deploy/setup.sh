@@ -40,7 +40,16 @@ echo "Overfin setup. Both names below must point to this machine (DNS), with por
 site=$(ask "Your site's domain (e.g. example.org)" "$domain")
 auth=$(ask "The sign-in's domain" "$domain" "auth.$site")
 name=$(ask "Your site's name, as people will see it" "[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}" "Movies")
-jellyfin=$(ask "Jellyfin's address, as this machine reaches it (e.g. http://192.168.1.10:8096)" "https?://[A-Za-z0-9.:-]+(/[A-Za-z0-9._/-]*)?")
+# Overfin runs in a container: "localhost" there is Overfin itself, never
+# the machine, so Jellyfin is reached by an address on the network.
+while :; do
+	jellyfin=$(ask "Jellyfin's address on your network (e.g. http://192.168.1.10:8096), not localhost" "https?://[A-Za-z0-9.:-]+(/[A-Za-z0-9._/-]*)?")
+	case "$jellyfin" in
+	*://localhost* | *://127.* | *://0.0.0.0*)
+		echo "  Inside Overfin's container, that's Overfin itself. Use this machine's address on your network instead." >&2 ;;
+	*) break ;;
+	esac
+done
 printf 'A Jellyfin API key (Dashboard > API Keys), not shown as you type: ' >&2
 stty -echo 2>/dev/null || true
 read -r jfkey
