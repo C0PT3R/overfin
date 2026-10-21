@@ -58,6 +58,8 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"DELETE /api/v1/items/{id}/played":   l.unmarkPlayed,
 		"PUT /api/v1/items/{id}/favorite":    l.markFavorite,
 		"DELETE /api/v1/items/{id}/favorite": l.unmarkFavorite,
+		"DELETE /api/v1/items/{id}/progress": l.forgetProgress,
+		"DELETE /api/v1/me/history":          l.clearHistory,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
 			return err

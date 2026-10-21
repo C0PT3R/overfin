@@ -186,3 +186,61 @@ func (l Library) withStates(ctx context.Context, p *store.Profile, items []libra
 	}
 	return nil
 }
+
+// forgetProgress takes a title out of the profile's Continue Watching.
+func (l Library) forgetProgress(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r) {
+		return
+	}
+	id, ok := library.Unwrap(library.ItemPrefix, r.PathValue("id"))
+	if !ok {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	ctx := r.Context()
+	if _, err := l.Jellyfin.Item(ctx, auth(p), p.JellyfinUserID, id); err != nil {
+		l.upstreamError(w, err)
+		return
+	}
+	st := l.Provisioner.Store
+	keys, err := st.TitleKeys(ctx, []string{id})
+	if err == nil {
+		err = st.ForgetProgress(ctx, p.ID, keys[id])
+	}
+	if err != nil {
+		l.storeError(w, err)
+		return
+	}
+	state, err := l.userState(ctx, p, keys[id])
+	if err != nil {
+		l.storeError(w, err)
+		return
+	}
+	writeOK(w, state)
+}
+
+// clearHistory forgets what the active profile did with every title. A
+// kids profile can't (its account's owner manages it).
+func (l Library) clearHistory(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r) {
+		return
+	}
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	if p.Kind == "kids" {
+		problem.Send(w, problem.OwnerOnly, "")
+		return
+	}
+	if err := l.Provisioner.Store.ClearPersonal(r.Context(), p.ID); err != nil {
+		l.storeError(w, err)
+		return
+	}
+	l.Logger.Info("a profile cleared its history", "profile", p.ID)
+	w.WriteHeader(http.StatusNoContent)
+}

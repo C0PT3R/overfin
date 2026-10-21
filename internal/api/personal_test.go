@@ -82,6 +82,22 @@ func TestPersonalData(t *testing.T) {
 		t.Errorf("not favorites: %+v", none)
 	}
 
+	// Out of Continue Watching, by hand: watched or not stays as it was.
+	play = startPlayback(t, srv, "Laptop")
+	post(t, srv, "/api/v1/playback/"+play+"/stop", `{"positionMs":1800000}`)
+	if !eventually(t, func() bool { return len(list("/api/v1/items/resume").Items) == 1 }) {
+		t.Fatal("not back in Continue Watching")
+	}
+	if code, _ := put(t, srv, "DELETE", "/api/v1/items/item_"+id(1)+"/progress", ""); code != 200 {
+		t.Fatalf("forget progress: %d", code)
+	}
+	if cw := list("/api/v1/items/resume"); len(cw.Items) != 0 {
+		t.Errorf("still in Continue Watching: %+v", cw)
+	}
+	if w := list("/api/v1/items?kind=movie&played=true"); len(w.Items) != 1 {
+		t.Errorf("no longer watched: %+v", w)
+	}
+
 	// Next Up: after episode 1, episode 2; once 2 is marked watched, 3.
 	st.SetPlayed(ctx, owner, map[string]string{"series/tmdb/70523/s1/e1": id(11)}, true, time.Now())
 	if next := list("/api/v1/items/next-up"); len(next.Items) != 1 || next.Items[0].ID != "item_"+id(12) {
@@ -90,5 +106,13 @@ func TestPersonalData(t *testing.T) {
 	st.SetPlayed(ctx, owner, map[string]string{"series/tmdb/70523/s1/e2": id(12)}, true, time.Now().Add(time.Second))
 	if next := list("/api/v1/items/next-up"); len(next.Items) != 1 || next.Items[0].ID != "item_"+id(13) {
 		t.Errorf("next up after 2: %+v", next)
+	}
+
+	// The profile forgets it all.
+	if code, _ := put(t, srv, "DELETE", "/api/v1/me/history", ""); code != http.StatusNoContent {
+		t.Fatalf("clear: %d", code)
+	}
+	if all, _ := st.AllPersonal(ctx, owner); len(all) != 0 {
+		t.Errorf("kept after clearing: %+v", all)
 	}
 }

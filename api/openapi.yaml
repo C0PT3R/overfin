@@ -394,6 +394,21 @@ paths:
         "204":
           description: It's off the watchlist (or wasn't on it).
 
+  /me/history:
+    delete:
+      operationId: clearHistory
+      summary: Forget what the active profile watched
+      description: Clears what Overfin keeps about the active profile's
+        titles (where it stopped, what it watched, how many times, its
+        favorites). Jellyfin's own record isn't changed. Kids profiles get
+        `owner-only`.
+      tags: [account]
+      responses:
+        "204":
+          description: Cleared.
+        "403":
+          $ref: "#/components/responses/OwnerOnly"
+
   /me/export:
     post:
       operationId: exportMyData
@@ -1159,6 +1174,21 @@ paths:
     delete:
       operationId: markUnplayed
       summary: Mark as not watched
+      tags: [library]
+      responses:
+        "200":
+          $ref: "#/components/responses/UserStateChanged"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{itemId}/progress:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    delete:
+      operationId: forgetProgress
+      summary: Remove from Continue Watching
+      description: Forgets where the active profile stopped in this title;
+        whether it watched it is kept.
       tags: [library]
       responses:
         "200":

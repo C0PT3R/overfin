@@ -270,11 +270,12 @@ func (s *Store) Imported(ctx context.Context, profileID string) (bool, error) {
 }
 
 // InProgress lists the items a profile is in the middle of, the last
-// played first: Continue Watching. kinds, when set, keeps those the index
-// knows as one of them.
+// played first: Continue Watching. A title watched before and started
+// again is in the middle too. kinds, when set, keeps those the index knows
+// as one of them.
 func (s *Store) InProgress(ctx context.Context, profileID string, kinds []string, offset, limit int) ([]string, error) {
 	q := `SELECT pt.item_id FROM profile_titles pt LEFT JOIN catalog_items ci ON ci.id = pt.item_id
-		WHERE pt.profile_id = ? AND pt.played = 0 AND pt.position_ms > 0 AND pt.item_id IS NOT NULL`
+		WHERE pt.profile_id = ? AND pt.position_ms > 0 AND pt.item_id IS NOT NULL`
 	args := []any{profileID}
 	if len(kinds) > 0 {
 		q += ` AND ci.kind IN (` + marks(len(kinds)) + `)`
@@ -341,4 +342,18 @@ func marks(n int) string {
 		return ""
 	}
 	return "?" + strings.Repeat(", ?", n-1)
+}
+
+// ForgetProgress forgets where a profile stopped in a title, which takes it
+// out of Continue Watching; whether it watched it is kept.
+func (s *Store) ForgetProgress(ctx context.Context, profileID, title string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE profile_titles SET position_ms = 0, updated_at = ?
+		WHERE profile_id = ? AND title = ?`, time.Now().Unix(), profileID, title)
+	return err
+}
+
+// ClearPersonal forgets everything kept about a profile's titles.
+func (s *Store) ClearPersonal(ctx context.Context, profileID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM profile_titles WHERE profile_id = ?`, profileID)
+	return err
 }

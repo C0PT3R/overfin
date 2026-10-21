@@ -464,7 +464,7 @@ func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) 
 		where, args = append(where, cond), append(args, q.ProfileID)
 	}
 	if q.InProgress {
-		where, args = append(where, mine("x.played = 0 AND x.position_ms > 0")), append(args, q.ProfileID)
+		where, args = append(where, mine("x.position_ms > 0")), append(args, q.ProfileID)
 	}
 	if q.YearFrom > 0 {
 		where, args = append(where, "year >= ?"), append(args, q.YearFrom)
