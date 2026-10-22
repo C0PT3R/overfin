@@ -45,6 +45,10 @@ func TestCatalogGenres(t *testing.T) {
 		{ID: id(1), Kind: "movie", Name: "B", SortName: "b", LibraryID: "films", TMDB: "2", Tags: []string{"hidden"}},
 		{ID: id(2), Kind: "series", Name: "C", SortName: "c", LibraryID: "tv", TMDB: "3"},
 	}, 1)
+	// A page without genres (null in its JSON) counts for none.
+	st := Title{Kind: "movie", TMDB: "4", Name: "4"}
+	s.PutCatalog(ctx, []CatalogItem{{ID: id(3), Kind: "movie", Name: "D", SortName: "d", LibraryID: "films", TMDB: "4"}}, 1)
+	s.SetTitleDetails(ctx, st, []byte(`{"genres":null}`), time.Now())
 	for tmdb, genres := range map[string][]string{"1": {"Drama", "Crime"}, "2": {"Drama"}, "3": {"Comedy"}} {
 		det, _ := json.Marshal(TitleDetails{Genres: genres})
 		kind := "movie"

@@ -560,7 +560,7 @@ func (s *Store) CatalogGenres(ctx context.Context, libraryID string, access *Acc
 	rows, err := s.db.QueryContext(ctx, `SELECT g.value, count(DISTINCT t.kind || t.tmdb)
 		FROM catalog_items JOIN catalog_titles t ON t.kind = catalog_items.kind AND t.tmdb = catalog_items.tmdb,
 			json_each(t.details, '$.genres') g
-		WHERE t.details IS NOT NULL AND `+strings.Join(where, " AND ")+`
+		WHERE t.details IS NOT NULL AND g.value IS NOT NULL AND `+strings.Join(where, " AND ")+`
 		GROUP BY g.value`, args...)
 	if err != nil {
 		return nil, err
