@@ -249,3 +249,17 @@ test('requests are asked for by title', async () => {
   assert.equal((await overfin.requests())[0].status, 'approved');
   assert.equal(await overfin.cancelRequest('req_1'), null);
 });
+
+test('batch: several calls in one, each answered or failed on its own', async () => {
+  const calls = fakeServer({
+    'POST /api/v1/batch': (_, body) => [200, { responses: [
+      { status: 200, body: { items: [1] } },
+      { status: 404, body: { type: 'not-found', title: 'Not found', status: 404 } },
+    ] }],
+  });
+  const overfin = new Overfin();
+  const [first, second] = await overfin.batch([['/titles/continue', { limit: 20 }], '/titles/x']);
+  assert.deepEqual(calls[0].body, { requests: ['/api/v1/titles/continue?limit=20', '/api/v1/titles/x'] });
+  assert.deepEqual(first, { items: [1] });
+  assert.ok(second instanceof OverfinError && second.type === 'not-found');
+});

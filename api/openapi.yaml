@@ -1353,6 +1353,52 @@ paths:
               schema:
                 $ref: "#/components/schemas/SearchResults"
 
+  /batch:
+    post:
+      operationId: batch
+      summary: Several GET requests in one
+      description: >-
+        Each request is a path with its query (`/api/v1/titles/continue?limit=20`),
+        answered as it would be alone, for the same caller, through the
+        same checks and limits: an app's home page in one round trip, rows
+        chosen by the app. At most 20; up to 6 run at once. Images,
+        streams and logins can't be batched (`invalid-request`).
+      tags: [system]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requests]
+              additionalProperties: false
+              properties:
+                requests:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Each request's status and JSON body, in order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [responses]
+                properties:
+                  responses:
+                    type: array
+                    items:
+                      type: object
+                      required: [status]
+                      properties:
+                        status:
+                          type: integer
+                        body:
+                          description: The JSON body, or a problem; absent when there's none.
+
   /images/{imageId}:
     parameters:
       - name: imageId

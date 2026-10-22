@@ -319,6 +319,13 @@ export class Overfin {
   /** A title's page, in a library or not. */
   title(id: string): Promise<Title>;
   person(id: string): Promise<Person>;
+  /**
+   * Several GET calls in one request: each a path as the methods use them
+   * ('/titles/continue'), with its query or not. Resolves, in order, with
+   * each body or its OverfinError (one failing doesn't fail the others).
+   * At most 20; images, streams and logins can't be batched.
+   */
+  batch(calls: Array<string | [string, Record<string, string | number | boolean | undefined>]>): Promise<Array<any | OverfinError>>;
   search(query: string): Promise<{ titles: TitleSummary[]; people: { id: string; name: string; department?: string; image?: ImageRef }[]; peopleFirst?: boolean }>;
   /** A library's titles; kind is required. */
   titles(query?: TitleQuery): Promise<TitlePage>;

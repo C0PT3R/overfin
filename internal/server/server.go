@@ -31,6 +31,11 @@ func New(logger *slog.Logger, identify func(http.Handler) http.Handler, site htt
 	if err := reg.Load(plugins...); err != nil {
 		return nil, err
 	}
+	// A batch's requests run through the same routes, for the identity
+	// the batch itself was checked for.
+	if err := reg.Handle("POST /api/v1/batch", batch(mux)); err != nil {
+		return nil, err
+	}
 	for pattern, owner := range reg.Routes() {
 		logger.Info("route", "pattern", pattern, "plugin", owner, "public", reg.IsPublic(pattern))
 	}

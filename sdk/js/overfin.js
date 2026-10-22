@@ -59,6 +59,24 @@ export class Overfin {
     return data;
   }
 
+  /**
+   * Makes several GET calls in one request: each is a path as the methods
+   * here use them ('/titles/continue'), with its query as an object or
+   * not. Resolves, in order, with each call's body, or its OverfinError
+   * (resolved, not thrown: one failing call doesn't fail the others). At
+   * most 20 calls; images, streams and logins can't be batched.
+   */
+  async batch(calls) {
+    const prefix = new URL(this.base, 'http://overfin.invalid').pathname.replace(/\/$/, '');
+    const requests = calls.map((c) => {
+      const [path, query] = Array.isArray(c) ? c : [c, {}];
+      return prefix + path + toQuery(query);
+    });
+    const { responses } = await this.request('POST', '/batch', { requests });
+    return responses.map(({ status, body }) => (status >= 200 && status < 300 ? (body ?? null)
+      : new OverfinError(status, body || {})));
+  }
+
   /** The login address, coming back to returnTo (the current page by default). */
   loginUrl(returnTo = location.pathname + location.search + location.hash) {
     return `${this.base}/login?return=${encodeURIComponent(returnTo)}`;
