@@ -88,6 +88,7 @@ func TestDiscover(t *testing.T) {
 	}
 	st.RefreshTitleKeys(context.Background())
 	st.SetCatalogState(context.Background(), store.CatalogState{Pass: 1})
+	st.SetTitlesShown(context.Background(), "all") // whether titles are out is another test's
 	// The lists, read in the background as Overfin does.
 	lists := catalog.NewLists(func() tmdb.Source { return s }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 1)
 	if err := lists.Refresh(context.Background()); err != nil {

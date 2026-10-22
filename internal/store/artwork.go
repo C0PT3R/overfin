@@ -220,3 +220,22 @@ func (s *Store) SetTMDBLanguage(ctx context.Context, lang string) error {
 	}
 	return tx.Commit()
 }
+
+// TitlesShown is which titles no library has are shown: "all", "released"
+// (out somewhere, theatres included), or "home" (can be watched at home);
+// "released" until the panel says otherwise.
+func (s *Store) TitlesShown(ctx context.Context) (string, error) {
+	var v []byte
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'titles-shown'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "released", nil
+	}
+	return string(v), err
+}
+
+// SetTitlesShown changes it.
+func (s *Store) SetTitlesShown(ctx context.Context, shown string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('titles-shown', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, []byte(shown))
+	return err
+}

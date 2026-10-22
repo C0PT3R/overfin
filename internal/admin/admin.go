@@ -594,9 +594,12 @@ type ratingsJSON struct {
 	Countries []string `json:"countries"`
 	// Language is the language TMDB's data comes in (ISO 639-1).
 	Language string `json:"language"`
-	Fetched  int    `json:"fetched"`
-	Total    int    `json:"total"`
-	Source   bool   `json:"source"`
+	// Shown is which titles no library has are shown: all, released,
+	// home (see store.TitlesShown).
+	Shown   string `json:"shown"`
+	Fetched int    `json:"fetched"`
+	Total   int    `json:"total"`
+	Source  bool   `json:"source"`
 }
 
 func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
@@ -612,6 +615,9 @@ func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
 		out.Countries = []string{}
 	}
 	if out.Language, err = p.Store.TMDBLanguage(ctx); err != nil {
+		return out, err
+	}
+	if out.Shown, err = p.Store.TitlesShown(ctx); err != nil {
 		return out, err
 	}
 	out.Fetched, out.Total, err = p.Store.RatingProgress(ctx)
@@ -631,12 +637,17 @@ func (p *Panel) ratings(w http.ResponseWriter, r *http.Request, s *session) {
 // languageCode is what an ISO 639-1 code looks like.
 var languageCode = regexp.MustCompile(`^[a-z]{2}$`)
 
+// titlesShown are the choices for which titles no library has are shown.
+var titlesShown = []string{"all", "released", "home"}
+
 // setRatings changes the ratings country, to one TMDB has scales for
-// (kids profiles' ceilings are cleared with it), and TMDB's language.
+// (kids profiles' ceilings are cleared with it), TMDB's language, and which
+// titles no library has are shown.
 func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 	var req struct {
 		Country  string `json:"country"`
 		Language string `json:"language"`
+		Shown    string `json:"shown"`
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -645,6 +656,23 @@ func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 		return
 	}
 	ctx := r.Context()
+	if req.Shown != "" {
+		if !slices.Contains(titlesShown, req.Shown) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a choice for the titles shown"})
+			return
+		}
+		old, err := p.Store.TitlesShown(ctx)
+		if err == nil && old != req.Shown {
+			if err = p.Store.SetTitlesShown(ctx, req.Shown); err == nil {
+				p.Logger.Info("the titles shown changed in the control panel", "shown", req.Shown, "by", s.name)
+			}
+		}
+		if err != nil {
+			p.Logger.Error("changing the titles shown failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
+			return
+		}
+	}
 	if req.Language != "" {
 		if !languageCode.MatchString(req.Language) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a language code"})

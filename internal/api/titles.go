@@ -119,9 +119,10 @@ func summaryOf(t *store.TitleInfo) library.TitleSummary {
 
 // visibleTitles says, for each title, whether the profile may see it: one
 // a library has, when it may see one of its copies (libraries, hidden
-// tags, kids limits); one no library has, when its rating allows it (kids
-// profiles; anyone else sees it). A file no one identified, only through
-// its copies.
+// tags, kids limits); one no library has, when it's out as the panel asks
+// (titles shown) and, for a kids profile, rated within its limits. A file
+// no one identified, only through its copies. Specials a library doesn't
+// have, and seasons without a single episode, never show.
 func (l Library) visibleTitles(ctx context.Context, p *store.Profile, titles []*store.TitleInfo) ([]bool, error) {
 	out := make([]bool, len(titles))
 	a, err := l.access(ctx, p)
@@ -138,33 +139,74 @@ func (l Library) visibleTitles(ctx context.Context, p *store.Profile, titles []*
 			return nil, err
 		}
 	}
+	st := l.Provisioner.Store
+	shown := "" // read when a title without copies needs it
 	rated := map[string]bool{}
+	type release struct {
+		released, atHome string
+		ok               bool
+	}
+	releases := map[string]release{}
+	day := today()
 	for i, t := range titles {
+		kind := "movie"
+		if t.Ref.Kind != "movie" {
+			kind = "series"
+		}
+		k := kind + "/" + t.Ref.TMDB()
+		part := t.Ref.Kind == "season" || t.Ref.Kind == "episode"
 		switch {
 		case len(t.Items) > 0:
 			out[i] = a == nil
 			for _, id := range t.Items {
 				out[i] = out[i] || allowed[id]
 			}
+			continue
 		case t.Ref.Kind == "item" || t.Ref.TMDB() == "":
-			// Nothing to show but its copies, and it has none.
-		case a == nil || a.Ceiling == nil:
-			out[i] = true
-		default:
-			kind := "movie"
-			if t.Ref.Kind != "movie" {
-				kind = "series"
+			continue // nothing to show but its copies, and it has none
+		case part && t.Ref.Season == 0 && (t.Ref.Kind == "episode" || t.Have == 0):
+			continue // specials: only those a library has, and their season
+		case t.Ref.Kind == "season" && t.Have == 0 && t.Listed == 0:
+			continue // a season without a single episode
+		}
+		// Out yet, as the panel asks (titles shown): a season or an episode
+		// once aired, its series or a film once released, or once it can
+		// be watched at home. Not known yet means not out.
+		if shown == "" {
+			if shown, err = st.TitlesShown(ctx); err != nil {
+				return nil, err
 			}
-			k := kind + "/" + t.Ref.TMDB()
+		}
+		if shown != "all" {
+			if part && (t.AirDate == "" || t.AirDate > day) {
+				continue
+			}
+			r, seen := releases[k]
+			if !seen {
+				if r.released, r.atHome, r.ok, err = st.TitleRelease(ctx, kind, t.Ref.TMDB()); err != nil {
+					return nil, err
+				}
+				releases[k] = r
+			}
+			atHome := r.atHome != "" && r.atHome <= day
+			if !r.ok || (shown == "home" && !atHome) || (shown == "released" && !atHome && (r.released == "" || r.released > day)) {
+				continue
+			}
+		}
+		// A kids profile: only what's rated within its limits.
+		if a != nil && a.Ceiling != nil {
 			ok, seen := rated[k]
 			if !seen {
-				if ok, err = l.Provisioner.Store.TitleAllowed(ctx, *a.Ceiling, kind, t.Ref.TMDB()); err != nil {
+				if ok, err = st.TitleAllowed(ctx, *a.Ceiling, kind, t.Ref.TMDB()); err != nil {
 					return nil, err
 				}
 				rated[k] = ok
 			}
-			out[i] = ok
+			if !ok {
+				continue
+			}
 		}
+		out[i] = true
 	}
 	return out, nil
 }

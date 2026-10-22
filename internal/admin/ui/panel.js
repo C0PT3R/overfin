@@ -133,6 +133,9 @@ function ratingsSection(rt) {
   if (!languages.includes(rt.language)) languages.push(rt.language);
   const lang = h('select', {}, languages.map((l) => h('option', { value: l }, `${(langNames && langNames.of(l)) || l} (${l})`)));
   lang.value = rt.language;
+  const shown = h('select', {}, [['all', 'All, announced ones too'], ['released', 'Released (in theatres too)'],
+    ['home', 'Watchable at home (digital, disc or TV)']].map(([v, t]) => h('option', { value: v }, t)));
+  shown.value = rt.shown;
   const status = (r) => {
     if (!r.source) return 'TMDB can\'t be reached: no title can be rated, so kids profiles see nothing.';
     if (!r.countries.length) return 'Fetching the scales from TMDB… Kids profiles see nothing until titles are rated.';
@@ -141,7 +144,7 @@ function ratingsSection(rt) {
   const msg = h('span', { class: 'muted' }, status(rt));
   const save = h('button', { type: 'button', disabled: !rt.countries.length }, 'Save');
   save.onclick = async () => {
-    if (select.value === rt.country && lang.value === rt.language) return;
+    if (select.value === rt.country && lang.value === rt.language && shown.value === rt.shown) return;
     if (select.value !== rt.country &&
       !confirm('Every kids profile will need new limits from its account\'s owner, and sees nothing until then. Change the country?')) {
       select.value = rt.country;
@@ -149,9 +152,10 @@ function ratingsSection(rt) {
     }
     save.disabled = true;
     try {
-      const out = await api('PUT', '/admin/api/ratings', { country: select.value, language: lang.value });
+      const out = await api('PUT', '/admin/api/ratings', { country: select.value, language: lang.value, shown: shown.value });
       rt.country = out.country;
       rt.language = out.language;
+      rt.shown = out.shown;
       msg.className = 'muted';
       msg.textContent = status(out);
     } catch (err) {
@@ -166,6 +170,8 @@ function ratingsSection(rt) {
       h('div', { class: 'hint' }, "Kids profiles' limits use this country's ratings, from TMDB. A title with none there is hidden from them.")), select),
     h('div', { class: 'row' }, h('div', {}, 'Language',
       h('div', { class: 'hint' }, "Discovery's titles and the artwork's text (posters, logos), when TMDB has them in it.")), lang),
+    h('div', { class: 'row' }, h('div', {}, 'Titles shown',
+      h('div', { class: 'hint' }, 'Of those no library has: in discovery, on their pages, in requests. A title a library has is always shown.')), shown),
     h('div', { class: 'row' }, msg, save));
 }
 

@@ -33,10 +33,12 @@ func fakeTMDB(t *testing.T) *Client {
 			}
 			io.WriteString(w, `{"id":949,"title":"Heat","genres":[{"name":"Crime"}],
 				"credits":{"cast":[{"name":"Al Pacino","character":"Hanna"}]},
-				"release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"R"},{"certification":""},{"certification":"R"}]},
-					{"iso_3166_1":"FR","release_dates":[{"certification":"12"}]},{"iso_3166_1":"bad","release_dates":[{"certification":"X"}]}]}}`)
+				"release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"R","type":1,"release_date":"1995-11-01T00:00:00.000Z"},
+					{"certification":"","type":3,"release_date":"1995-12-15T00:00:00.000Z"},{"certification":"R","type":4,"release_date":"1996-06-04T00:00:00.000Z"}]},
+					{"iso_3166_1":"FR","release_dates":[{"certification":"12","type":5,"release_date":"1996-05-20T00:00:00.000Z"}]},
+					{"iso_3166_1":"bad","release_dates":[{"certification":"X","type":3,"release_date":"soon"}]}]}}`)
 		case "/3/tv/1399":
-			io.WriteString(w, `{"id":1399,"name":"Thrones","seasons":[{"season_number":1,"name":"Season 1","episode_count":10}],
+			io.WriteString(w, `{"id":1399,"name":"Thrones","first_air_date":"2011-04-17","seasons":[{"season_number":1,"name":"Season 1","episode_count":10}],
 				"content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-MA"}]}}`)
 		case "/3/movie/550":
 			if r.URL.Query().Get("append_to_response") != "credits,images" || r.URL.Query().Get("language") != "fr" ||
@@ -95,12 +97,18 @@ func TestClient(t *testing.T) {
 	if d, err := c.Details(ctx, "series", 1399); err != nil || len(d.Seasons) != 1 || d.Seasons[0].EpisodeCount != 10 {
 		t.Errorf("series details: %+v %v", d, err)
 	}
-	r, err := c.Ratings(ctx, "movie", 949)
-	if err != nil || !slices.Equal(r["US"], []string{"R"}) || !slices.Equal(r["FR"], []string{"12"}) || len(r) != 2 {
-		t.Errorf("film ratings: %v %v", r, err)
+	rel, err := c.Release(ctx, "movie", 949)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if r, err := c.Ratings(ctx, "series", 1399); err != nil || !slices.Equal(r["US"], []string{"TV-MA"}) {
-		t.Errorf("series ratings: %v %v", r, err)
+	// Festivals aside, in theatres first; at home first on disc, in France.
+	if r := rel.Ratings; !slices.Equal(r["US"], []string{"R"}) || !slices.Equal(r["FR"], []string{"12"}) || len(r) != 2 ||
+		rel.Released != "1995-12-15" || rel.AtHome != "1996-05-20" {
+		t.Errorf("film release: %+v", rel)
+	}
+	if rel, err := c.Release(ctx, "series", 1399); err != nil || !slices.Equal(rel.Ratings["US"], []string{"TV-MA"}) ||
+		rel.Released != "2011-04-17" || rel.AtHome != "2011-04-17" {
+		t.Errorf("series release: %+v %v", rel, err)
 	}
 	scales, err := c.Certifications(ctx, "movie")
 	if err != nil || len(scales["US"]) != 2 || scales["US"][0].Meaning != "All ages" {

@@ -21,6 +21,7 @@ func watchlistTitles(st *store.Store) {
 	det, _ := json.Marshal(store.TitleDetails{})
 	for _, n := range []string{"1", "3"} {
 		st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: n, Name: "Film " + n}, det, time.Now())
+		st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: n}, nil, "2020-01-01", "2020-03-01", time.Now())
 	}
 }
 

@@ -466,6 +466,14 @@ peer's copy is one more source.
    from Seerr), cancelling while pending, titles saying when they're
    requested, requests in the data download. Next: "Manage requests from
    here" and "Use real user names in Seerr".
+6. **Which titles show.** A setting in the panel: of the titles no library
+   has, show all of them, those released (theatres included; the
+   default), or those that can be watched at home (a film's digital, disc
+   or TV release, anywhere; a series' first air date). A season or an
+   episode shows once aired. A title a library has always shows. Specials
+   a library doesn't have, and seasons without a single episode, never
+   show. The dates come with the certifications, fetched again weekly for
+   titles not out yet. *Done.*
 
 ## Milestone 6: Federation
 

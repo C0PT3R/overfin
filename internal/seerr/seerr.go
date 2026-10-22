@@ -252,10 +252,10 @@ func (c *Client) Certifications(ctx context.Context, kind string) (map[string][]
 	return tmdb.MakeScales(scales), nil
 }
 
-// Ratings returns a title's certifications, by country: a film's release
-// certifications (each of its releases may have its own), a series'
-// content rating.
-func (c *Client) Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error) {
+// Release returns a title's certifications, by country (a film's release
+// certifications, each of its releases may have its own; a series' content
+// rating), and when it came out.
+func (c *Client) Release(ctx context.Context, kind string, tmdbID int) (*tmdb.Release, error) {
 	path := map[string]string{"movie": "/movie/", "series": "/tv/"}[kind]
 	if path == "" || !tmdb.ValidID(tmdbID) {
 		return nil, ErrNotFound
@@ -267,9 +267,12 @@ func (c *Client) Ratings(ctx context.Context, kind string, tmdbID int) (map[stri
 				Country      string `json:"iso_3166_1"`
 				ReleaseDates []struct {
 					Certification string
+					Type          int
+					ReleaseDate   string `json:"release_date"`
 				} `json:"release_dates"`
 			}
 		}
+		FirstAirDate   string
 		ContentRatings struct {
 			Results []struct {
 				Country string `json:"iso_3166_1"`
@@ -283,14 +286,18 @@ func (c *Client) Ratings(ctx context.Context, kind string, tmdbID int) (map[stri
 	if raw.ID != tmdbID {
 		return nil, ErrNotFound
 	}
-	out := tmdb.Ratings{}
+	out := &tmdb.Release{Ratings: tmdb.Ratings{}}
 	for _, r := range raw.Releases.Results {
 		for _, d := range r.ReleaseDates {
-			out.Add(r.Country, d.Certification)
+			out.Ratings.Add(r.Country, d.Certification)
+			out.AddDate(d.Type, d.ReleaseDate)
 		}
 	}
 	for _, r := range raw.ContentRatings.Results {
-		out.Add(r.Country, r.Rating)
+		out.Ratings.Add(r.Country, r.Rating)
+	}
+	if kind == "series" {
+		out.AddDate(4, raw.FirstAirDate) // aired: out, and at home
 	}
 	return out, nil
 }

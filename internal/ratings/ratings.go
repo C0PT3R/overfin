@@ -23,9 +23,9 @@ type Source interface {
 	// Scales returns the scales for films ("movie") or series ("series"),
 	// by country.
 	Scales(ctx context.Context, kind string) (map[string][]store.RatingLevel, error)
-	// Ratings returns a title's certifications, by country; ErrUnknown
-	// when TMDB doesn't know the title.
-	Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error)
+	// Release returns a title's certifications, by country, and when it
+	// came out; ErrUnknown when TMDB doesn't know the title.
+	Release(ctx context.Context, kind string, tmdbID int) (*tmdb.Release, error)
 }
 
 // ErrUnknown: TMDB doesn't know the title.
@@ -49,8 +49,8 @@ func (t TMDB) Scales(ctx context.Context, kind string) (map[string][]store.Ratin
 	return out, nil
 }
 
-func (t TMDB) Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error) {
-	r, err := t.Source.Ratings(ctx, kind, tmdbID)
+func (t TMDB) Release(ctx context.Context, kind string, tmdbID int) (*tmdb.Release, error) {
+	r, err := t.Source.Release(ctx, kind, tmdbID)
 	if errors.Is(err, tmdb.ErrNotFound) {
 		return nil, ErrUnknown
 	}
@@ -77,6 +77,9 @@ type Keeper struct {
 const (
 	Kept  = 150 * 24 * time.Hour
 	Fresh = 120 * 24 * time.Hour
+	// Pending is how soon a title that can't be watched at home yet is
+	// fetched again, for its release.
+	Pending = 7 * 24 * time.Hour
 )
 
 // NewKeeper returns the keeper.
@@ -146,7 +149,8 @@ func (k *Keeper) Once(ctx context.Context) error {
 	failed := map[store.RatedTitle]bool{}
 	var lastErr error
 	for streak := 0; ; {
-		todo, err := k.Store.TitlesToRate(ctx, k.clock().Add(-Fresh), 100+len(failed))
+		now := k.clock()
+		todo, err := k.Store.TitlesToRate(ctx, now.Add(-Fresh), now.Add(-Pending), now.UTC().Format("2006-01-02"), 100+len(failed))
 		if err != nil {
 			return err
 		}
@@ -158,22 +162,25 @@ func (k *Keeper) Once(ctx context.Context) error {
 			progress = true
 			// A title TMDB doesn't know has no certification: it's kept as
 			// such (hidden from kids), and not asked for again until later.
-			var r map[string][]string
+			r := &tmdb.Release{}
 			if id, err := strconv.Atoi(t.TMDB); err == nil {
-				r, err = src.Ratings(ctx, t.Kind, id)
+				got, err := src.Release(ctx, t.Kind, id)
 				switch {
 				case errors.Is(err, tmdb.ErrUnauthorized), ctx.Err() != nil:
 					return err
-				case err != nil && !errors.Is(err, ErrUnknown):
+				case errors.Is(err, ErrUnknown):
+				case err != nil:
 					failed[t], lastErr = true, err
 					if streak++; streak == 10 {
 						return err
 					}
 					continue
+				default:
+					r = got
 				}
 			}
 			streak = 0
-			if err := k.Store.SetTitleRatings(ctx, t, r, k.clock()); err != nil {
+			if err := k.Store.SetTitleRatings(ctx, t, r.Ratings, r.Released, r.AtHome, k.clock()); err != nil {
 				return err
 			}
 			fetched++

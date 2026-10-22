@@ -103,8 +103,9 @@ type TitleInfo struct {
 	// season, its own items (to check access), not its episodes.
 	Items []string
 	// Have and Aired count a series' or a season's episodes (specials
-	// aside): those the library has, and those TMDB says have aired.
-	Have, Aired int
+	// aside, but a specials season's own): those the library has, and
+	// those TMDB says have aired; Listed, all those TMDB lists.
+	Have, Aired, Listed int
 	// Known: TMDB's data for it is kept.
 	Known bool
 	// ItemKind is what the index calls an unidentified file (movie,
@@ -241,9 +242,11 @@ func (s *Store) countEpisodes(ctx context.Context, t *TitleInfo, today string) e
 	if t.Ref.Kind == "series" {
 		prefix += "s"
 	}
+	// A specials season counts its own; a series, the others'.
+	specials := t.Ref.Kind == "season" && t.Ref.Season == 0
 	err := s.db.QueryRowContext(ctx, `SELECT count(DISTINCT title_key) FROM catalog_items
-		WHERE kind = 'episode' AND title_key LIKE ? ESCAPE '\' AND coalesce(season_number, 0) > 0`,
-		likePrefix(prefix)).Scan(&t.Have)
+		WHERE kind = 'episode' AND title_key LIKE ? ESCAPE '\' AND (coalesce(season_number, 0) > 0 OR ?)`,
+		likePrefix(prefix), specials).Scan(&t.Have)
 	if err != nil {
 		return err
 	}
@@ -252,17 +255,16 @@ func (s *Store) countEpisodes(ctx context.Context, t *TitleInfo, today string) e
 		return nil
 	}
 	q := `SELECT count(*), coalesce(sum(air_date IS NOT NULL AND air_date <= ?), 0) FROM catalog_episodes
-		WHERE series = ? AND season > 0`
-	args := []any{today, tmdb}
+		WHERE series = ? AND (season > 0 OR ?)`
+	args := []any{today, tmdb, specials}
 	if t.Ref.Kind == "season" {
 		q += ` AND season = ?`
 		args = append(args, t.Ref.Season)
 	}
-	var listed int
-	if err := s.db.QueryRowContext(ctx, q, args...).Scan(&listed, &t.Aired); err != nil {
+	if err := s.db.QueryRowContext(ctx, q, args...).Scan(&t.Listed, &t.Aired); err != nil {
 		return err
 	}
-	if listed == 0 && t.Ref.Kind == "series" {
+	if t.Listed == 0 && t.Ref.Kind == "series" {
 		// No season kept yet: the series page's counts.
 		for _, se := range t.Details.Seasons {
 			if se.Number > 0 {

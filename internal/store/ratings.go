@@ -123,13 +123,17 @@ type RatedTitle struct {
 
 // TitlesToRate returns up to limit titles, in the library or in discovery,
 // whose certifications weren't fetched since before.
-func (s *Store) TitlesToRate(ctx context.Context, before time.Time, limit int) ([]RatedTitle, error) {
+//
+// Titles that can't be watched at home yet (as of today, YYYY-MM-DD) are
+// fetched again sooner, after pendingBefore, so a new release shows soon.
+func (s *Store) TitlesToRate(ctx context.Context, before, pendingBefore time.Time, today string, limit int) ([]RatedTitle, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT kind, tmdb FROM (
 			SELECT kind, tmdb FROM catalog_items WHERE kind IN ('movie', 'series') AND tmdb IS NOT NULL
 			UNION SELECT kind, tmdb FROM catalog_titles) t
 		WHERE NOT EXISTS (SELECT 1 FROM title_ratings_fetched f
-			WHERE f.kind = t.kind AND f.tmdb = t.tmdb AND f.fetched_at >= ?)
-		LIMIT ?`, before.Unix(), limit)
+			WHERE f.kind = t.kind AND f.tmdb = t.tmdb AND f.fetched_at >= ?
+			AND (f.fetched_at >= ? OR (f.at_home IS NOT NULL AND f.at_home <= ?)))
+		LIMIT ?`, before.Unix(), pendingBefore.Unix(), today, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +150,8 @@ func (s *Store) TitlesToRate(ctx context.Context, before time.Time, limit int) (
 }
 
 // SetTitleRatings replaces a title's certifications, by country (none:
-// TMDB has none).
-func (s *Store) SetTitleRatings(ctx context.Context, t RatedTitle, ratings map[string][]string, at time.Time) error {
+// TMDB has none), and when it came out (see TitleRelease; "" unknown).
+func (s *Store) SetTitleRatings(ctx context.Context, t RatedTitle, ratings map[string][]string, released, atHome string, at time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -164,8 +168,9 @@ func (s *Store) SetTitleRatings(ctx context.Context, t RatedTitle, ratings map[s
 			}
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO title_ratings_fetched (kind, tmdb, fetched_at) VALUES (?, ?, ?)
-		ON CONFLICT (kind, tmdb) DO UPDATE SET fetched_at = excluded.fetched_at`, t.Kind, t.TMDB, at.Unix()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO title_ratings_fetched (kind, tmdb, fetched_at, released, at_home) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (kind, tmdb) DO UPDATE SET fetched_at = excluded.fetched_at, released = excluded.released,
+			at_home = excluded.at_home`, t.Kind, t.TMDB, at.Unix(), nullString(released), nullString(atHome)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -260,4 +265,18 @@ func (s *Store) KidsProfiles(ctx context.Context) ([]*Profile, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// TitleRelease returns when a film or a series came out, as last fetched:
+// its first release and when it could first be watched at home
+// (YYYY-MM-DD, "" when TMDB doesn't say); ok is false when it wasn't
+// fetched yet.
+func (s *Store) TitleRelease(ctx context.Context, kind, tmdb string) (released, atHome string, ok bool, err error) {
+	var r, h sql.NullString
+	err = s.db.QueryRowContext(ctx, `SELECT released, at_home FROM title_ratings_fetched WHERE kind = ? AND tmdb = ?`,
+		kind, tmdb).Scan(&r, &h)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	return r.String, h.String, err == nil, err
 }

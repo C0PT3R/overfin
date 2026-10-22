@@ -11,6 +11,7 @@ import (
 
 	"github.com/overfin/server/internal/seal"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // fakeSource rates every film G, except those it fails on or doesn't know.
@@ -24,7 +25,7 @@ func (f *fakeSource) Scales(ctx context.Context, kind string) (map[string][]stor
 	return map[string][]store.RatingLevel{"US": {{Certification: "G", Position: 1}}}, nil
 }
 
-func (f *fakeSource) Ratings(ctx context.Context, kind string, id int) (map[string][]string, error) {
+func (f *fakeSource) Release(ctx context.Context, kind string, id int) (*tmdb.Release, error) {
 	f.asked[id]++
 	switch {
 	case f.fail[id]:
@@ -32,7 +33,7 @@ func (f *fakeSource) Ratings(ctx context.Context, kind string, id int) (map[stri
 	case f.unknown[id]:
 		return nil, ErrUnknown
 	}
-	return map[string][]string{"US": {"G"}}, nil
+	return &tmdb.Release{Ratings: tmdb.Ratings{"US": {"G"}}, Released: "2020-01-01", AtHome: "2020-06-01"}, nil
 }
 
 func TestOneFailingTitleDoesntStopThePass(t *testing.T) {

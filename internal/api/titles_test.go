@@ -54,15 +54,22 @@ func TestTitles(t *testing.T) {
 	st.SetSeason(ctx, "1399", store.Season{Number: 1, Name: "Saison 1", Episodes: []store.Episode{
 		{Number: 1, Name: "L'hiver vient", AirDate: "2011-04-17"}, {Number: 2, Name: "La route", AirDate: "2011-04-24"},
 		{Number: 3, Name: "Lord Snow", AirDate: "2011-05-01"}}}, now)
-	st.SetSeason(ctx, "1399", store.Season{Number: 2, Name: "Saison 2", Episodes: []store.Episode{
+	st.SetSeason(ctx, "1399", store.Season{Number: 2, Name: "Saison 2", AirDate: "2012-04-01", Episodes: []store.Episode{
 		{Number: 1, Name: "Le Nord", AirDate: "2012-04-01"}, {Number: 2, Name: "Plus tard", AirDate: "2099-01-01"}}}, now)
+	// Specials no library has, and a season TMDB lists without episodes:
+	// never shown.
+	st.SetSeason(ctx, "1399", store.Season{Number: 0, Name: "Épisodes spéciaux", Episodes: []store.Episode{{Number: 1, AirDate: "2011-01-01"}}}, now)
+	st.SetSeason(ctx, "1399", store.Season{Number: 3, Name: "Saison 3"}, now)
+	// When they came out: the series in 2011, the film at home in 2024.
+	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "series", TMDB: "1399"}, nil, "2011-04-17", "2011-04-17", now)
+	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "100"}, nil, "2024-01-01", "2024-03-01", now)
 
 	var series testTitle
 	if code := get(t, srv, "/api/v1/titles/title_series_tmdb_1399", &series); code != 200 {
 		t.Fatalf("series: %d", code)
 	}
 	if series.Name != "Le Trône de fer" || series.Overview != "Neuf familles." || series.Availability != "partiallyAvailable" ||
-		series.EpisodeCount == nil || series.EpisodeCount.InLibrary != 2 || series.EpisodeCount.Aired != 4 || len(series.Seasons) != 2 ||
+		series.EpisodeCount == nil || series.EpisodeCount.InLibrary != 2 || series.EpisodeCount.Aired != 4 || len(series.Seasons) != 2 || // no specials, no empty season
 		series.Images == nil || series.Images.Primary.URL != "/api/v1/images/tmdbart_poster_poster1234_jpg" {
 		t.Errorf("series: %+v", series)
 	}
@@ -73,7 +80,7 @@ func TestTitles(t *testing.T) {
 
 	// A season no library has, browsed: its episodes, none playable.
 	var s2 testTitle
-	if code := get(t, srv, "/api/v1/titles/title_series_tmdb_1399_s2", &s2); code != 200 || len(s2.Episodes) != 2 {
+	if code := get(t, srv, "/api/v1/titles/title_series_tmdb_1399_s2", &s2); code != 200 || len(s2.Episodes) != 1 { // the one to come isn't shown
 		t.Fatalf("season 2: %d %+v", code, s2)
 	}
 	if e := s2.Episodes[0]; e.Name != "Le Nord" || e.Availability != "missing" || e.Playable || e.Kind != "episode" {
@@ -92,8 +99,7 @@ func TestTitles(t *testing.T) {
 	}
 	s2 = testTitle{}
 	get(t, srv, "/api/v1/titles/title_series_tmdb_1399_s2", &s2)
-	if s2.UserState == nil || !s2.UserState.Played || s2.Episodes[0].UserState == nil || !s2.Episodes[0].UserState.Played ||
-		s2.Episodes[1].UserState != nil {
+	if s2.UserState == nil || !s2.UserState.Played || s2.Episodes[0].UserState == nil || !s2.Episodes[0].UserState.Played {
 		t.Errorf("season 2 watched: %+v", s2)
 	}
 	if code, _ := put(t, srv, "PUT", "/api/v1/titles/title_movie_tmdb_100/favorite", ""); code != 200 {
@@ -139,8 +145,25 @@ func TestTitles(t *testing.T) {
 		t.Errorf("continue: %d %+v", code, page.Items)
 	}
 
+	// Titles shown, as the panel asks: a film only in theatres shows as
+	// "released", not as "watchable at home"; one to come, only as "all".
+	st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: "200", Name: "En salles"}, film, now)
+	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "200"}, nil, "2026-01-01", "", now)
+	st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: "300", Name: "À venir"}, film, now)
+	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "300"}, nil, "2099-01-01", "", now)
+	for shown, want := range map[string][3]int{"released": {200, 200, 404}, "home": {200, 404, 404}, "all": {200, 200, 200}} {
+		st.SetTitlesShown(ctx, shown)
+		for i, id := range []string{"100", "200", "300"} {
+			if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_"+id, nil); code != want[i] {
+				t.Errorf("%s, film %s: %d, want %d", shown, id, code, want[i])
+			}
+		}
+	}
+	st.SetTitlesShown(ctx, "released")
+
 	// Nothing known, or not a title.
-	for _, bad := range []string{"title_movie_tmdb_555", "title_movie_tmdb_949_s1", "title_movie/tmdb/1", "item_" + id(1), "title_series_tmdb_1399_s9_e1"} {
+	for _, bad := range []string{"title_movie_tmdb_555", "title_movie_tmdb_949_s1", "title_movie/tmdb/1", "item_" + id(1), "title_series_tmdb_1399_s9_e1",
+		"title_series_tmdb_1399_s0", "title_series_tmdb_1399_s0_e1", "title_series_tmdb_1399_s3", "title_series_tmdb_1399_s2_e2"} {
 		if code := get(t, srv, "/api/v1/titles/"+bad, nil); code != 404 {
 			t.Errorf("%s: %d", bad, code)
 		}
@@ -157,7 +180,7 @@ func TestTitles(t *testing.T) {
 	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_100", nil); code != 404 {
 		t.Errorf("unrated, for a kid: %d", code)
 	}
-	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "100"}, map[string][]string{"US": {"G"}}, now)
+	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "100"}, map[string][]string{"US": {"G"}}, "2024-01-01", "2024-03-01", now)
 	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_100", nil); code != 200 {
 		t.Errorf("rated G, for a kid: %d", code)
 	}

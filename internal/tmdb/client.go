@@ -200,6 +200,8 @@ type rawDetails struct {
 			Country      string `json:"iso_3166_1"`
 			ReleaseDates []struct {
 				Certification string `json:"certification"`
+				Type          int    `json:"type"`
+				ReleaseDate   string `json:"release_date"`
 			} `json:"release_dates"`
 		} `json:"results"`
 	} `json:"release_dates"`
@@ -254,19 +256,24 @@ func (c *Client) Details(ctx context.Context, kind string, tmdbID int) (*Details
 	return MakeDetails(t, genres, cast, seasons), nil
 }
 
-func (c *Client) Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error) {
+func (c *Client) Release(ctx context.Context, kind string, tmdbID int) (*Release, error) {
 	raw, err := c.details(ctx, kind, tmdbID)
 	if err != nil {
 		return nil, err
 	}
-	out := Ratings{}
+	out := &Release{Ratings: Ratings{}}
 	for _, r := range raw.ReleaseDates.Results {
 		for _, d := range r.ReleaseDates {
-			out.Add(r.Country, d.Certification)
+			out.Ratings.Add(r.Country, d.Certification)
+			out.AddDate(d.Type, d.ReleaseDate)
 		}
 	}
 	for _, r := range raw.ContentRatings.Results {
-		out.Add(r.Country, r.Rating)
+		out.Ratings.Add(r.Country, r.Rating)
+	}
+	if kind == "series" {
+		out.Released = date(raw.FirstAirDate)
+		out.AtHome = out.Released
 	}
 	return out, nil
 }

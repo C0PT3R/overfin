@@ -27,8 +27,9 @@ type Source interface {
 	Details(ctx context.Context, kind string, tmdbID int) (*Details, error)
 	// Certifications returns the scales for films or series, by country.
 	Certifications(ctx context.Context, kind string) (map[string][]Certification, error)
-	// Ratings returns a title's certifications, by country.
-	Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error)
+	// Release returns a title's certifications, by country, and when it
+	// came out.
+	Release(ctx context.Context, kind string, tmdbID int) (*Release, error)
 }
 
 var (
@@ -194,6 +195,42 @@ func MakeScales(raw map[string][]Scale) map[string][]Certification {
 
 // Ratings collects a title's certifications, by country, checked.
 type Ratings map[string][]string
+
+// Release is a title's certifications, by country, and when it came out:
+// Released, its first release (a film's in theatres, digital or on disc,
+// festivals aside; a series' first air date), and AtHome, when it could
+// first be watched at home (a film's first digital, physical or TV
+// release; a series' first air date), anywhere, as YYYY-MM-DD; "" when
+// TMDB doesn't say.
+type Release struct {
+	Ratings  Ratings
+	Released string
+	AtHome   string
+}
+
+// releaseTypes are TMDB's kinds of film releases: 1 premiere, 2 limited,
+// 3 theatrical, 4 digital, 5 physical, 6 TV.
+const (
+	releasePremiere = 1
+	releaseDigital  = 4
+)
+
+// AddDate counts a film release of TMDB's type on a date (its first ten
+// characters, YYYY-MM-DD) in Released and AtHome.
+func (r *Release) AddDate(typ int, d string) {
+	if len(d) >= 10 {
+		d = d[:10]
+	}
+	if typ <= releasePremiere || typ > 6 || !dateOnly.MatchString(d) {
+		return
+	}
+	if r.Released == "" || d < r.Released {
+		r.Released = d
+	}
+	if typ >= releaseDigital && (r.AtHome == "" || d < r.AtHome) {
+		r.AtHome = d
+	}
+}
 
 // Add adds a certification for a country, once.
 func (r Ratings) Add(cc, cert string) {

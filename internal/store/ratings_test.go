@@ -38,11 +38,11 @@ func TestRatings(t *testing.T) {
 		"1": {"US": {"G"}, "FR": {"18"}}, "2": {"US": {"R"}}, "3": {"US": {"PG", "R"}},
 		"4": {"FR": {"U"}}, "5": {"US": {"NR"}}, "7": {"US": {"X"}},
 	} {
-		if err := s.SetTitleRatings(ctx, RatedTitle{"movie", tmdb}, r, now); err != nil {
+		if err := s.SetTitleRatings(ctx, RatedTitle{"movie", tmdb}, r, "", "", now); err != nil {
 			t.Fatal(err)
 		}
 	}
-	s.SetTitleRatings(ctx, RatedTitle{"series", "10"}, map[string][]string{"US": {"TV-Y"}}, now)
+	s.SetTitleRatings(ctx, RatedTitle{"series", "10"}, map[string][]string{"US": {"TV-Y"}}, "", "", now)
 
 	allowed := func(c Ceiling) []string {
 		got, err := s.ListCatalog(ctx, ListQuery{Sort: "name", Access: &Access{Ceiling: &c}, Limit: 50})
@@ -79,9 +79,17 @@ func TestRatings(t *testing.T) {
 	}
 
 	// Titles still to fetch: the unfetched one, then none once fetched.
-	todo, err := s.TitlesToRate(ctx, now.Add(-time.Hour), 50)
+	todo, err := s.TitlesToRate(ctx, now.Add(-time.Hour), now.Add(-time.Hour), "2026-10-22", 50)
 	if err != nil || len(todo) != 1 || todo[0] != (RatedTitle{"movie", "6"}) {
 		t.Errorf("to rate: %v %v", todo, err)
+	}
+	// Titles not at home yet are fetched again sooner; one at home isn't.
+	s.SetTitleRatings(ctx, RatedTitle{"movie", "1"}, map[string][]string{"US": {"G"}}, "2020-01-01", "2020-06-01", now)
+	if todo, _ := s.TitlesToRate(ctx, now.Add(-time.Hour), now.Add(time.Hour), "2026-10-22", 50); len(todo) != 7 {
+		t.Errorf("pending ones again: %v", todo)
+	}
+	if r, h, ok, _ := s.TitleRelease(ctx, "movie", "1"); !ok || r != "2020-01-01" || h != "2020-06-01" {
+		t.Errorf("release: %q %q %v", r, h, ok)
 	}
 	if f, total, err := s.RatingProgress(ctx); err != nil || f != 7 || total != 8 {
 		t.Errorf("progress: %d/%d %v", f, total, err)

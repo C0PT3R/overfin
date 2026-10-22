@@ -1071,7 +1071,10 @@ paths:
         episodes, those no library has too, each with its availability.
         What Overfin doesn't describe yet is asked of TMDB when it's
         opened. Hidden from a profile that may see none of its copies, and,
-        for a kids profile, when its rating isn't within its limits.
+        for a kids profile, when its rating isn't within its limits. A
+        title no library has shows only once it's out, as the operator
+        sets (released, or watchable at home); specials no library has, and
+        seasons without a single episode, never show.
       tags: [titles]
       responses:
         "200":
