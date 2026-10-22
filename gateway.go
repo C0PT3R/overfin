@@ -73,6 +73,8 @@ type shared struct {
 	titles *catalog.Titles
 	// searches limits searches per account, across reloads.
 	searches *api.SearchLimiter
+	// requested is what Seerr says anyone requested, kept across reloads.
+	requested *api.SeerrRequested
 	// directory is the identity provider's connector, when configured:
 	// who the people behind accounts are, kept briefly in memory.
 	directory *connector.Cache
@@ -148,7 +150,8 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		checker.UnlockAfter = 15 * time.Minute
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor,
-		Folders: sh.folders, Service: sh.service, Titles: sh.titles, Searches: sh.searches, Logger: logger}
+		Requested: sh.requested,
+		Folders:   sh.folders, Service: sh.service, Titles: sh.titles, Searches: sh.searches, Logger: logger}
 	// Discovery, when there's a source for TMDB's data.
 	var disc *api.Discovery
 	if sh.source() != nil {
@@ -203,6 +206,11 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	// found".
 	if cfg.Plugins.Enabled("library") {
 		client := sh.seerr
+		if sh.requested != nil && client != nil {
+			sh.requested.SetClient(func() *seerr.Client { return client })
+		} else if sh.requested != nil {
+			sh.requested.SetClient(nil)
+		}
 		rq := api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }}
 		if sh.directory != nil {
 			rq.Directory = sh.directory

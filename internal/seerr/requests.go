@@ -219,6 +219,33 @@ func (c *Client) UserRequests(ctx context.Context, userID int) ([]Request, error
 	return out, nil
 }
 
+// maxOpenPages caps how many pages of 100 requests OpenRequests reads.
+const maxOpenPages = 50
+
+// OpenRequests lists the requests anyone made that are still to come:
+// pending or approved, for a title not available yet. Declined, failed
+// and completed ones are left out.
+func (c *Client) OpenRequests(ctx context.Context) ([]Request, error) {
+	var out []Request
+	for page := 0; page < maxOpenPages; page++ {
+		var res struct{ Results []rawRequest }
+		q := url.Values{"take": {"100"}, "skip": {strconv.Itoa(page * 100)}, "filter": {"all"}, "sort": {"modified"}}
+		if err := c.get(ctx, "/request", q, &res); err != nil {
+			return nil, err
+		}
+		for _, raw := range res.Results {
+			r := raw.request()
+			if (r.Status == 1 || r.Status == 2) && r.MediaStatus != 5 && r.TMDBID > 0 {
+				out = append(out, r)
+			}
+		}
+		if len(res.Results) < 100 {
+			break
+		}
+	}
+	return out, nil
+}
+
 // CancelRequest removes a request (Seerr removes pending ones only, for a
 // user without the right to manage requests).
 func (c *Client) CancelRequest(ctx context.Context, id int) error {

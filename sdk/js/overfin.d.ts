@@ -172,7 +172,8 @@ export interface TitleSummary {
   images?: Images;
   userState?: UserState;
   /** The account's latest request covering it. */
-  request?: { id: string; status: RequestStatus };
+  /** Its request, if any: by this account (with an id, to cancel), or by someone else (without). */
+  request?: { id?: string; status: RequestStatus };
 }
 
 export type RequestStatus = 'pending' | 'approved' | 'declined' | 'processing' | 'partiallyAvailable' | 'available' | 'failed' | (string & {});

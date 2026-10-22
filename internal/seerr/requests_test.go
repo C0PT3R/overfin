@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -43,6 +45,21 @@ func TestRequests(t *testing.T) {
 				io.WriteString(w, `{"id":7,"status":1,"type":"tv","media":{"tmdbId":1399,"status":2},"seasons":[{"seasonNumber":2}]}`)
 			}
 		case "GET /api/v1/request":
+			if r.URL.Query().Get("requestedBy") == "" {
+				// Everyone's: two pages, the second one short.
+				if r.URL.Query().Get("skip") == "0" {
+					var page []string
+					for i := 0; i < 100; i++ {
+						page = append(page, fmt.Sprintf(`{"id":%d,"status":3,"type":"movie","media":{"tmdbId":%d,"status":1}}`, 100+i, 1000+i))
+					}
+					page[0] = `{"id":1,"status":1,"type":"movie","media":{"tmdbId":949,"status":2}}`
+					page[1] = `{"id":2,"status":2,"type":"tv","media":{"tmdbId":1399,"status":4},"seasons":[{"seasonNumber":3}]}`
+					io.WriteString(w, `{"results":[`+strings.Join(page, ",")+`]}`)
+				} else {
+					io.WriteString(w, `{"results":[{"id":3,"status":2,"type":"movie","media":{"tmdbId":550,"status":5}}]}`)
+				}
+				return
+			}
 			if r.URL.Query().Get("requestedBy") != "42" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
@@ -62,6 +79,11 @@ func TestRequests(t *testing.T) {
 	id, err := c.CreateUser(ctx, "overfin-abc", "abc@overfin.invalid", "secret")
 	if err != nil || id != 42 || bodies[0]["password"] != "secret" || bodies[0]["email"] != "abc@overfin.invalid" {
 		t.Fatalf("create user: %d %v %v", id, err, bodies[0])
+	}
+	// Everyone's open requests: pending or approved, not available yet.
+	open, err := c.OpenRequests(ctx)
+	if err != nil || len(open) != 2 || open[0].TMDBID != 949 || open[1].Kind != "series" || !slices.Equal(open[1].Seasons, []int{3}) {
+		t.Errorf("open requests: %+v %v", open, err)
 	}
 	if name, ok, err := c.Username(ctx, 42); !ok || err != nil || name != "overfin-abc" {
 		t.Errorf("user 42: %q %v %v", name, ok, err)

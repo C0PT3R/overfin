@@ -603,7 +603,7 @@ func (l Library) requestsCovering(ctx context.Context, accountID string, titles 
 		}
 	}
 	all, err := l.Provisioner.Store.AccountRequests(ctx, accountID, keys)
-	if err != nil || len(all) == 0 {
+	if err != nil {
 		return nil, err
 	}
 	out := map[string]*library.TitleRequest{}
@@ -615,6 +615,21 @@ func (l Library) requestsCovering(ctx context.Context, accountID string, titles 
 			}
 			if covers {
 				out[t.Ref.Key()] = &library.TitleRequest{ID: x.ID, Status: x.Status}
+				break
+			}
+		}
+		// Someone else's request, in Seerr: it's requested, but not by whom,
+		// and only its requester may cancel it.
+		if out[t.Ref.Key()] != nil || l.Requested == nil {
+			continue
+		}
+		key, season := t.Ref.Key(), -1
+		if t.Ref.Kind == "season" || t.Ref.Kind == "episode" {
+			key, season = t.Ref.Series().Key(), t.Ref.Season
+		}
+		for _, r := range l.Requested.Lookup(key) {
+			if season < 0 || len(r.Seasons) == 0 || slices.Contains(r.Seasons, season) {
+				out[t.Ref.Key()] = &library.TitleRequest{Status: statusOf(r)}
 				break
 			}
 		}

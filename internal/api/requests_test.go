@@ -71,7 +71,7 @@ func (f *fakeSeerrRequests) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && r.URL.Path == "/api/v1/request":
 		var out []map[string]any
 		for id, x := range f.requests {
-			if fmt.Sprint(x["userId"]) == r.URL.Query().Get("requestedBy") {
+			if by := r.URL.Query().Get("requestedBy"); by == "" || fmt.Sprint(x["userId"]) == by {
 				out = append(out, map[string]any{"id": id, "status": x["status"], "type": x["mediaType"],
 					"media": map[string]any{"tmdbId": x["mediaId"], "status": 2}})
 			}
@@ -204,6 +204,34 @@ func TestRequests(t *testing.T) {
 	list.Items = nil
 	if get(t, srv, "/api/v1/requests", &list); len(list.Items) != 0 {
 		t.Errorf("another profile's list: %+v", list.Items)
+	}
+}
+
+// A title someone else requested, in Seerr itself: it says it's
+// requested, but not by whom, and isn't the account's to cancel.
+func TestRequestedElsewhere(t *testing.T) {
+	fake := &fakeSeerrRequests{users: map[int]map[string]any{}, requests: map[int]map[string]any{
+		7: {"mediaId": float64(100), "mediaType": "movie", "userId": float64(99), "status": 1},
+	}, next: 7}
+	seerrSrv := httptest.NewServer(fake)
+	defer seerrSrv.Close()
+	client, _ := seerr.New(seerrSrv.URL, "key")
+	var st *store.Store
+	srv, _ := newServerWith(t, options{seerr: client, store: &st})
+	ctx := context.Background()
+	film, _ := json.Marshal(store.TitleDetails{})
+	st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: "100", Name: "Pas ici"}, film, time.Now())
+	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "100"}, nil, "2024-01-01", "2024-03-01", time.Now())
+
+	var title struct {
+		Request *struct{ ID, Status string }
+	}
+	for i := 0; i < 100 && title.Request == nil; i++ {
+		get(t, srv, "/api/v1/titles/title_movie_tmdb_100", &title) // read in the background
+		time.Sleep(10 * time.Millisecond)
+	}
+	if title.Request == nil || title.Request.Status != "pending" || title.Request.ID != "" {
+		t.Fatalf("requested elsewhere: %+v", title.Request)
 	}
 }
 

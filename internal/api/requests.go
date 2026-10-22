@@ -246,6 +246,9 @@ func (q Requests) create(w http.ResponseWriter, r *http.Request) {
 	}
 	n, _ := strconv.Atoi(tmdbID)
 	made, err := c.RequestTitle(ctx, userID, kind, n, seasons)
+	if q.Library.Requested != nil {
+		q.Library.Requested.Stale() // asked, or already asked by someone
+	}
 	if err != nil {
 		q.seerrError(w, err)
 		return

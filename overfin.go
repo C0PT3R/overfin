@@ -357,8 +357,8 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 	art.ArtworkDir = filepath.Join(filepath.Dir(cfg.Storage.Path), "artwork")
 	sh := &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
 		images: art, tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache(),
-		searches: &api.SearchLimiter{PerMinute: 30},
-		service:  &provision.Service{}}
+		searches: &api.SearchLimiter{PerMinute: 30}, requested: &api.SeerrRequested{Logger: logger},
+		service: &provision.Service{}}
 	if cn := cfg.Connector; cn.Enabled() {
 		sh.directory = &connector.Cache{Directory: &connector.Authentik{BaseURL: cn.URL, Token: cfg.Secrets.ConnectorToken,
 			HTTP: oidc.NewClient(cn.Dial)}}

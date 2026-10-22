@@ -2669,11 +2669,15 @@ components:
           $ref: "#/components/schemas/UserState"
         request:
           type: object
-          description: The account's latest request covering it.
-          required: [id, status]
+          description: The account's latest request covering it, else one
+            someone else made, in Seerr or through another account, still
+            to come (pending or approved). Who made it is never said.
+          required: [status]
           properties:
             id:
               type: string
+              description: Only on the account's own requests, which it may
+                cancel.
             status:
               type: string
               description: As a request's.

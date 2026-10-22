@@ -45,7 +45,9 @@ type TitleSummary struct {
 
 // TitleRequest is a request covering a title: its ID and status.
 type TitleRequest struct {
-	ID     string `json:"id"`
+	// ID is the request's when the account made it (it may cancel it);
+	// absent for someone else's.
+	ID     string `json:"id,omitempty"`
 	Status string `json:"status"`
 }
 

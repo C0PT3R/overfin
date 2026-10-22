@@ -370,6 +370,9 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	if o.seerr != nil {
 		disc := &api.Discovery{Library: lib, Store: st}
 		client := o.seerr
+		lib.Requested = &api.SeerrRequested{}
+		lib.Requested.SetClient(func() *seerr.Client { return client })
+		disc.Library = lib
 		extra = append(extra, disc, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }, Directory: o.directory})
 	}
 	if o.store != nil {
