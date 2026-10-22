@@ -77,3 +77,37 @@ func TestPocketIDSignupToken(t *testing.T) {
 		t.Error("a missing group gave a token")
 	}
 }
+
+// FirstAdmin: made only while Pocket ID has nobody but its API key's user,
+// as an admin, in the groups.
+func TestPocketIDFirstAdmin(t *testing.T) {
+	users := `{"data":[{"id":"00000000-0000-0000-0000-000000000000"}]}`
+	var made map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/user-groups":
+			io.WriteString(w, `{"data":[{"id":"g1","name":"admins"}]}`)
+		case r.URL.Path == "/api/users" && r.Method == http.MethodGet:
+			io.WriteString(w, users)
+		case r.URL.Path == "/api/users" && r.Method == http.MethodPost:
+			json.NewDecoder(r.Body).Decode(&made)
+			w.WriteHeader(http.StatusCreated)
+			io.WriteString(w, `{}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	p := &PocketID{BaseURL: srv.URL, Key: "k", HTTP: srv.Client()}
+	ok, err := p.FirstAdmin(context.Background(), "me@example.org", []string{"admins"})
+	if err != nil || !ok {
+		t.Fatalf("made %v, %v", ok, err)
+	}
+	if fmt.Sprint(made) != "map[email:me@example.org emailVerified:true isAdmin:true userGroupIds:[g1] username:me@example.org]" {
+		t.Errorf("sent %v", made)
+	}
+	users, made = `{"data":[{"id":"00000000-0000-0000-0000-000000000000"},{"id":"u1"}]}`, nil
+	if ok, err := p.FirstAdmin(context.Background(), "me@example.org", []string{"admins"}); err != nil || ok || made != nil {
+		t.Errorf("with someone there: made %v, %v, sent %v", ok, err, made)
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -305,7 +306,14 @@ type Connector struct {
 	// Dial, when set, is the "host:port" to connect to instead of what DNS
 	// says (TLS is still checked against the URL's name).
 	Dial string `toml:"dial"`
+	// FirstAdmin, with Pocket ID, is an email: when Pocket ID has nobody
+	// yet, Overfin makes this person its admin, in the admin group.
+	FirstAdmin string `toml:"first_admin"`
 }
+
+// emailPattern is an email Pocket ID also takes as a username: letters,
+// digits, dots, hyphens and underscores, 50 characters at most.
+var emailPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$`)
 
 // Enabled reports whether a connector is configured.
 func (c Connector) Enabled() bool { return c.Kind != "" }
@@ -709,6 +717,9 @@ func (c *Config) validate() error {
 		}
 		if !c.Admin.Enabled() {
 			add("the connector is used by the control panel: set up [admin] too")
+		}
+		if e := cn.FirstAdmin; e != "" && (cn.Kind != "pocketid" || len(e) > 50 || !emailPattern.MatchString(e)) {
+			add("connector.first_admin is an email (letters, digits, dots, hyphens, underscores; 50 characters at most), with kind = \"pocketid\" only")
 		}
 	}
 

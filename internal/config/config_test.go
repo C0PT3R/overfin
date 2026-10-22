@@ -307,6 +307,41 @@ redirect_url = "http://localhost:8081/admin/auth/callback"
 	}
 }
 
+// connector.first_admin: an email Pocket ID takes as a username, with
+// Pocket ID only.
+func TestFirstAdmin(t *testing.T) {
+	vars := goodEnv()
+	vars["OVERFIN_OIDC_CLIENT_SECRET"] = "s"
+	vars["OVERFIN_CONNECTOR_TOKEN"] = "t"
+	base := goodFile + `
+[oidc]
+issuer = "https://auth.example.org"
+client_id = "overfin"
+redirect_url = "https://example.org/api/v1/auth/callback"
+
+[admin]
+listen = ":8081"
+group = "overfin-admins"
+redirect_url = "http://localhost:8081/admin/auth/callback"
+
+[connector]
+url = "https://auth.example.org"
+`
+	if _, err := Load(writeFile(t, base+"kind = \"pocketid\"\nfirst_admin = \"me.too@example.org\"\n"), env(vars)); err != nil {
+		t.Fatalf("valid: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"authentik":    "kind = \"authentik\"\nfirst_admin = \"me@example.org\"\n",
+		"not an email": "kind = \"pocketid\"\nfirst_admin = \"me\"\n",
+		"a plus":       "kind = \"pocketid\"\nfirst_admin = \"me+x@example.org\"\n",
+		"too long":     "kind = \"pocketid\"\nfirst_admin = \"" + strings.Repeat("a", 40) + "@example.org\"\n",
+	} {
+		if _, err := Load(writeFile(t, base+bad), env(vars)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
 func TestModuleSettings(t *testing.T) {
 	RegisterPlugin("settings-test", nil, "", []Setting{
 		{Key: "mode", Choices: []Choice{{Value: "a"}, {Value: "b"}}},

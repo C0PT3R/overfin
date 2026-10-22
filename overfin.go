@@ -533,6 +533,14 @@ func setUpPocketID(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 		err := p.Setup(ctx, client, groups)
 		if err == nil {
 			logger.Info("Pocket ID is set up for Overfin", "client", client.ID, "groups", groups)
+			if email := cn.FirstAdmin; email != "" {
+				if made, err := p.FirstAdmin(ctx, email, groups); err != nil {
+					logger.Error("making Pocket ID's first admin failed", "err", err)
+				} else if made {
+					logger.Info("Pocket ID's first admin is made; Pocket ID's own command gives them a sign-in link", "email", email,
+						"command", "pocket-id one-time-access-token "+email)
+				}
+			}
 			if s, err := p.Signups(ctx); err == nil && s == "disabled" {
 				logger.Warn("Pocket ID's sign-ups are disabled, so invitation links can't work: set ALLOW_USER_SIGNUPS=withToken there")
 			}

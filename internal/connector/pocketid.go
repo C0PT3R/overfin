@@ -284,3 +284,37 @@ func (p *PocketID) Signups(ctx context.Context) (string, error) {
 	}
 	return "", nil
 }
+
+// FirstAdmin makes the first person in an empty Pocket ID: an admin there,
+// by email (also their username), in the groups (by name; they must
+// exist). It reports whether it made them: when Pocket ID already has
+// someone, it changes nothing.
+func (p *PocketID) FirstAdmin(ctx context.Context, email string, groups []string) (bool, error) {
+	var res struct {
+		Data []struct{ ID string } `json:"data"`
+	}
+	if err := p.do(ctx, http.MethodGet, "/api/users?pagination[limit]=2", nil, &res); err != nil {
+		return false, err
+	}
+	for _, u := range res.Data {
+		if u.ID != staticAPIUser {
+			return false, nil
+		}
+	}
+	ids := []string{}
+	for _, name := range groups {
+		id, err := p.groupID(ctx, name)
+		if err != nil {
+			return false, err
+		}
+		if id == "" {
+			return false, fmt.Errorf("connector: Pocket ID has no group %q", name)
+		}
+		ids = append(ids, id)
+	}
+	body := map[string]any{"username": email, "email": email, "emailVerified": true, "isAdmin": true, "userGroupIds": ids}
+	if err := p.do(ctx, http.MethodPost, "/api/users", body, nil); err != nil {
+		return false, fmt.Errorf("making the first admin: %w", err)
+	}
+	return true, nil
+}
