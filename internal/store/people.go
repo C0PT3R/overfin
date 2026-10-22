@@ -22,6 +22,8 @@ type Person struct {
 	Profile    string // a TMDB image path, or ""
 	Credits    []PersonCredit
 	FetchedAt  time.Time
+	// Page: their whole page is kept, not only what a search found.
+	Page bool
 }
 
 // PersonCredit is one of a person's films or series, and what they did in
@@ -43,10 +45,10 @@ func (s *Store) SetPerson(ctx context.Context, p Person, titles []Title, at time
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO tmdb_people (id, name, biography, birthday, deathday, birthplace, department,
-			profile, credits, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			profile, credits, fetched_at, page) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 		ON CONFLICT (id) DO UPDATE SET name = excluded.name, biography = excluded.biography, birthday = excluded.birthday,
 			deathday = excluded.deathday, birthplace = excluded.birthplace, department = excluded.department,
-			profile = excluded.profile, credits = excluded.credits, fetched_at = excluded.fetched_at`,
+			profile = excluded.profile, credits = excluded.credits, fetched_at = excluded.fetched_at, page = 1`,
 		p.TMDB, p.Name, p.Biography, nullString(p.Birthday), nullString(p.Deathday), p.Birthplace, p.Department,
 		nullString(p.Profile), string(credits), at.Unix())
 	return err
@@ -58,9 +60,9 @@ func (s *Store) PersonByTMDB(ctx context.Context, id string) (*Person, error) {
 	var birthday, deathday, profile sql.NullString
 	var credits string
 	var fetched int64
-	err := s.db.QueryRowContext(ctx, `SELECT name, biography, birthday, deathday, birthplace, department, profile, credits, fetched_at
+	err := s.db.QueryRowContext(ctx, `SELECT name, biography, birthday, deathday, birthplace, department, profile, credits, fetched_at, page
 		FROM tmdb_people WHERE id = ?`, id).Scan(&p.Name, &p.Biography, &birthday, &deathday, &p.Birthplace, &p.Department,
-		&profile, &credits, &fetched)
+		&profile, &credits, &fetched, &p.Page)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

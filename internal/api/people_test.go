@@ -144,6 +144,15 @@ func TestSearch(t *testing.T) {
 			t.Errorf("%s: people first %v", q, got)
 		}
 	}
+	// Someone a search found, opened: their whole page is fetched then.
+	var person struct {
+		Name    string
+		Credits []struct{}
+	}
+	get(t, srv, "/api/v1/people/person_tmdb_1245", &person)
+	if person.Name != "Scarlett Johansson" || len(person.Credits) == 0 || src.asked != 1 {
+		t.Errorf("person found by a search: %+v, asked %d", person, src.asked)
+	}
 	// Too short: nothing, and TMDB isn't asked; too long: refused.
 	searched := src.searched
 	if code, body := post(t, srv, "/api/v1/search", `{"query":" e "}`); code != 200 || !strings.Contains(body, `"titles":[]`) || src.searched != searched {

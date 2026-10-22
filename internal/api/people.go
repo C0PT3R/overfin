@@ -78,7 +78,8 @@ func (l Library) person(w http.ResponseWriter, r *http.Request) {
 		l.storeError(w, err)
 		return
 	}
-	if (kept == nil || time.Since(kept.FetchedAt) > personFresh) && l.Titles != nil {
+	// Fetched when not kept, kept only as a search found them, or old.
+	if (kept == nil || !kept.Page || time.Since(kept.FetchedAt) > personFresh) && l.Titles != nil {
 		if err := l.Titles.FetchPerson(ctx, id); err != nil && !errors.Is(err, tmdb.ErrNotFound) {
 			l.Logger.Warn("fetching a person from TMDB failed", "err", err)
 		}
