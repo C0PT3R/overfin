@@ -56,6 +56,7 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/items/resume":  l.resume,
 		"GET /api/v1/items/next-up": l.nextUp,
 		"GET /api/v1/items/latest":  l.latest,
+		"GET /api/v1/genres":        l.genres,
 		"GET /api/v1/items/{id}":    l.item,
 		"GET /api/v1/people/{id}":   l.person,
 		"GET /api/v1/images/{id}":   l.image,
@@ -489,6 +490,28 @@ func (l Library) latest(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
+	// From the index: films and series only, a series by its newest
+	// episode. Jellyfin's own list mixes in seasons and episodes.
+	if l.indexReady(r) {
+		a, err := l.access(r.Context(), p)
+		if err != nil {
+			l.storeError(w, err)
+			return
+		}
+		ids, err := l.Provisioner.Store.ListCatalog(r.Context(), store.ListQuery{LibraryID: parent,
+			Kinds: []string{"movie", "series"}, Sort: "latest", Descending: true, Access: a, Limit: limit})
+		if err != nil {
+			l.storeError(w, err)
+			return
+		}
+		items, err := l.itemsByID(r.Context(), p, ids)
+		if err != nil {
+			l.upstreamError(w, err)
+			return
+		}
+		writeOK(w, map[string]any{"items": items})
+		return
+	}
 	ja, uid, ok := l.account(w, r)
 	if !ok {
 		return
@@ -511,6 +534,47 @@ func (l Library) latest(w http.ResponseWriter, r *http.Request) {
 	if err := l.withStates(r.Context(), p, out); err != nil {
 		l.storeError(w, err)
 		return
+	}
+	writeOK(w, map[string]any{"items": out})
+}
+
+// genres lists the genres of a library's films and series, from the index,
+// counting only what the profile may see; nothing until the index is read.
+func (l Library) genres(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r, "library") {
+		return
+	}
+	var lib string
+	if s := r.URL.Query().Get("library"); s != "" {
+		var ok bool
+		if lib, ok = library.Unwrap(library.LibraryPrefix, s); !ok {
+			problem.Send(w, problem.InvalidRequest, "")
+			return
+		}
+	}
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	type genre struct {
+		Name      string `json:"name"`
+		ItemCount int    `json:"itemCount"`
+	}
+	out := []genre{}
+	if l.indexReady(r) {
+		a, err := l.access(r.Context(), p)
+		if err != nil {
+			l.storeError(w, err)
+			return
+		}
+		all, err := l.Provisioner.Store.CatalogGenres(r.Context(), lib, a)
+		if err != nil {
+			l.storeError(w, err)
+			return
+		}
+		for _, g := range all {
+			out = append(out, genre{g.Name, g.Count})
+		}
 	}
 	writeOK(w, map[string]any{"items": out})
 }

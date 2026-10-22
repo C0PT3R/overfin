@@ -1092,8 +1092,8 @@ paths:
     get:
       operationId: listLatest
       summary: Recently added items
-      description: New episodes of the same series are grouped into one entry
-        for the series.
+      description: Films and series only. A series counts as new when one of
+        its episodes is, and is listed once, by its newest episode.
       tags: [library]
       parameters:
         - name: library
@@ -1266,9 +1266,10 @@ paths:
 
   /genres:
     get:
-      x-status: planned
       operationId: listGenres
       summary: Genres, for filter menus
+      description: The genres of a library's films and series (or of every
+        library's), each with how many titles the profile may see have it.
       tags: [library]
       parameters:
         - name: library

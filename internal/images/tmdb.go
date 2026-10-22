@@ -22,11 +22,11 @@ const tmdbImageBase = "https://image.tmdb.org/t/p/"
 type TMDBRef struct {
 	Kind   string // movie, series; "" for a library title's artwork
 	TMDBID int
-	Type   string // poster, backdrop, logo, still
+	Type   string // poster, backdrop, profile (a cast member's photo), logo, still
 	Path   string // as TMDB gives it: "/abc123.jpg"
 }
 
-var tmdbRefPattern = regexp.MustCompile(`^tmdb_(movie|series)_([0-9]{1,10})_(poster|backdrop)_([A-Za-z0-9]{8,64})_(jpg|png)$`)
+var tmdbRefPattern = regexp.MustCompile(`^tmdb_(movie|series)_([0-9]{1,10})_(poster|backdrop|profile)_([A-Za-z0-9]{8,64})_(jpg|png)$`)
 
 // ParseTMDB validates a TMDB image ID.
 func ParseTMDB(id string) (TMDBRef, error) {
@@ -66,7 +66,8 @@ func ArtworkID(typ, path string) string {
 
 var tmdbPath = regexp.MustCompile(`^/([A-Za-z0-9]{8,64})\.(jpg|png)$`)
 
-// TMDBImageID is the image ID of a title's poster or backdrop at path; ""
+// TMDBImageID is the image ID of a title's poster, backdrop or cast
+// member's photo (profile) at path; ""
 // when the path isn't one.
 func TMDBImageID(kind string, tmdbID int, typ, path string) string {
 	m := tmdbPath.FindStringSubmatch(path)
@@ -82,6 +83,7 @@ var tmdbWidths = map[string]map[string]string{
 	"backdrop": {"small": "w780", "medium": "w1280", "large": "w1280"},
 	"logo":     {"small": "w185", "medium": "w300", "large": "w500"},
 	"still":    {"small": "w185", "medium": "w300", "large": "original"},
+	"profile":  {"small": "w185", "medium": "h632", "large": "h632"},
 }
 
 var tmdbHTTP = &http.Client{

@@ -68,6 +68,9 @@ type Details struct {
 type Person struct {
 	Name      string
 	Character string
+	// Profile is the person's photo, as TMDB gives its path; "" without
+	// one.
+	Profile string
 }
 
 type Season struct {
@@ -138,7 +141,11 @@ func MakeDetails(t Title, genres []string, cast []Person, seasons []Season) *Det
 			break
 		}
 		if name := textclean.Plain(p.Name, 120); name != "" {
-			d.Cast = append(d.Cast, Person{Name: name, Character: textclean.Plain(p.Character, 120)})
+			c := Person{Name: name, Character: textclean.Plain(p.Character, 120)}
+			if imagePath.MatchString(p.Profile) {
+				c.Profile = p.Profile
+			}
+			d.Cast = append(d.Cast, c)
 		}
 	}
 	for _, s := range seasons {

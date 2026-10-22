@@ -88,7 +88,7 @@ export interface CatalogTitle {
 
 export interface CatalogDetail extends CatalogTitle {
   genres?: string[];
-  cast?: { name: string; character?: string }[];
+  cast?: { name: string; character?: string; image?: ImageRef }[];
   seasons?: { number: number; name?: string; episodeCount: number; availability: string }[];
 }
 
@@ -154,6 +154,12 @@ export interface Item extends ItemSummary {
   criticRating?: number;
   credits?: Credit[];
   externalIds?: Record<string, string>;
+}
+
+export interface Genre {
+  name: string;
+  /** How many of the library's titles the profile may see have it. */
+  itemCount?: number;
 }
 
 export interface Library {
@@ -320,6 +326,8 @@ export class Overfin {
   pages(query?: ItemQuery): AsyncGenerator<ItemPage>;
   resume(limit?: number): Promise<ItemSummary[]>;
   nextUp(limit?: number): Promise<ItemSummary[]>;
+  /** A library's genres (every library's without one), for filters. */
+  genres(libraryId?: string): Promise<Genre[]>;
   latest(libraryId: string, limit?: number): Promise<ItemSummary[]>;
   imageUrl(ref: ImageRef | undefined, size?: 'small' | 'medium' | 'large'): string;
 

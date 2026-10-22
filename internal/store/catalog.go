@@ -404,8 +404,9 @@ type ListQuery struct {
 	PersonID string
 	// Access, when set, keeps only what the profile may see.
 	Access *Access
-	// Sort is "name", "premiereDate", "addedAt", "communityRating" or
-	// "lastPlayed" (by the profile's ProfileID). A Limit below 0 lists
+	// Sort is "name", "premiereDate", "addedAt", "communityRating",
+	// "latest" (when the title or, for a series, its newest episode was
+	// added) or "lastPlayed" (by the profile's ProfileID). A Limit below 0 lists
 	// everything, for shuffling.
 	Sort       string
 	Descending bool
@@ -418,6 +419,8 @@ var listOrder = map[string]string{
 	"premiereDate":    "premiere_date",
 	"addedAt":         "added_at",
 	"communityRating": "community_rating",
+	"latest": `(SELECT max(e.added_at) FROM catalog_items e
+		WHERE e.id = catalog_items.id OR e.series_id = catalog_items.id)`,
 }
 
 // ListCatalog returns the item IDs of a listing's page, in order. What's
@@ -532,4 +535,42 @@ func (q ListQuery) where() ([]string, []any) {
 		where, args = append(where, cond), append(args, a...)
 	}
 	return where, args
+}
+
+// GenreCount is a genre, with how many titles have it.
+type GenreCount struct {
+	Name  string
+	Count int
+}
+
+// CatalogGenres lists the genres of a library's films and series (any
+// library's, with libraryID empty), counting only what access lets the
+// profile see, by name.
+func (s *Store) CatalogGenres(ctx context.Context, libraryID string, access *Access) ([]GenreCount, error) {
+	where := []string{"catalog_items.kind IN ('movie', 'series')"}
+	var args []any
+	if libraryID != "" {
+		where, args = append(where, "catalog_items.library_id = ?"), append(args, libraryID)
+	}
+	if access != nil {
+		cond, a := access.itemAllowed("catalog_items")
+		where, args = append(where, cond), append(args, a...)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT g.genre, count(*) FROM catalog_genres g
+		JOIN catalog_items ON catalog_items.id = g.item_id
+		WHERE `+strings.Join(where, " AND ")+`
+		GROUP BY g.genre ORDER BY g.genre COLLATE NOCASE`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []GenreCount{}
+	for rows.Next() {
+		var g GenreCount
+		if err := rows.Scan(&g.Name, &g.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
 }

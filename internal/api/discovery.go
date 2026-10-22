@@ -82,8 +82,9 @@ type catalogSeason struct {
 }
 
 type catalogPerson struct {
-	Name      string `json:"name"`
-	Character string `json:"character,omitempty"`
+	Name      string            `json:"name"`
+	Character string            `json:"character,omitempty"`
+	Image     *library.ImageRef `json:"image,omitempty"`
 }
 
 type catalogDetail struct {
@@ -95,8 +96,12 @@ type catalogDetail struct {
 
 // storedDetails is a title's page as the catalog keeps it.
 type storedDetails struct {
-	Genres  []string        `json:"genres"`
-	Cast    []catalogPerson `json:"cast"`
+	Genres []string `json:"genres"`
+	Cast   []struct {
+		Name      string `json:"name"`
+		Character string `json:"character"`
+		Profile   string `json:"profile,omitempty"` // TMDB's path of their photo
+	} `json:"cast"`
 	Seasons []struct {
 		Number       int    `json:"number"`
 		Name         string `json:"name"`
@@ -229,7 +234,14 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 		d.Library.upstreamError(w, err)
 		return
 	}
-	out := catalogDetail{catalogTitle: placed[0], Genres: det.Genres, Cast: det.Cast}
+	out := catalogDetail{catalogTitle: placed[0], Genres: det.Genres}
+	for _, c := range det.Cast {
+		cp := catalogPerson{Name: c.Name, Character: c.Character}
+		if id := images.TMDBImageID(t.Kind, n, "profile", c.Profile); id != "" {
+			cp.Image = &library.ImageRef{URL: "/api/v1/images/" + id}
+		}
+		out.Cast = append(out.Cast, cp)
+	}
 	// Each season's place, from the episodes the library has.
 	var have map[int]int
 	if out.LibraryItem != nil && kind == "series" {
@@ -261,7 +273,11 @@ func (d Discovery) fetchDetails(ctx context.Context, kind string, tmdbID int) (*
 	var sd storedDetails
 	sd.Genres = det.Genres
 	for _, c := range det.Cast {
-		sd.Cast = append(sd.Cast, catalogPerson{Name: c.Name, Character: c.Character})
+		sd.Cast = append(sd.Cast, struct {
+			Name      string `json:"name"`
+			Character string `json:"character"`
+			Profile   string `json:"profile,omitempty"`
+		}{c.Name, c.Character, c.Profile})
 	}
 	for _, s := range det.Seasons {
 		sd.Seasons = append(sd.Seasons, struct {
@@ -371,6 +387,19 @@ func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profil
 			return err
 		}
 		if t == nil || (ref.Type == "poster" && t.Poster != ref.Path) || (ref.Type == "backdrop" && t.Backdrop != ref.Path) {
+			return images.ErrInvalid
+		}
+		// A photo only of someone on the title's kept cast.
+		if ref.Type == "profile" {
+			var det storedDetails
+			if len(t.Details) == 0 || json.Unmarshal(t.Details, &det) != nil {
+				return images.ErrInvalid
+			}
+			for _, c := range det.Cast {
+				if c.Profile == ref.Path {
+					return nil
+				}
+			}
 			return images.ErrInvalid
 		}
 		return nil

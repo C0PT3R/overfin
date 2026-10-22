@@ -46,7 +46,10 @@ func fakeSeerr(t *testing.T) *seerr.Client {
 			d["releases"] = map[string]any{"results": []any{map[string]any{"iso_3166_1": "US",
 				"release_dates": []any{map[string]any{"certification": "G"}, map[string]any{"certification": ""}}}}}
 			d["genres"] = []any{map[string]any{"name": "Crime"}}
-			d["credits"] = map[string]any{"cast": []any{map[string]any{"name": "Al Pacino", "character": "Hanna"}}}
+			d["credits"] = map[string]any{"cast": []any{
+				map[string]any{"name": "Al Pacino", "character": "Hanna", "profilePath": "/pacino12345.jpg"},
+				map[string]any{"name": "Val Kilmer", "profilePath": "../../etc/passwd"},
+			}}
 			json.NewEncoder(w).Encode(d)
 		case "/api/v1/movie/100":
 			json.NewEncoder(w).Encode(map[string]any{"id": 100, "releases": map[string]any{"results": []any{
@@ -132,11 +135,22 @@ func TestDiscover(t *testing.T) {
 	var det struct {
 		title
 		Genres []string
-		Cast   []struct{ Name, Character string }
+		Cast   []struct {
+			Name, Character string
+			Image           *struct{ URL string }
+		}
 	}
 	if code := get(t, srv, "/api/v1/catalog/movie/949", &det); code != 200 || det.Availability != "available" ||
-		len(det.Genres) != 1 || len(det.Cast) != 1 || det.Cast[0].Name != "Al Pacino" {
+		len(det.Genres) != 1 || len(det.Cast) != 2 || det.Cast[0].Name != "Al Pacino" {
 		t.Errorf("title: %d %+v", code, det)
+	}
+	// Cast photos: as images of the title, the unsafe path dropped.
+	if det.Cast[0].Image == nil || det.Cast[0].Image.URL != "/api/v1/images/tmdb_movie_949_profile_pacino12345_jpg" || det.Cast[1].Image != nil {
+		t.Errorf("cast photos: %+v", det.Cast)
+	}
+	// A photo of no one on the title's cast is refused before TMDB is asked.
+	if code := get(t, srv, "/api/v1/images/tmdb_movie_949_profile_someoneelse1_jpg", nil); code != 404 {
+		t.Errorf("photo of someone else: %d", code)
 	}
 	if code := get(t, srv, "/api/v1/catalog/movie/12345", nil); code != 404 {
 		t.Errorf("unknown title: %d", code)

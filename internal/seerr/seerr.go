@@ -166,7 +166,7 @@ func (c *Client) Details(ctx context.Context, kind string, tmdbID int) (*Details
 		rawTitle
 		Genres  []struct{ Name string }
 		Credits struct {
-			Cast []struct{ Name, Character string }
+			Cast []struct{ Name, Character, ProfilePath string }
 		}
 		Seasons []struct {
 			SeasonNumber int
@@ -190,7 +190,7 @@ func (c *Client) Details(ctx context.Context, kind string, tmdbID int) (*Details
 	}
 	var cast []Person
 	for _, p := range raw.Credits.Cast {
-		cast = append(cast, Person{Name: p.Name, Character: p.Character})
+		cast = append(cast, Person{Name: p.Name, Character: p.Character, Profile: p.ProfilePath})
 	}
 	var seasons []Season
 	for _, se := range raw.Seasons {

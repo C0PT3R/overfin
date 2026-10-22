@@ -185,8 +185,9 @@ type rawDetails struct {
 	} `json:"genres"`
 	Credits struct {
 		Cast []struct {
-			Name      string `json:"name"`
-			Character string `json:"character"`
+			Name        string `json:"name"`
+			Character   string `json:"character"`
+			ProfilePath string `json:"profile_path"`
 		} `json:"cast"`
 	} `json:"credits"`
 	Seasons []struct {
@@ -244,7 +245,7 @@ func (c *Client) Details(ctx context.Context, kind string, tmdbID int) (*Details
 	}
 	var cast []Person
 	for _, p := range raw.Credits.Cast {
-		cast = append(cast, Person{Name: p.Name, Character: p.Character})
+		cast = append(cast, Person{Name: p.Name, Character: p.Character, Profile: p.ProfilePath})
 	}
 	var seasons []Season
 	for _, s := range raw.Seasons {
