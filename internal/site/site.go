@@ -6,6 +6,8 @@
 package site
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -30,11 +32,24 @@ type Handler struct {
 	// etags are the embedded files' content hashes: they have no dates, so
 	// browsers revalidate them by hash.
 	etags map[string]string
+	// gzipped are the embedded text files, compressed once at start, for
+	// browsers that take gzip.
+	gzipped map[string][]byte
+}
+
+// compressible are the kinds of files worth compressing.
+var compressible = map[string]bool{".js": true, ".css": true, ".html": true, ".svg": true, ".json": true,
+	".txt": true, ".webmanifest": true}
+
+// immutable says whether an embedded file's name changes with its content
+// (a bundler's hashed assets): browsers keep it without asking again.
+func immutable(name string) bool {
+	return strings.HasPrefix(name, "assets/")
 }
 
 // Embedded serves files compiled into Overfin, such as overfin-web.
 func Embedded(files fs.FS, csp string, spa bool, gate Gate) (*Handler, error) {
-	h := &Handler{files: files, csp: csp, spa: spa, gate: gate, etags: map[string]string{}}
+	h := &Handler{files: files, csp: csp, spa: spa, gate: gate, etags: map[string]string{}, gzipped: map[string][]byte{}}
 	err := fs.WalkDir(files, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -45,6 +60,17 @@ func Embedded(files fs.FS, csp string, spa bool, gate Gate) (*Handler, error) {
 		}
 		sum := sha256.Sum256(b)
 		h.etags[name] = `"` + hex.EncodeToString(sum[:12]) + `"`
+		if compressible[path.Ext(name)] {
+			var z bytes.Buffer
+			zw, _ := gzip.NewWriterLevel(&z, gzip.BestCompression)
+			zw.Write(b)
+			if err := zw.Close(); err != nil {
+				return err
+			}
+			if z.Len() < len(b)*9/10 {
+				h.gzipped[name] = z.Bytes()
+			}
+		}
 		return nil
 	})
 	return h, err
@@ -94,11 +120,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	hd := w.Header()
 	hd.Set("Content-Security-Policy", h.csp)
-	hd.Set("Cache-Control", "no-cache") // revalidated on every use
+	if _, ok := h.etags[name]; ok && immutable(name) {
+		hd.Set("Cache-Control", "private, max-age=31536000, immutable")
+	} else {
+		hd.Set("Cache-Control", "no-cache") // revalidated on every use
+	}
 	modified := info.ModTime()
 	if tag, ok := h.etags[name]; ok {
 		hd.Set("ETag", tag)
 		modified = time.Time{}
+	}
+	if z, ok := h.gzipped[name]; ok {
+		hd.Add("Vary", "Accept-Encoding")
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			hd.Set("Content-Encoding", "gzip")
+			hd.Set("ETag", strings.TrimSuffix(h.etags[name], `"`)+`-gz"`)
+			http.ServeContent(w, r, name, modified, bytes.NewReader(z))
+			return
+		}
 	}
 	http.ServeContent(w, r, name, modified, rs)
 }

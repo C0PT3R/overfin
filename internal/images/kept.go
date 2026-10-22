@@ -93,7 +93,7 @@ func (p *Pipeline) Keep(ctx context.Context, wanted []TMDBRef, refetch time.Time
 			if info, err := os.Stat(file); err == nil && info.ModTime().After(refetch) {
 				continue
 			}
-			data, err := p.fetchTMDB(ctx, ref, width)
+			data, err := p.fetchTMDB(ctx, ref, width, p.background)
 			if errors.Is(err, ErrHidden) || errors.Is(err, ErrUnsafe) {
 				continue // TMDB has no such image, or a bad one: tried again next pass
 			}

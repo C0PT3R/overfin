@@ -86,7 +86,7 @@ func (p *Pipeline) TMDB(ctx context.Context, ref TMDBRef, size string, check fun
 		p.cache.put(key, entry{data: data, contentType: contentTypeOf(ref.Type)})
 		return data, contentTypeOf(ref.Type), nil
 	}
-	data, err := p.fetchTMDB(ctx, ref, width)
+	data, err := p.fetchTMDB(ctx, ref, width, p.slots)
 	if err != nil {
 		return nil, "", err
 	}
@@ -103,8 +103,9 @@ func contentTypeOf(typ string) string {
 	return "image/jpeg"
 }
 
-// fetchTMDB fetches a TMDB image at width and re-encodes it.
-func (p *Pipeline) fetchTMDB(ctx context.Context, ref TMDBRef, width string) ([]byte, error) {
+// fetchTMDB fetches a TMDB image at width and re-encodes it, in one of
+// slots.
+func (p *Pipeline) fetchTMDB(ctx context.Context, ref TMDBRef, width string, slots chan struct{}) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tmdbImageBase+width+ref.Path, nil)
 	if err != nil {
 		return nil, err
@@ -126,11 +127,11 @@ func (p *Pipeline) fetchTMDB(ctx context.Context, ref TMDBRef, width string) ([]
 		return nil, ErrUnsafe
 	}
 	select {
-	case p.slots <- struct{}{}:
+	case slots <- struct{}{}:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 	data, err := Reencode(raw, contentTypeOf(ref.Type))
-	<-p.slots
+	<-slots
 	return data, err
 }

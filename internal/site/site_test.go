@@ -1,6 +1,8 @@
 package site
 
 import (
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,12 +13,13 @@ import (
 )
 
 var files = fstest.MapFS{
-	"index.html":       {Data: []byte("home")},
-	"app.js":           {Data: []byte("js")},
-	".env":             {Data: []byte("secret")},
-	"sub/index.html":   {Data: []byte("sub")},
-	"sub/.git/config":  {Data: []byte("git")},
-	"empty/readme.txt": {Data: []byte("no index here")},
+	"index.html":         {Data: []byte("home")},
+	"app.js":             {Data: []byte("js")},
+	".env":               {Data: []byte("secret")},
+	"sub/index.html":     {Data: []byte("sub")},
+	"sub/.git/config":    {Data: []byte("git")},
+	"empty/readme.txt":   {Data: []byte("no index here")},
+	"assets/app-1a2b.js": {Data: []byte(strings.Repeat("console.log('overfin');\n", 200))},
 }
 
 func open(http.ResponseWriter, *http.Request) bool { return true }
@@ -105,5 +108,38 @@ func TestFolder(t *testing.T) {
 	}
 	if w := get(h, "GET", "/link.txt"); w.Code != 404 || strings.Contains(w.Body.String(), "outside") {
 		t.Errorf("symlink out of the folder: %d %q", w.Code, w.Body)
+	}
+}
+
+// Hashed assets are kept by browsers for good, and sent compressed to
+// those that take gzip; other files are revalidated, small ones sent as
+// they are.
+func TestCompressedAndKept(t *testing.T) {
+	h, err := Embedded(files, "default-src 'self'", false, open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := get(h, "GET", "/assets/app-1a2b.js")
+	if plain.Header().Get("Content-Encoding") != "" || !strings.Contains(plain.Header().Get("Cache-Control"), "immutable") ||
+		plain.Header().Get("Vary") != "Accept-Encoding" {
+		t.Fatalf("plain: %v", plain.Header())
+	}
+	w := get(h, "GET", "/assets/app-1a2b.js", "Accept-Encoding", "gzip, br")
+	if w.Header().Get("Content-Encoding") != "gzip" || w.Body.Len() >= plain.Body.Len() ||
+		w.Header().Get("ETag") == plain.Header().Get("ETag") || !strings.Contains(w.Header().Get("Content-Type"), "javascript") {
+		t.Fatalf("gzipped: %v %d", w.Header(), w.Body.Len())
+	}
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := io.ReadAll(zr); string(b) != plain.Body.String() {
+		t.Error("gzipped differs")
+	}
+	if w := get(h, "GET", "/assets/app-1a2b.js", "Accept-Encoding", "gzip", "If-None-Match", w.Header().Get("ETag")); w.Code != 304 {
+		t.Errorf("revalidating the gzipped one: %d", w.Code)
+	}
+	if w := get(h, "GET", "/app.js", "Accept-Encoding", "gzip"); w.Header().Get("Content-Encoding") != "" || w.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("small, unhashed: %v", w.Header())
 	}
 }

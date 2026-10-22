@@ -97,6 +97,9 @@ type Pipeline struct {
 	// decodes to about 64 MB of pixels; without a limit, a burst of
 	// requests could exhaust memory.
 	slots chan struct{}
+	// background is the one slot background work (Keep) decodes in: it
+	// never takes a visitor's.
+	background chan struct{}
 }
 
 // DecodeSlots is how many images may be decoded at the same time.
@@ -105,10 +108,11 @@ const DecodeSlots = 4
 // New returns a pipeline caching up to cacheBytes of encoded images.
 func New(jf *jellyfin.Client, cacheBytes int) *Pipeline {
 	return &Pipeline{
-		Jellyfin: jf,
-		cache:    newLRU(cacheBytes),
-		access:   newAccessCache(5*time.Minute, 50_000),
-		slots:    make(chan struct{}, DecodeSlots),
+		Jellyfin:   jf,
+		cache:      newLRU(cacheBytes),
+		access:     newAccessCache(5*time.Minute, 50_000),
+		slots:      make(chan struct{}, DecodeSlots),
+		background: make(chan struct{}, 1),
 	}
 }
 
