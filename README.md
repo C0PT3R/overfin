@@ -234,6 +234,17 @@ with the client secret in `OVERFIN_OIDC_CLIENT_SECRET`. Anyone who can log
 in at your provider gets an account, unless you set
 `identity.required_group`, or switch invitations on and make them required.
 
+**Leaving your identity provider for Overfin's own sign-in?** While it's
+still configured (with its `[connector]`), run `overfin -import-people`
+once: everyone it has, with an email, can then sign in with that email,
+keeping their account, and the panel's admins stay admins. Then switch to
+`identity.mode = "managed"`. People without a password sign in with a code
+by email, or a link from the panel.
+
+**Locked out?** `overfin -signin-link you@example.org` prints a one-time
+sign-in link, valid a day (with Docker: `docker exec overfin /overfin
+-signin-link you@example.org`).
+
 ### The control panel
 
 With Overfin's own sign-in, it's at `/admin/` on the site, for admins, who

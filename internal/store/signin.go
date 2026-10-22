@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -56,6 +57,39 @@ func (s *Store) CreateUser(ctx context.Context, email string, admin bool) (*User
 		return nil, fmt.Errorf("store: creating user: %w", err)
 	}
 	return p, nil
+}
+
+// ImportUser adds someone with the subject they already have, as an
+// identity provider's user ID: their account stays theirs when the server
+// moves to managed sign-in.
+func (s *Store) ImportUser(ctx context.Context, subject, email string, admin bool) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO users (subject, email, admin, created_at) VALUES (?, ?, ?, ?)`,
+		subject, email, boolInt(admin), s.now().Unix())
+	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
+		return ErrEmailTaken
+	}
+	return err
+}
+
+// SubjectsInGroup lists the subjects whose live logins carry a group: who
+// the identity provider said was in it, at their last login.
+func (s *Store) SubjectsInGroup(ctx context.Context, group string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT subject, groups FROM logins WHERE expires_at > ?`, s.now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var subject, groups string
+		if err := rows.Scan(&subject, &groups); err != nil {
+			return nil, err
+		}
+		if slices.Contains(strings.Split(groups, groupSep), group) {
+			out[subject] = true
+		}
+	}
+	return out, rows.Err()
 }
 
 // UserByEmail finds someone by email, whatever its case.

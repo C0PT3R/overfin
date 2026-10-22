@@ -99,6 +99,10 @@ func run(logger *slog.Logger) error {
 	configPath := flag.String("config", defaultPath, "path to the configuration file")
 	recoverTokens := flag.Bool("recover-tokens", false,
 		"after the secret key was lost: give every profile a fresh Jellyfin token sealed with the current key, then exit")
+	importFlag := flag.Bool("import-people", false,
+		"before moving to managed sign-in: let everyone the identity provider ([connector]) has sign in with their email, keeping their accounts, then exit")
+	linkFor := flag.String("signin-link", "",
+		"print a one-time sign-in link, valid a day, for this email (managed sign-in), then exit")
 	check := flag.Bool("check", false,
 		"test the configuration, the secret key, Jellyfin and the identity provider, say what's wrong, then exit; changes nothing")
 	flag.Parse()
@@ -152,6 +156,12 @@ func run(logger *slog.Logger) error {
 
 	if *recoverTokens {
 		return runRecovery(cfg, db, moduleDBs, k, logger)
+	}
+	if *importFlag {
+		return importPeople(context.Background(), cfg, db, os.Stdout)
+	}
+	if *linkFor != "" {
+		return signinLink(context.Background(), cfg, db, k, *linkFor, os.Stdout)
 	}
 
 	// Stop cleanly on Ctrl+C or `docker stop`; reload the configuration on
