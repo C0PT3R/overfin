@@ -7,7 +7,7 @@ and TV apps will follow. This repository is the server.
 
 The server sits in front of Jellyfin, which browsers never reach through
 it, and which can stay off the internet entirely (recommended). It holds everything that matters: who people
-are (logins through your identity provider, accounts and profiles,
+are (its own sign-in or your identity provider's, accounts and profiles,
 invitations), what each profile may see, limits, and a control panel to
 manage it all. The apps hold the experience, and nothing else.
 
@@ -22,7 +22,7 @@ feel.
 browser ──▶ the site (overfin-web, or your own)
    └──▶ /api/v1/*  ──▶  Overfin  ──▶  Jellyfin (private)
                           │
-                          └──▶  your identity provider (login)
+                          └──▶  its own sign-in, or your identity provider
 ```
 
 ## Where it stands
@@ -36,10 +36,10 @@ practice:
 - **Releases are pre-releases.** Each comes as a signed image for x86 and
   ARM (`ghcr.io/overfin/overfin`). The API, the settings and the database
   can still change between versions; the database migrates itself.
-- **Two identity providers so far.** Authentik has been used for real;
-  Pocket ID, the one [deploy/](deploy) runs, has been tested against its
-  API, not yet for real. Any OpenID Connect provider should work, but none
-  other has been tested.
+- **Its own sign-in is new.** Overfin signing people in itself (the
+  default) is tested, not yet used for real. Of identity providers,
+  Authentik and Pocket ID have been used for real; any OpenID Connect
+  provider should work, but none other has been tested.
 - **Browser only.** There's no login for native apps yet, and Jellyfin's own
   apps don't go through Overfin, so people who move to it watch in a
   browser.
@@ -54,9 +54,11 @@ yet.
 
 **Logging in and accounts**
 
-- Login through your OpenID Connect provider (or a reverse proxy's forward
-  auth), re-checked every few minutes. Deleting things, changing a PIN or
-  downloading one's data asks for a fresh login.
+- Overfin's own sign-in: an email and a code sent there, or a password;
+  without an email server, passwords and one-time links an admin hands
+  over. Or sign-in through your OpenID Connect provider (or a reverse
+  proxy's forward auth), re-checked every few minutes. Deleting things,
+  changing a PIN or downloading one's data asks to confirm it's you.
 - Accounts with Netflix-style profiles, each with its own watch history and
   optional PIN. Kids profiles have ceilings, one for films and one for
   series, on Overfin's own ratings from TMDB in the country the operator
@@ -100,7 +102,7 @@ The main gaps, roughly in the order they're planned (details in
 - Invitations that include the identity provider's sign-up (today, invited
   people need a login there first).
 - A live view of who's watching.
-- Email: notices, and confirming sensitive actions with an emailed code.
+- Email notices (sign-in codes are there).
 - A login for native apps, and SDKs other than JavaScript.
 - Seek-bar previews, search, favorites, a TMDB catalog, Seerr requests.
 - Jellyfin 10.11 support.
@@ -110,78 +112,94 @@ are marked `x-status: planned`.
 
 ## Trying it
 
-**The quickest way** is [deploy/](deploy): Overfin, Caddy and Pocket ID
-(passkey logins) in one compose file, with Pocket ID set up by Overfin
-itself. A script asks a few questions and generates every secret.
+You need a **Jellyfin 12** server, ideally not reachable from the internet
+(see [SECURITY.md](SECURITY.md), Deployment), with an API key made in its
+dashboard, and **Docker** (or Go 1.26). Overfin uses the key only to manage
+its own Jellyfin account, never to browse or play.
 
-**By hand**, with your own reverse proxy and identity provider, you need a **Jellyfin 12** server, ideally not reachable from the internet
-(see [SECURITY.md](SECURITY.md), Deployment, for what exposing both means), an
-**OpenID Connect provider**, a **reverse proxy** with HTTPS, and **Docker**
-(or Go 1.26) to build Overfin.
-
-**1. A Jellyfin API key**, made in Jellyfin's dashboard. Overfin uses it only
-to manage the Jellyfin users behind its profiles, never to browse or play.
-Jellyfin's address and this key can also be left out of the configuration:
-with the control panel switched on (`[admin]`), its setup page asks for
-both, tests them and keeps them, the key sealed; the panel's Settings
-change them later, for the same Jellyfin server.
-
-**2. A client at your identity provider**: a confidential OpenID client with
-the redirect URL `https://example.org/api/v1/auth/callback`, allowed to issue
-refresh tokens (usually the `offline_access` scope).
-
-**3. `overfin.toml`**, the least it needs
-([overfin.example.toml](overfin.example.toml) has every setting):
-
-```toml
-[jellyfin]
-url = "http://192.0.2.10:8096"
-
-[identity]
-mode = "oidc"
-trusted_proxies = ["198.51.100.7"]   # your reverse proxy
-
-[oidc]
-issuer = "https://auth.example.org/application/o/site/"
-client_id = "overfin"
-redirect_url = "https://example.org/api/v1/auth/callback"
-
-```
-
-Features that can be switched (invitations, migration) are switched in the
-control panel.
-
-**4. Secrets**, as environment variables (or `NAME_FILE` pointing to a file):
-
-| Variable | |
-| --- | --- |
-| `OVERFIN_JELLYFIN_ADMIN_KEY` | The Jellyfin API key, with `[jellyfin]` (or neither, with the setup page) |
-| `OVERFIN_SECRET_KEY` | Optional: without it, Overfin generates one on its first start, in `/secrets/overfin.key`. Either way, back it up: it seals what Overfin stores |
-| `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
-
-**5. Run it** (the version from the
-[releases](https://github.com/overfin/server/releases); `docker
-build -t overfin .` builds it from source instead):
+**1. Run it.** No configuration file is needed:
 
 ```sh
-docker run -d --name overfin --network proxy \
-  -v "$PWD/overfin.toml:/etc/overfin/overfin.toml:ro" \
+docker run -d --name overfin -p 8080:8080 \
   -v overfin-data:/data -v overfin-secrets:/secrets \
-  -e OVERFIN_JELLYFIN_ADMIN_KEY -e OVERFIN_OIDC_CLIENT_SECRET \
   ghcr.io/overfin/overfin:0.2.0
 ```
 
-**6. The reverse proxy** handles HTTPS and passes everything to Overfin,
-which serves the API and the site. With Caddy:
+(The version from the [releases](https://github.com/overfin/server/releases);
+`docker build -t overfin .` builds it from source instead.)
+
+**2. Set it up in your browser.** Open `http://<the machine>:8080`: the
+setup page asks for the one-time code in Overfin's log
+(`docker logs overfin`), Jellyfin's address and API key, and your email and
+a password, for you, its first admin. Then sign in.
+
+That's all. People sign in with their email: with a code Overfin sends
+there, or a password they set. Without an email server, they sign in with
+a password, or with a one-time sign-in link you make for them. The control
+panel is at `/admin/`, for admins: add people there, connect an email
+server (Settings, Email), switch invitations on.
+
+Overfin keeps its secret key in `overfin-secrets` and everything else in
+`overfin-data`: back both up, apart.
+
+### On the internet, with HTTPS
+
+**Overfin can get its own certificate** from Let's Encrypt. Point your
+domain at the machine, open ports 80 and 443, and run it with your domain:
+
+```sh
+docker run -d --name overfin -p 80:8080 -p 443:8443 \
+  -e OVERFIN_DOMAIN=media.example.org \
+  -v overfin-data:/data -v overfin-secrets:/secrets \
+  ghcr.io/overfin/overfin:0.2.0
+```
+
+It renews the certificate by itself, and sends plain-http visitors to
+HTTPS. The setup code keeps a fresh install yours, but do the setup right
+away.
+
+**Or behind your own reverse proxy**, which handles HTTPS and passes
+everything to Overfin on port 8080. Tell Overfin the site's address and the
+proxy's, in `/etc/overfin/overfin.toml`
+([overfin.example.toml](overfin.example.toml) has every setting):
+
+```toml
+[site]
+url = "https://media.example.org"
+
+[identity]
+trusted_proxies = ["198.51.100.7"]   # your reverse proxy: the client address comes from it
+```
+
+Caddy:
 
 ```caddyfile
-example.org {
+media.example.org {
 	reverse_proxy overfin:8080
 }
 ```
 
-Open your domain and log in: you're on [overfin-web](https://github.com/overfin/web), Overfin's own
-web client, served to logged-in visitors only.
+nginx (inside your `server { listen 443 ssl; ... }` block):
+
+```nginx
+location / {
+    proxy_pass http://overfin:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;              # video streams
+    proxy_read_timeout 1h;
+}
+```
+
+Traefik (labels on Overfin's container):
+
+```yaml
+labels:
+  - traefik.http.routers.overfin.rule=Host(`media.example.org`)
+  - traefik.http.routers.overfin.tls.certresolver=letsencrypt
+  - traefik.http.services.overfin.loadbalancer.server.port=8080
+```
 
 **Your own client instead?** Set `[site] serve` to its folder: Overfin
 serves it the same way, with the Content-Security-Policy you give it
@@ -190,15 +208,42 @@ serves it the same way, with the Content-Security-Policy you give it
 site, asking Overfin's gate first (`forward_auth` to `/api/v1/gate`) to keep
 its pages private.
 
-Anyone who can log in at your identity provider gets an account, unless you
-set `identity.required_group`, or switch invitations on and make them
-required.
+### Signing in through your identity provider
+
+Instead of Overfin's own sign-in, people can sign in through an OpenID
+Connect provider (`identity.mode = "oidc"`), or a reverse proxy's forward
+auth (`"forwardauth"`). [deploy/](deploy) runs Overfin with Caddy and
+Pocket ID (passkey logins) in one compose file, set up by a script.
+
+By hand: make a confidential OpenID client at your provider with the
+redirect URL `https://media.example.org/api/v1/auth/callback`, allowed to
+issue refresh tokens (usually the `offline_access` scope), then:
+
+```toml
+[identity]
+mode = "oidc"
+trusted_proxies = ["198.51.100.7"]   # your reverse proxy
+
+[oidc]
+issuer = "https://auth.example.org/application/o/site/"
+client_id = "overfin"
+redirect_url = "https://media.example.org/api/v1/auth/callback"
+```
+
+with the client secret in `OVERFIN_OIDC_CLIENT_SECRET`. Anyone who can log
+in at your provider gets an account, unless you set
+`identity.required_group`, or switch invitations on and make them required.
 
 ### The control panel
 
-Add an `[admin]` section and publish its port on the server's `127.0.0.1`
-only; reach it through an SSH tunnel (`ssh -L 8081:localhost:8081 server`,
-then `http://localhost:8081`), or on your LAN or VPN over HTTPS:
+With Overfin's own sign-in, it's at `/admin/` on the site, for admins, who
+confirm it's them before going in. `[admin] private = true` keeps it to
+private addresses (LAN, VPN).
+
+With an identity provider, it has a listener of its own instead, never on
+the internet: publish its port on the server's `127.0.0.1` only, and reach
+it through an SSH tunnel (`ssh -L 8081:localhost:8081 server`, then
+`http://localhost:8081`), or on your LAN or VPN over HTTPS:
 
 ```toml
 [admin]
@@ -217,8 +262,9 @@ admin group there, and invitation links lead to a one-person sign-up link
 
 ### Moving people over from Jellyfin
 
-Switch migration on in the control panel, give everyone a login at your identity
-provider, and announce a date. On their first visit, people choose to bring
+Switch migration on in the control panel, let everyone sign in (with
+Overfin's own sign-in, add them in the panel or invite them; with an
+identity provider, give them a login there), and announce a date. On their first visit, people choose to bring
 their previous account and enter its old username and password once. By
 default that's a move: the old login and Jellyfin apps stop working for them
 at once. Mode "link" keeps the old login working until you press "Move
