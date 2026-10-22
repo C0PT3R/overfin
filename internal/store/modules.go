@@ -20,7 +20,7 @@ import (
 // 002_….sql…) that haven't run yet, each in its own transaction.
 func OpenModule(ctx context.Context, module, path string, migrations fs.FS) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", "file:"+path+
-		"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+		"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)")
 	if err != nil {
 		return nil, fmt.Errorf("store: module %s: %w", module, err)
 	}

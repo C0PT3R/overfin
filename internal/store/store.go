@@ -47,7 +47,10 @@ func Open(ctx context.Context, path string, box *seal.Box) (*Store, error) {
 	dsn := "file:" + path +
 		"?_pragma=foreign_keys(1)" +
 		"&_pragma=journal_mode(WAL)" +
-		"&_pragma=busy_timeout(5000)"
+		"&_pragma=busy_timeout(5000)" +
+		// Temporary data (sorts, unions) stays in memory: the container's
+		// file system is read-only, with no temporary directory.
+		"&_pragma=temp_store(2)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
