@@ -35,6 +35,13 @@ func (f *fakeTitles) Title(_ context.Context, kind string, id int) (*tmdb.Full, 
 	}, nil
 }
 
+func (f *fakeTitles) Find(_ context.Context, kind, source, id string) (int, error) {
+	if kind == "movie" && source == "imdb" && id == "tt0000042" {
+		return 42, nil
+	}
+	return 0, tmdb.ErrNotFound
+}
+
 func (f *fakeTitles) Season(_ context.Context, series, n int) (*tmdb.SeasonFull, error) {
 	f.seasons = append(f.seasons, n)
 	eps := []tmdb.Episode{{Number: 1, Name: "L'hiver vient", Still: "/still11234.jpg"}, {Number: 2, Name: "La route royale"}}
@@ -59,6 +66,7 @@ func TestTitlesKeepEverythingTMDBSays(t *testing.T) {
 		{ID: id(1), Kind: "series", Name: "GoT", SortName: "got", TMDB: "1399"},
 		{ID: id(2), Kind: "season", Name: "S1", SortName: "s1", SeriesID: id(1), SeasonNumber: &one},
 		{ID: id(3), Kind: "movie", Name: "Unknown", SortName: "u", TMDB: "5"},
+		{ID: id(4), Kind: "movie", Name: "By IMDb", SortName: "b", IMDb: "tt0000042"},
 	}, 1)
 	src := &fakeTitles{}
 	k := NewTitles(func() TitleSource { return src }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 0)
@@ -67,6 +75,10 @@ func TestTitlesKeepEverythingTMDBSays(t *testing.T) {
 	}
 	if len(src.seasons) != 2 {
 		t.Errorf("seasons asked: %v", src.seasons)
+	}
+	// The film known only by its IMDb ID got its TMDB ID.
+	if keys, _ := st.TitleKeys(ctx, []string{id(4)}); keys[id(4)] != "movie/tmdb/42" {
+		t.Errorf("found by IMDb: %v", keys)
 	}
 	title, err := st.TitleByTMDB(ctx, "series", "1399")
 	if err != nil || title == nil || title.Name != "Le Trône de fer" || title.ItemID != id(1) {

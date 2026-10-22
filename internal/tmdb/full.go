@@ -203,3 +203,31 @@ func (c *Client) Season(ctx context.Context, seriesID, season int) (*SeasonFull,
 	}
 	return out, nil
 }
+
+// Find returns the TMDB ID of the film ("movie") or the series ("series")
+// an IMDb ("imdb") or TVDB ("tvdb") ID names; ErrNotFound when TMDB knows
+// none.
+func (c *Client) Find(ctx context.Context, kind, source, id string) (int, error) {
+	param := map[string]string{"imdb": "imdb_id", "tvdb": "tvdb_id"}[source]
+	if param == "" || !externalID.MatchString(id) || (kind != "movie" && kind != "series") {
+		return 0, ErrNotFound
+	}
+	var raw struct {
+		MovieResults []struct{ ID int } `json:"movie_results"`
+		TVResults    []struct{ ID int } `json:"tv_results"`
+	}
+	if err := c.get(ctx, "/find/"+id, url.Values{"external_source": {param}}, &raw); err != nil {
+		return 0, err
+	}
+	results := raw.MovieResults
+	if kind == "series" {
+		results = raw.TVResults
+	}
+	if len(results) == 0 || !ValidID(results[0].ID) {
+		return 0, ErrNotFound
+	}
+	return results[0].ID, nil
+}
+
+// externalID is what an IMDb or a TVDB ID looks like.
+var externalID = regexp.MustCompile(`^(tt)?[0-9]{1,12}$`)

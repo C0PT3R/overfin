@@ -17,6 +17,8 @@ import (
 type TitleSource interface {
 	Title(ctx context.Context, kind string, tmdbID int) (*tmdb.Full, error)
 	Season(ctx context.Context, seriesID, season int) (*tmdb.SeasonFull, error)
+	// Find is the TMDB ID an IMDb or TVDB ID names.
+	Find(ctx context.Context, kind, source, id string) (int, error)
 }
 
 // Titles keeps what TMDB says about every film and series the library has,
@@ -90,6 +92,9 @@ func (a *Titles) Once(ctx context.Context) error {
 	src := a.Source()
 	if src == nil {
 		return nil
+	}
+	if err := a.find(ctx, src); err != nil {
+		return err
 	}
 	fetched, streak := 0, 0
 	failed := map[string]bool{}
@@ -251,6 +256,38 @@ func (a *Titles) FetchSeason(ctx context.Context, seriesID string, n int) error 
 		return tmdb.ErrNotFound
 	}
 	return a.season(ctx, src, id, n, map[string]map[string]string{})
+}
+
+// find looks for the library's films and series known only by an IMDb or
+// TVDB ID on TMDB, so they get its data too.
+func (a *Titles) find(ctx context.Context, src TitleSource) error {
+	todo, err := a.Store.TitlesToFind(ctx, a.clock().Add(-TitlesFresh), 200)
+	if err != nil {
+		return err
+	}
+	found := 0
+	for _, t := range todo {
+		id, err := src.Find(ctx, t.Kind, t.Source, t.External)
+		switch {
+		case errors.Is(err, tmdb.ErrNotFound):
+			err = a.Store.SetFound(ctx, t, "", a.clock())
+		case err != nil:
+			return err
+		default:
+			found++
+			err = a.Store.SetFound(ctx, t, strconv.Itoa(id), a.clock())
+		}
+		if err != nil {
+			return err
+		}
+		if err := a.pause(ctx); err != nil {
+			return err
+		}
+	}
+	if found > 0 {
+		a.Logger.Info("catalog: titles found on TMDB by their IMDb or TVDB ID", "titles", found)
+	}
+	return nil
 }
 
 func (a *Titles) pause(ctx context.Context) error {

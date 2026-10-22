@@ -143,7 +143,7 @@ func (s *Store) PutCatalog(ctx context.Context, items []CatalogItem, pass int64)
 		}
 		if _, err := stmt.ExecContext(ctx, it.ID, it.Kind, it.Name, it.SortName, nullInt(it.Year),
 			nullString(it.SeriesID), nullString(it.SeasonID), it.SeasonNumber, it.EpisodeNumber,
-			nullString(it.TMDB), nullString(it.IMDb), nullString(it.TVDB), it.Rating,
+			nullString(s.foundTMDB(ctx, tx, it)), nullString(it.IMDb), nullString(it.TVDB), it.Rating,
 			nullString(it.PrimaryTag), nullString(it.BackdropTag), nullString(it.ThumbTag), pass,
 			nullString(it.LibraryID), added, nullString(it.PremiereDate), it.CommunityRating); err != nil {
 			return err

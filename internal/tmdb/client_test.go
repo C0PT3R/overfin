@@ -52,6 +52,12 @@ func fakeTMDB(t *testing.T) *Client {
 				"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
 				"images":{"logos":[{"file_path":"/logoen1234.png","iso_639_1":"en"},{"file_path":"/logofr1234.png","iso_639_1":"fr"},
 					{"file_path":"/logo.svg","iso_639_1":"fr"}]}}`)
+		case "/3/find/tt0944947":
+			if r.URL.Query().Get("external_source") != "imdb_id" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			io.WriteString(w, `{"movie_results":[],"tv_results":[{"id":1399}]}`)
 		case "/3/tv/1400":
 			if r.URL.Query().Get("append_to_response") != "aggregate_credits,images" {
 				w.WriteHeader(http.StatusBadRequest)
@@ -143,6 +149,15 @@ func TestClient(t *testing.T) {
 	if s, err := c.Title(ctx, "series", 1400); err != nil || len(s.Cast) != 2 || s.Cast[0].Character != "Jerry" ||
 		s.Cast[0].Profile != "/jerry12345.jpg" || s.Cast[1].Character != "" {
 		t.Errorf("series cast: %+v %v", s, err)
+	}
+	if id, err := c.Find(ctx, "series", "imdb", "tt0944947"); err != nil || id != 1399 {
+		t.Errorf("find a series: %d %v", id, err)
+	}
+	if _, err := c.Find(ctx, "movie", "imdb", "tt0944947"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("not a film: %v", err)
+	}
+	if _, err := c.Find(ctx, "movie", "imdb", "../x"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a bad ID: %v", err)
 	}
 	season, err := c.Season(ctx, 1399, 1)
 	if err != nil || season.Poster != "/season1abc.jpg" || season.Name != "Saison 1" || season.AirDate != "2011-04-17" || len(season.Episodes) != 3 {
