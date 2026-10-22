@@ -114,3 +114,24 @@ func TestSanitizeVTT(t *testing.T) {
 		t.Error("accepted a non-WebVTT file")
 	}
 }
+
+// An HDR video Jellyfin copies comes with SDR versions it would re-encode,
+// at the same bandwidth: only the copy is offered. Without a copy, every
+// version stays.
+func TestMasterKeepsTheCopy(t *testing.T) {
+	hdr := "#EXTM3U\n" +
+		"#EXT-X-STREAM-INF:BANDWIDTH=9000000,VIDEO-RANGE=PQ,CODECS=\"hvc1.2.4.L153,mp4a.40.2\"\nmain.m3u8?VideoCodec=h264,hevc&ApiKey=SECRET\n" +
+		"#EXT-X-STREAM-INF:BANDWIDTH=9000000,VIDEO-RANGE=SDR,CODECS=\"hvc1.1.4.L153,mp4a.40.2\"\nmain.m3u8?VideoCodec=hevc&AllowVideoStreamCopy=false&ApiKey=SECRET\n" +
+		"#EXT-X-STREAM-INF:BANDWIDTH=9000000,VIDEO-RANGE=SDR,CODECS=\"avc1.640033,mp4a.40.2\"\nmain.m3u8?VideoCodec=h264&AllowVideoStreamCopy=false&ApiKey=SECRET\n"
+	r, err := RewriteMaster([]byte(hdr), masterUp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := string(r.Body); len(r.Files) != 1 || !strings.Contains(out, "VIDEO-RANGE=PQ") || strings.Contains(out, "VIDEO-RANGE=SDR") {
+		t.Errorf("copy only:\n%s", out)
+	}
+	sdrOnly := "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000\nmain.m3u8?VideoCodec=h264&AllowVideoStreamCopy=false&ApiKey=SECRET\n"
+	if r, err := RewriteMaster([]byte(sdrOnly), masterUp); err != nil || len(r.Files) != 1 {
+		t.Errorf("no copy: %v %v", r, err)
+	}
+}

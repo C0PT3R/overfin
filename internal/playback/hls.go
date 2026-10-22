@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -51,9 +52,48 @@ type Rewritten struct {
 // RewriteMaster rewrites a master playlist fetched from upstream. Variant
 // playlists become v0.m3u8, v1.m3u8...
 func RewriteMaster(body []byte, upstream Upstream) (*Rewritten, error) {
-	return rewrite(body, upstream, masterTags, func(uri string, n int) (string, *regexp.Regexp) {
+	return rewrite(keepCopies(body), upstream, masterTags, func(uri string, n int) (string, *regexp.Regexp) {
 		return fmt.Sprintf("v%d.m3u8", n), variantURI
 	})
+}
+
+// keepCopies drops, from a master playlist with a variant that copies the
+// video, the variants that re-encode it (AllowVideoStreamCopy=false).
+// For HDR video, Jellyfin adds SDR versions beside the copy, at the same
+// bandwidth, and players on screens without HDR pick them: the video is
+// then re-encoded and tone-mapped for a browser that shows HDR on any
+// screen (the capabilities said so).
+func keepCopies(body []byte) []byte {
+	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
+	reencodes := func(uri string) bool {
+		_, q, _ := strings.Cut(uri, "?")
+		v, err := url.ParseQuery(q)
+		return err == nil && slices.ContainsFunc(param(v, "AllowVideoStreamCopy"), isFalse)
+	}
+	// Which variant lines (the URI after an EXT-X-STREAM-INF) re-encode.
+	var copies, others int
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "#EXT-X-STREAM-INF") && i+1 < len(lines) {
+			if reencodes(strings.TrimSpace(lines[i+1])) {
+				others++
+			} else {
+				copies++
+			}
+		}
+	}
+	if copies == 0 || others == 0 {
+		return body
+	}
+	var out []string
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(line, "#EXT-X-STREAM-INF") && i+1 < len(lines) && reencodes(strings.TrimSpace(lines[i+1])) {
+			i++ // the variant, and its URI
+			continue
+		}
+		out = append(out, lines[i])
+	}
+	return []byte(strings.Join(out, "\n"))
 }
 
 // RewriteVariant rewrites a variant playlist. Segments become seg0.mp4,
