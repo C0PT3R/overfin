@@ -29,9 +29,11 @@ type TitleSummary struct {
 	Certification string `json:"certification,omitempty"`
 	// Availability: available, partiallyAvailable (a series or a season
 	// with some of its episodes) or missing.
-	Availability  string        `json:"availability"`
-	Playable      bool          `json:"playable"`
-	Series        *TitleParent  `json:"series,omitempty"`
+	Availability string       `json:"availability"`
+	Playable     bool         `json:"playable"`
+	Series       *TitleParent `json:"series,omitempty"`
+	// Season is an episode's.
+	Season        *TitleParent  `json:"season,omitempty"`
 	SeasonNumber  *int          `json:"seasonNumber,omitempty"`
 	EpisodeNumber *int          `json:"episodeNumber,omitempty"`
 	EpisodeCount  *EpisodeCount `json:"episodeCount,omitempty"`

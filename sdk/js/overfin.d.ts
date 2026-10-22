@@ -163,6 +163,8 @@ export interface TitleSummary {
   /** A film or an episode a library has: play it by its ID. */
   playable: boolean;
   series?: { id: string; name: string };
+  /** An episode's (its name may be empty). */
+  season?: { id: string; name: string };
   seasonNumber?: number;
   episodeNumber?: number;
   /** A series' or a season's episodes, specials aside. */

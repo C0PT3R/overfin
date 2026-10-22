@@ -14,7 +14,7 @@ type testTitle struct {
 	ID, Kind, Name, Availability, Certification string
 	Year                                        int
 	Playable                                    bool
-	Series                                      *struct{ ID, Name string }
+	Series, Season                              *struct{ ID, Name string }
 	EpisodeCount                                *struct{ InLibrary, Aired int }
 	Images                                      *struct{ Primary *struct{ URL string } }
 	UserState                                   *struct{ Played, Favorite bool }
@@ -83,7 +83,8 @@ func TestTitles(t *testing.T) {
 	if code := get(t, srv, "/api/v1/titles/title_series_tmdb_1399_s2", &s2); code != 200 || len(s2.Episodes) != 1 { // the one to come isn't shown
 		t.Fatalf("season 2: %d %+v", code, s2)
 	}
-	if e := s2.Episodes[0]; e.Name != "Le Nord" || e.Availability != "missing" || e.Playable || e.Kind != "episode" {
+	if e := s2.Episodes[0]; e.Name != "Le Nord" || e.Availability != "missing" || e.Playable || e.Kind != "episode" ||
+		e.Season == nil || e.Season.ID != "title_series_tmdb_1399_s2" || e.Season.Name != "Saison 2" {
 		t.Errorf("missing episode: %+v", e)
 	}
 	var s1 testTitle

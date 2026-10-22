@@ -97,8 +97,9 @@ type TitleInfo struct {
 	// Images are TMDB paths: a season or an episode has its series'
 	// backdrop and logo.
 	Poster, Backdrop, Logo, Still string
-	// SeriesName is a season's or an episode's series'.
-	SeriesName string
+	// SeriesName is a season's or an episode's series'; SeasonName, an
+	// episode's season's ("" when TMDB doesn't name it).
+	SeriesName, SeasonName string
 	// Items are the library's copies, by Jellyfin ID: for a series or a
 	// season, its own items (to check access), not its episodes.
 	Items []string
@@ -188,6 +189,10 @@ func (s *Store) titleInfo(ctx context.Context, r TitleRef, today string) (*Title
 			return nil, err
 		}
 		t.SeriesName, t.Backdrop, t.Logo, t.Poster = series.Name, series.Backdrop, series.Logo, series.Poster
+		if err := s.db.QueryRowContext(ctx, `SELECT name FROM catalog_seasons WHERE series = ? AND season = ?`,
+			tmdb, r.Season).Scan(&t.SeasonName); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
 		var still sql.NullString
 		var runtime sql.NullInt64
 		err := s.db.QueryRowContext(ctx, `SELECT name, overview, coalesce(air_date, ''), runtime, still FROM catalog_episodes

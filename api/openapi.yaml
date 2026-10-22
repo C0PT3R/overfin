@@ -2597,6 +2597,15 @@ components:
               type: string
             name:
               type: string
+        season:
+          type: object
+          description: An episode's (its name may be empty).
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
         seasonNumber:
           type: integer
         episodeNumber:

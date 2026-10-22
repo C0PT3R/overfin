@@ -92,6 +92,7 @@ func summaryOf(t *store.TitleInfo) library.TitleSummary {
 	if t.Ref.Kind == "episode" {
 		n := t.Ref.Episode
 		s.EpisodeNumber = &n
+		s.Season = &library.TitleParent{ID: titleID(t.Ref.SeasonOf().Key()), Name: t.SeasonName}
 	}
 	if t.Ref.Kind == "series" || t.Ref.Kind == "season" {
 		s.EpisodeCount = &library.EpisodeCount{InLibrary: t.Have, Aired: t.Aired}
