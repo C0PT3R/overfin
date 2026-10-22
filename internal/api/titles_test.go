@@ -11,7 +11,7 @@ import (
 )
 
 type testTitle struct {
-	ID, Kind, Name, Availability string
+	ID, Kind, Name, Availability, Certification string
 	Year                         int
 	Playable                     bool
 	Series                       *struct{ ID, Name string }
@@ -181,8 +181,9 @@ func TestTitles(t *testing.T) {
 		t.Errorf("unrated, for a kid: %d", code)
 	}
 	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "100"}, map[string][]string{"US": {"G"}}, "2024-01-01", "2024-03-01", now)
-	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_100", nil); code != 200 {
-		t.Errorf("rated G, for a kid: %d", code)
+	var rated testTitle
+	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_100", &rated); code != 200 || rated.Certification != "G" {
+		t.Errorf("rated G, for a kid: %d %+v", code, rated)
 	}
 }
 

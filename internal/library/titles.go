@@ -24,6 +24,9 @@ type TitleSummary struct {
 	// AirDate is a season's or an episode's, YYYY-MM-DD.
 	AirDate    string `json:"airDate,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`
+	// Certification is its rating in the server's ratings country (its
+	// series', for a season or an episode).
+	Certification string `json:"certification,omitempty"`
 	// Availability: available, partiallyAvailable (a series or a season
 	// with some of its episodes) or missing.
 	Availability  string        `json:"availability"`

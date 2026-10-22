@@ -74,7 +74,7 @@ func availability(t *store.TitleInfo) string {
 
 func summaryOf(t *store.TitleInfo) library.TitleSummary {
 	s := library.TitleSummary{ID: titleID(t.Ref.Key()), Kind: t.Ref.Kind, Name: t.Name, Year: t.Year, AirDate: t.AirDate,
-		DurationMs: int64(t.Details.Runtime) * 60_000, Availability: availability(t)}
+		DurationMs: int64(t.Details.Runtime) * 60_000, Availability: availability(t), Certification: t.Certification}
 	if s.Kind == "item" {
 		s.Kind = "other"
 		if t.ItemKind == "movie" || t.ItemKind == "episode" {

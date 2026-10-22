@@ -48,12 +48,27 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 		EpisodeRunTime []int   `json:"episode_run_time"`
 		Tagline        string  `json:"tagline"`
 		VoteAverage    float64 `json:"vote_average"`
-		Images         struct {
+		// A series' cast over all its seasons (credits has its latest
+		// season's only).
+		AggregateCredits struct {
+			Cast []struct {
+				Name        string `json:"name"`
+				ProfilePath string `json:"profile_path"`
+				Roles       []struct {
+					Character string `json:"character"`
+				} `json:"roles"`
+			} `json:"cast"`
+		} `json:"aggregate_credits"`
+		Images struct {
 			Logos   []rawImage `json:"logos"`
 			Posters []rawImage `json:"posters"`
 		} `json:"images"`
 	}
-	q := c.withLanguage(url.Values{"append_to_response": {"credits,images"}, "include_image_language": {imageLanguages(lang)}})
+	extra := "credits,images"
+	if kind == "series" {
+		extra = "aggregate_credits,images"
+	}
+	q := c.withLanguage(url.Values{"append_to_response": {extra}, "include_image_language": {imageLanguages(lang)}})
 	if err := c.get(ctx, "/"+k+"/"+strconv.Itoa(tmdbID), q, &raw); err != nil {
 		return nil, err
 	}
@@ -71,6 +86,13 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 	var cast []Person
 	for _, p := range raw.Credits.Cast {
 		cast = append(cast, Person{Name: p.Name, Character: p.Character, Profile: p.ProfilePath})
+	}
+	for _, p := range raw.AggregateCredits.Cast {
+		person := Person{Name: p.Name, Profile: p.ProfilePath}
+		if len(p.Roles) > 0 {
+			person.Character = p.Roles[0].Character // the role they played most
+		}
+		cast = append(cast, person)
 	}
 	var seasons []Season
 	for _, s := range raw.Seasons {

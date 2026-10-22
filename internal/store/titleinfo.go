@@ -111,12 +111,20 @@ type TitleInfo struct {
 	// ItemKind is what the index calls an unidentified file (movie,
 	// episode…).
 	ItemKind string
+	// Certification is its rating in the ratings country (its series', for
+	// a season or an episode): the most mature of its releases'; "" when it
+	// has none there.
+	Certification string
 }
 
 // TitleInfos returns the titles of keys (those that parse), as of today
 // (YYYY-MM-DD, for what has aired).
 func (s *Store) TitleInfos(ctx context.Context, keys []string, today string) (map[string]*TitleInfo, error) {
 	out := map[string]*TitleInfo{}
+	country, err := s.RatingsCountry(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, k := range keys {
 		if _, done := out[k]; done {
 			continue
@@ -128,6 +136,15 @@ func (s *Store) TitleInfos(ctx context.Context, keys []string, today string) (ma
 		t, err := s.titleInfo(ctx, r, today)
 		if err != nil {
 			return nil, err
+		}
+		if tmdb := r.TMDB(); tmdb != "" {
+			kind := "movie"
+			if r.Kind != "movie" {
+				kind = "series"
+			}
+			if t.Certification, err = s.certification(ctx, kind, tmdb, country); err != nil {
+				return nil, err
+			}
 		}
 		out[k] = t
 	}
@@ -496,4 +513,18 @@ func (s *Store) nextEpisode(ctx context.Context, profileID string, w TitleRef, t
 		return "", err
 	}
 	return TitleRef{Kind: "episode", Source: w.Source, ID: w.ID, Season: sn, Episode: en}.Key(), nil
+}
+
+// certification is a title's rating in a country, the most mature of its
+// releases' there (by the country's scale); "" when it has none.
+func (s *Store) certification(ctx context.Context, kind, tmdb, country string) (string, error) {
+	var c string
+	err := s.db.QueryRowContext(ctx, `SELECT r.certification FROM title_ratings r
+		LEFT JOIN rating_scales sc ON sc.kind = r.kind AND sc.country = r.country AND sc.certification = r.certification
+		WHERE r.kind = ? AND r.tmdb = ? AND r.country = ?
+		ORDER BY coalesce(sc.position, -1) DESC, r.certification LIMIT 1`, kind, tmdb, country).Scan(&c)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return c, err
 }

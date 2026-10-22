@@ -52,6 +52,15 @@ func fakeTMDB(t *testing.T) *Client {
 				"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
 				"images":{"logos":[{"file_path":"/logoen1234.png","iso_639_1":"en"},{"file_path":"/logofr1234.png","iso_639_1":"fr"},
 					{"file_path":"/logo.svg","iso_639_1":"fr"}]}}`)
+		case "/3/tv/1400":
+			if r.URL.Query().Get("append_to_response") != "aggregate_credits,images" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			io.WriteString(w, `{"id":1400,"name":"Seinfeld","first_air_date":"1989-07-05",
+				"credits":{"cast":[]},
+				"aggregate_credits":{"cast":[{"name":"Jerry Seinfeld","profile_path":"/jerry12345.jpg","roles":[{"character":"Jerry"}]},
+					{"name":"Guest","roles":[]}]}}`)
 		case "/3/tv/1399/season/1":
 			io.WriteString(w, `{"season_number":1,"name":"Saison 1","overview":"Winter.","air_date":"2011-04-17",
 				"poster_path":"/season1abc.jpg","episodes":[
@@ -129,6 +138,11 @@ func TestClient(t *testing.T) {
 		full.ReleaseDate != "1999-10-15" || full.Rating != 8.4 ||
 		full.Overview != "An insomniac." || len(full.Cast) != 1 || full.Cast[0].Profile != "/norton1234.jpg" {
 		t.Errorf("title: %+v", full)
+	}
+	// A series' cast is the one over all its seasons.
+	if s, err := c.Title(ctx, "series", 1400); err != nil || len(s.Cast) != 2 || s.Cast[0].Character != "Jerry" ||
+		s.Cast[0].Profile != "/jerry12345.jpg" || s.Cast[1].Character != "" {
+		t.Errorf("series cast: %+v %v", s, err)
 	}
 	season, err := c.Season(ctx, 1399, 1)
 	if err != nil || season.Poster != "/season1abc.jpg" || season.Name != "Saison 1" || season.AirDate != "2011-04-17" || len(season.Episodes) != 3 {

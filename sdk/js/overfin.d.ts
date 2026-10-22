@@ -157,6 +157,8 @@ export interface TitleSummary {
   /** A season's or an episode's, YYYY-MM-DD. */
   airDate?: string;
   durationMs?: number;
+  /** Its rating in the server's ratings country (its series', for a season or an episode). */
+  certification?: string;
   availability: 'available' | 'partiallyAvailable' | 'missing';
   /** A film or an episode a library has: play it by its ID. */
   playable: boolean;

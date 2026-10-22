@@ -122,3 +122,26 @@ func TestContinueTitles(t *testing.T) {
 		t.Errorf("nothing aired next: %v", got)
 	}
 }
+
+// A title's certification is the most mature of its releases' in the
+// ratings country; a season's is its series'.
+func TestTitleCertification(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	s.SetRatingScales(ctx, "movie", map[string][]RatingLevel{"US": {{Certification: "G", Position: 1}, {Certification: "PG-13", Position: 3}}})
+	s.SetTitleRatings(ctx, RatedTitle{"movie", "1"}, map[string][]string{"US": {"G", "PG-13"}, "FR": {"12"}}, "", "", time.Now())
+	s.SetTitleRatings(ctx, RatedTitle{"series", "2"}, map[string][]string{"US": {"TV-MA"}}, "", "", time.Now())
+	got, err := s.TitleInfos(ctx, []string{"movie/tmdb/1", "series/tmdb/2/s1", "movie/tmdb/3"}, "2026-10-22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := got["movie/tmdb/1"].Certification; c != "PG-13" {
+		t.Errorf("film: %q", c)
+	}
+	if c := got["series/tmdb/2/s1"].Certification; c != "TV-MA" {
+		t.Errorf("season: %q", c)
+	}
+	if c := got["movie/tmdb/3"].Certification; c != "" {
+		t.Errorf("unrated: %q", c)
+	}
+}

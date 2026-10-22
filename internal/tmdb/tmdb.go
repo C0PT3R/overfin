@@ -129,6 +129,9 @@ func MakeTitle(id int, kind, name, date, overview, poster, backdrop string, stat
 	return t, true
 }
 
+// MaxCast is how many of a title's cast are kept, in TMDB's order.
+const MaxCast = 100
+
 // MakeDetails checks and cleans a title's genres, cast and seasons.
 func MakeDetails(t Title, genres []string, cast []Person, seasons []Season) *Details {
 	d := &Details{Title: t}
@@ -138,7 +141,7 @@ func MakeDetails(t Title, genres []string, cast []Person, seasons []Season) *Det
 		}
 	}
 	for _, p := range cast {
-		if len(d.Cast) == 30 {
+		if len(d.Cast) == MaxCast {
 			break
 		}
 		if name := textclean.Plain(p.Name, 120); name != "" {

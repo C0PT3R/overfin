@@ -2512,6 +2512,11 @@ components:
           description: A season's or an episode's.
         durationMs:
           $ref: "#/components/schemas/Milliseconds"
+        certification:
+          type: string
+          description: >-
+            Its rating in the server's ratings country, the most mature of
+            its releases' there (its series', for a season or an episode).
         availability:
           type: string
           description: >-
