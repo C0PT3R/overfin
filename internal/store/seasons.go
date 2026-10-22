@@ -17,6 +17,12 @@ type TitleDetails struct {
 	// Runtime is in minutes: a film's, or a series' usual episode's.
 	Runtime int    `json:"runtime,omitempty"`
 	Tagline string `json:"tagline,omitempty"`
+	// OriginalName is its name in its own language, Language that
+	// language (ISO 639-1).
+	OriginalName string `json:"originalName,omitempty"`
+	Language     string `json:"language,omitempty"`
+	// Names are its other names (alternative titles, translations).
+	Names []string `json:"names,omitempty"`
 }
 
 // CastMember is someone in a title's cast.

@@ -30,9 +30,11 @@ import (
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 //go:embed ui
@@ -97,7 +99,13 @@ type Panel struct {
 	// (TMDB itself, or Seerr).
 	TMDB func() bool
 	// OnLanguage, when set, runs after TMDB's language changed.
-	OnLanguage  func()
+	OnLanguage func()
+	// SearchTMDB, when set, searches TMDB for films and series
+	// (Identification); Images serves their posters; OnRetitled runs after
+	// a title was identified by hand.
+	SearchTMDB  func(ctx context.Context, query string) ([]tmdb.Title, error)
+	Images      *images.Pipeline
+	OnRetitled  func()
 	Store       *store.Store
 	Provisioner *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are. It
@@ -178,6 +186,11 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}", p.signedIn(p.deleteAccount))
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}/sessions/{session}", p.signedIn(p.endSession))
 	mux.HandleFunc("POST /admin/api/profiles/{id}/unlock-pin", p.signedIn(p.unlockPIN))
+	mux.HandleFunc("GET /admin/api/identification", p.signedIn(p.identification))
+	mux.HandleFunc("POST /admin/api/identification/search", p.signedIn(p.identificationSearch))
+	mux.HandleFunc("PUT /admin/api/identification/{id}", p.signedIn(p.identify))
+	mux.HandleFunc("DELETE /admin/api/identification/{id}", p.signedIn(p.unidentify))
+	mux.HandleFunc("GET /admin/api/posters/{id}", p.signedIn(p.poster))
 	mux.HandleFunc("GET /admin/api/modules", p.signedIn(p.moduleTabs))
 	// Modules' own control panel routes, as currently switched on.
 	modulesAPI := p.signedIn(func(w http.ResponseWriter, r *http.Request, _ *session) {

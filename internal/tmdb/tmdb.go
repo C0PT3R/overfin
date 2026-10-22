@@ -56,6 +56,9 @@ type Title struct {
 	// Status is Seerr's media status: 0 when it has none (always, from
 	// TMDB itself), 4 partly available, 5 available.
 	Status int
+	// OriginalName is its name in its own language, and Language that
+	// language (ISO 639-1); "" when TMDB doesn't say (Seerr's lists).
+	OriginalName, Language string
 }
 
 // Details is a title's page: the title, and what lists don't carry.

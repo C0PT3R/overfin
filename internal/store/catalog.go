@@ -110,6 +110,10 @@ type CatalogItem struct {
 	// Tags are Jellyfin's tags; People, the Jellyfin IDs of who's in it.
 	Tags   []string
 	People []string
+	// FolderName and FileName are the last names of where it is (a film's
+	// folder and file, a series' folder); RuntimeMs, a film's length.
+	FolderName, FileName string
+	RuntimeMs            int64
 }
 
 // PutCatalog adds or updates titles, marking them seen by the full pass
@@ -122,8 +126,9 @@ func (s *Store) PutCatalog(ctx context.Context, items []CatalogItem, pass int64)
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO catalog_items (id, kind, name, sort_name, year,
 		series_id, season_id, season_number, episode_number, tmdb, imdb, tvdb, rating,
-		primary_tag, backdrop_tag, thumb_tag, seen, library_id, added_at, premiere_date, community_rating)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		primary_tag, backdrop_tag, thumb_tag, seen, library_id, added_at, premiere_date, community_rating,
+		folder_name, file_name, runtime_ms, jellyfin_tmdb)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET kind = excluded.kind, name = excluded.name,
 			sort_name = excluded.sort_name, year = excluded.year, series_id = excluded.series_id,
 			season_id = excluded.season_id, season_number = excluded.season_number,
@@ -131,7 +136,9 @@ func (s *Store) PutCatalog(ctx context.Context, items []CatalogItem, pass int64)
 			tvdb = excluded.tvdb, rating = excluded.rating, primary_tag = excluded.primary_tag,
 			backdrop_tag = excluded.backdrop_tag, thumb_tag = excluded.thumb_tag, seen = excluded.seen,
 			library_id = coalesce(excluded.library_id, library_id), added_at = excluded.added_at,
-			premiere_date = excluded.premiere_date, community_rating = excluded.community_rating`)
+			premiere_date = excluded.premiere_date, community_rating = excluded.community_rating,
+			folder_name = excluded.folder_name, file_name = excluded.file_name, runtime_ms = excluded.runtime_ms,
+			jellyfin_tmdb = excluded.jellyfin_tmdb`)
 	if err != nil {
 		return err
 	}
@@ -145,7 +152,8 @@ func (s *Store) PutCatalog(ctx context.Context, items []CatalogItem, pass int64)
 			nullString(it.SeriesID), nullString(it.SeasonID), it.SeasonNumber, it.EpisodeNumber,
 			nullString(s.foundTMDB(ctx, tx, it)), nullString(it.IMDb), nullString(it.TVDB), it.Rating,
 			nullString(it.PrimaryTag), nullString(it.BackdropTag), nullString(it.ThumbTag), pass,
-			nullString(it.LibraryID), added, nullString(it.PremiereDate), it.CommunityRating); err != nil {
+			nullString(it.LibraryID), added, nullString(it.PremiereDate), it.CommunityRating,
+			nullString(it.FolderName), nullString(it.FileName), nullInt64(it.RuntimeMs), nullString(it.TMDB)); err != nil {
 			return err
 		}
 		// Genres, studios, tags and people, replaced as a whole.
@@ -285,6 +293,13 @@ func nullString(s string) any {
 		return nil
 	}
 	return s
+}
+
+func nullInt64(n int64) any {
+	if n == 0 {
+		return nil
+	}
+	return n
 }
 
 func nullInt(n int) any {

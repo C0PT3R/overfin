@@ -23,7 +23,13 @@ type Full struct {
 	// Rating is TMDB's users' average, 0 to 10; 0 when no one rated it.
 	Rating  float64
 	Artwork Artwork
+	// Names are its other names: alternative titles and translations,
+	// each once, for telling whether a file is this title.
+	Names []string
 }
+
+// maxNames caps how many other names a title keeps.
+const maxNames = 60
 
 // imageLanguages is which images to ask for: those in the language, those
 // without text, and English ones.
@@ -64,10 +70,24 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 			Logos   []rawImage `json:"logos"`
 			Posters []rawImage `json:"posters"`
 		} `json:"images"`
+		// Films list their alternative titles under titles, series under
+		// results.
+		AlternativeTitles struct {
+			Titles  []struct{ Title string } `json:"titles"`
+			Results []struct{ Title string } `json:"results"`
+		} `json:"alternative_titles"`
+		Translations struct {
+			Translations []struct {
+				Data struct {
+					Title string `json:"title"`
+					Name  string `json:"name"`
+				} `json:"data"`
+			} `json:"translations"`
+		} `json:"translations"`
 	}
-	extra := "credits,images"
+	extra := "credits,images,alternative_titles,translations"
 	if kind == "series" {
-		extra = "aggregate_credits,images"
+		extra = "aggregate_credits,images,alternative_titles,translations"
 	}
 	q := c.withLanguage(url.Values{"append_to_response": {extra}, "include_image_language": {imageLanguages(lang)}})
 	if err := c.get(ctx, "/"+k+"/"+strconv.Itoa(tmdbID), q, &raw); err != nil {
@@ -113,6 +133,21 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 	}
 	if runtime > 0 && runtime < 10_000 {
 		out.Runtime = runtime
+	}
+	seen := map[string]bool{t.Name: true, t.OriginalName: true}
+	add := func(name string) {
+		name = textclean.Plain(name, 300)
+		if name != "" && !seen[name] && len(out.Names) < maxNames {
+			seen[name] = true
+			out.Names = append(out.Names, name)
+		}
+	}
+	for _, a := range append(raw.AlternativeTitles.Titles, raw.AlternativeTitles.Results...) {
+		add(a.Title)
+	}
+	for _, tr := range raw.Translations.Translations {
+		add(tr.Data.Title)
+		add(tr.Data.Name)
 	}
 	// The poster TMDB picks for the language, else the best one listed.
 	out.Artwork = Artwork{Poster: t.Poster, Backdrop: t.Backdrop, Logo: pick(raw.Images.Logos, lang)}

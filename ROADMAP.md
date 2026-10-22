@@ -476,6 +476,19 @@ peer's copy is one more source.
    a library doesn't have, and seasons without a single episode, never
    show. The dates come with the certifications, fetched again weekly for
    titles not out yet. *Done.*
+7. **Identification.** Jellyfin sometimes matches a file to the wrong
+   TMDB title (a remake of the same name, a film announced under another
+   name), and every page then shows the wrong one. The panel lists every
+   film and series with the title it's taken for, those that may be wrong
+   first and why: its folder or file name matches none of the title's
+   names on TMDB (its translations and alternative titles included), its
+   year is off, it has seasons or episodes TMDB doesn't list, a film's
+   length is far off, or its folder names another TMDB ID. The admin
+   picks the right title on TMDB, or confirms it; Overfin keeps the
+   choice, Jellyfin's scans can't undo it, and what profiles did with the
+   title follows it. *Done.* Next: the audio language against the title's
+   original language (with the languages work), and "Not the right title?"
+   on title pages, for admins.
 
 ## Milestone 6: Federation
 

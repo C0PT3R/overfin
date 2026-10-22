@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/overfin/server/internal/textclean"
 )
 
 // ProjectToken is the Overfin project's own TMDB key (a read access
@@ -125,13 +127,24 @@ type rawTitle struct {
 	Overview     string `json:"overview"`
 	PosterPath   string `json:"poster_path"`
 	BackdropPath string `json:"backdrop_path"`
+	// OriginalTitle is a film's, OriginalName a series'.
+	OriginalTitle    string `json:"original_title"`
+	OriginalName     string `json:"original_name"`
+	OriginalLanguage string `json:"original_language"`
 }
 
 func (r rawTitle) title(kind string) (Title, bool) {
+	t, ok := MakeTitle(r.ID, kind, r.Title, r.ReleaseDate, r.Overview, r.PosterPath, r.BackdropPath, 0)
+	original := r.OriginalTitle
 	if kind == "series" {
-		return MakeTitle(r.ID, kind, r.Name, r.FirstAirDate, r.Overview, r.PosterPath, r.BackdropPath, 0)
+		t, ok = MakeTitle(r.ID, kind, r.Name, r.FirstAirDate, r.Overview, r.PosterPath, r.BackdropPath, 0)
+		original = r.OriginalName
 	}
-	return MakeTitle(r.ID, kind, r.Title, r.ReleaseDate, r.Overview, r.PosterPath, r.BackdropPath, 0)
+	t.OriginalName = textclean.Plain(original, 300)
+	if isoLanguage.MatchString(r.OriginalLanguage) {
+		t.Language = r.OriginalLanguage
+	}
+	return t, ok
 }
 
 // tv is TMDB's word for a kind in paths.
@@ -330,3 +343,6 @@ func pick(images []rawImage, lang string) string {
 	}
 	return ""
 }
+
+// isoLanguage is an ISO 639-1 code, as TMDB writes them.
+var isoLanguage = regexp.MustCompile(`^[a-z]{2}$`)

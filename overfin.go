@@ -316,6 +316,18 @@ func run(logger *slog.Logger) error {
 		if sh.directory != nil {
 			p.Directory = sh.directory
 		}
+		// Identification: TMDB searched as the library's titles are
+		// described (TMDB itself); a title fixed by hand is fetched at once.
+		p.SearchTMDB = func(ctx context.Context, query string) ([]tmdb.Title, error) {
+			src := gw.titleSource()
+			if src == nil {
+				return nil, tmdb.ErrNotFound
+			}
+			titles, _, err := src.Search(ctx, query)
+			return titles, err
+		}
+		p.Images = sh.images
+		p.OnRetitled = sh.titles.Wake
 		panel.set(p.Handler())
 	}
 

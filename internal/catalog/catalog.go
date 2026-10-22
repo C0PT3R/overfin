@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -262,6 +263,7 @@ func (s *Sync) read(ctx context.Context, since time.Time, pass int64) (int, erro
 	kept := make([]store.Library, 0, len(libs))
 	for _, lib := range libs {
 		if id, err := jellyfin.NormalizeID(lib.Id); err == nil {
+			lib.Path = "" // never kept
 			item, err := json.Marshal(lib)
 			if err != nil {
 				return 0, err
@@ -461,6 +463,21 @@ func convert(raw jellyfin.RawItem) (store.CatalogItem, bool) {
 	if t, err := time.Parse(time.RFC3339Nano, raw.DateCreated); err == nil {
 		it.AddedAt = t
 	}
+	// What the file and its folder are named, for telling a misidentified
+	// title (the control panel's Identification): a film's file and the
+	// folder it's in, a series' folder. Never the whole path.
+	switch kind {
+	case "movie":
+		dir, file := splitPath(raw.Path)
+		_, it.FolderName = splitPath(dir)
+		it.FileName = file
+		if raw.RunTimeTicks > 0 {
+			it.RuntimeMs = raw.RunTimeTicks / 10_000
+		}
+	case "series":
+		_, it.FolderName = splitPath(raw.Path)
+	}
+	it.FolderName, it.FileName = textclean.Plain(it.FolderName, 255), textclean.Plain(it.FileName, 255)
 	if len(raw.PremiereDate) >= 10 {
 		if _, err := time.Parse("2006-01-02", raw.PremiereDate[:10]); err == nil {
 			it.PremiereDate = raw.PremiereDate[:10]
@@ -502,4 +519,12 @@ func matching(re *regexp.Regexp, s string) string {
 		return s
 	}
 	return ""
+}
+
+// splitPath splits a path from Jellyfin's server (slashes or backslashes)
+// into its folder and its last name.
+func splitPath(p string) (dir, name string) {
+	p = strings.TrimRight(p, `/\`)
+	i := strings.LastIndexAny(p, `/\`)
+	return p[:max(i, 0)], p[i+1:]
 }

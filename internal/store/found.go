@@ -77,15 +77,22 @@ func (s *Store) SetFound(ctx context.Context, t FindTarget, tmdb string, at time
 	return s.RefreshTitleKeys(ctx)
 }
 
-// foundTMDB is the TMDB ID found for an item that has none of its own; ""
-// when there's none.
+// foundTMDB is the TMDB ID an item is known by: the one an admin chose
+// (title_overrides), else Jellyfin's, else the one found for its other
+// IDs; "" when there's none.
 func (s *Store) foundTMDB(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, it CatalogItem) string {
-	if it.TMDB != "" || (it.Kind != "movie" && it.Kind != "series") {
+	if it.Kind != "movie" && it.Kind != "series" {
 		return it.TMDB
 	}
 	var tmdb sql.NullString
+	if q.QueryRowContext(ctx, `SELECT tmdb FROM title_overrides WHERE item_id = ?`, it.ID).Scan(&tmdb); tmdb.Valid {
+		return tmdb.String
+	}
+	if it.TMDB != "" {
+		return it.TMDB
+	}
 	q.QueryRowContext(ctx, `SELECT tmdb FROM tmdb_found WHERE kind = ? AND tmdb IS NOT NULL
 		AND ((source = 'imdb' AND external = ?) OR (source = 'tvdb' AND external = ?)) LIMIT 1`,
 		it.Kind, it.IMDb, it.TVDB).Scan(&tmdb)

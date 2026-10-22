@@ -230,7 +230,10 @@ comes from the internet, and media files can be written by anyone.
     version names (derived from file names).
     Embedded metadata is still stripped from image files (rule 10).
     Security-sensitive data (file paths, server internals, permission flags) is
-    never exposed, whatever the configuration.
+    never exposed, whatever the configuration. The one exception is the
+    control panel's Identification (rule 58): admins see a film's or a
+    series' folder and file names (never the whole path), to tell a title
+    Jellyfin matched wrong. The index keeps only those names.
 56. Counts (`totalCount`) only include what the active profile may see, so
     hidden items never show up as a number.
 57. What's trending, popular or upcoming, titles' details and their

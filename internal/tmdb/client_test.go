@@ -41,12 +41,15 @@ func fakeTMDB(t *testing.T) *Client {
 			io.WriteString(w, `{"id":1399,"name":"Thrones","first_air_date":"2011-04-17","seasons":[{"season_number":1,"name":"Season 1","episode_count":10}],
 				"content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-MA"}]}}`)
 		case "/3/movie/550":
-			if r.URL.Query().Get("append_to_response") != "credits,images" || r.URL.Query().Get("language") != "fr" ||
+			if r.URL.Query().Get("append_to_response") != "credits,images,alternative_titles,translations" || r.URL.Query().Get("language") != "fr" ||
 				r.URL.Query().Get("include_image_language") != "fr,null,en" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 			io.WriteString(w, `{"id":550,"title":"Fight Club","release_date":"1999-10-15","runtime":139,"tagline":"Mischief.","vote_average":8.4,
+				"original_title":"Fight Club","original_language":"en",
+				"alternative_titles":{"titles":[{"title":"El club de la lucha"},{"title":"Fight Club"}]},
+				"translations":{"translations":[{"data":{"title":"Club <i>de</i> combat"}},{"data":{"title":""}}]},
 				"overview":"An insomniac.","genres":[{"name":"Drame"}],
 				"credits":{"cast":[{"id":819,"name":"Edward Norton","character":"Narrator","profile_path":"/norton1234.jpg"}]},
 				"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
@@ -75,11 +78,12 @@ func fakeTMDB(t *testing.T) *Client {
 			}
 			io.WriteString(w, `{"movie_results":[],"tv_results":[{"id":1399}]}`)
 		case "/3/tv/1400":
-			if r.URL.Query().Get("append_to_response") != "aggregate_credits,images" {
+			if r.URL.Query().Get("append_to_response") != "aggregate_credits,images,alternative_titles,translations" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			io.WriteString(w, `{"id":1400,"name":"Seinfeld","first_air_date":"1989-07-05",
+			io.WriteString(w, `{"id":1400,"name":"Seinfeld","first_air_date":"1989-07-05","original_name":"Seinfeld","original_language":"english",
+				"alternative_titles":{"results":[{"title":"Les Seinfeld"}]},"translations":{"translations":[{"data":{"name":"Seinfeld"}}]},
 				"credits":{"cast":[]},
 				"aggregate_credits":{"cast":[{"name":"Jerry Seinfeld","profile_path":"/jerry12345.jpg","roles":[{"character":"Jerry"}]},
 					{"name":"Guest","roles":[]}]}}`)
@@ -156,6 +160,10 @@ func TestClient(t *testing.T) {
 	if art := full.Artwork; art.Poster != "/posterfr12.jpg" || art.Backdrop != "/backdrop12.jpg" || art.Logo != "/logofr1234.png" {
 		t.Errorf("artwork: %+v", art)
 	}
+	// Its other names, each once, in plain text; its own language.
+	if full.OriginalName != "Fight Club" || full.Language != "en" || !slices.Equal(full.Names, []string{"El club de la lucha", "Club de combat"}) {
+		t.Errorf("names: %q %q %q", full.OriginalName, full.Language, full.Names)
+	}
 	if full.Name != "Fight Club" || full.Year != 1999 || full.Runtime != 139 || full.Tagline != "Mischief." ||
 		full.ReleaseDate != "1999-10-15" || full.Rating != 8.4 ||
 		full.Overview != "An insomniac." || len(full.Cast) != 1 || full.Cast[0].Profile != "/norton1234.jpg" || full.Cast[0].ID != 819 {
@@ -163,7 +171,8 @@ func TestClient(t *testing.T) {
 	}
 	// A series' cast is the one over all its seasons.
 	if s, err := c.Title(ctx, "series", 1400); err != nil || len(s.Cast) != 2 || s.Cast[0].Character != "Jerry" ||
-		s.Cast[0].Profile != "/jerry12345.jpg" || s.Cast[1].Character != "" {
+		s.Cast[0].Profile != "/jerry12345.jpg" || s.Cast[1].Character != "" || s.Language != "" ||
+		!slices.Equal(s.Names, []string{"Les Seinfeld"}) {
 		t.Errorf("series cast: %+v %v", s, err)
 	}
 	person, err := c.Person(ctx, 1245)

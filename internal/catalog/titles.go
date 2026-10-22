@@ -195,7 +195,8 @@ func (a *Titles) page(ctx context.Context, src TitleSource, kind string, id int,
 	if err != nil {
 		return nil, err
 	}
-	det := store.TitleDetails{Genres: full.Genres, Runtime: full.Runtime, Tagline: full.Tagline}
+	det := store.TitleDetails{Genres: full.Genres, Runtime: full.Runtime, Tagline: full.Tagline,
+		OriginalName: full.OriginalName, Language: full.Language, Names: full.Names}
 	for _, c := range full.Cast {
 		cm := store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile}
 		if c.ID > 0 {

@@ -494,6 +494,117 @@ async function templatesView() {
     ...items.map(card), card(null));
 }
 
+// ---- Identification ----------------------------------------------------------
+
+// identification lists every film and series of the libraries with the
+// TMDB title it's taken for, those that may be wrong first and why. A
+// title is fixed by picking the right one on TMDB, confirmed by keeping
+// its own, or given back to Jellyfin's.
+async function identification(selected = '') {
+  const { items, suspects } = await api('GET', '/admin/api/identification');
+  $('#main').classList.add('wide');
+  const search = h('input', { type: 'search', placeholder: 'Search', class: 'search' });
+  const filter = h('select', {},
+    h('option', { value: 'suspects' }, `To check (${suspects})`),
+    h('option', { value: '' }, `All (${items.length})`),
+    h('option', { value: 'fixed' }, 'Fixed here'));
+  if (!suspects) filter.value = '';
+  const tbody = h('tbody', {});
+  const detail = h('aside', { class: 'detail' }, h('p', { class: 'muted' }, 'Select a title.'));
+  const titleOf = (t) => (t.tmdbName ? `${t.tmdbName}${t.tmdbYear ? ` (${t.tmdbYear})` : ''}` : t.name);
+
+  const select = (t) => {
+    selected = t.itemId;
+    for (const tr of tbody.children) tr.classList.toggle('selected', tr.dataset.id === t.itemId);
+    detail.replaceChildren(...identificationDetail(t, () => identification(t.itemId)));
+  };
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const shown = items.filter((t) => (filter.value !== 'suspects' || t.reasons.length) && (filter.value !== 'fixed' || t.overridden) &&
+      (!q || [t.name, t.tmdbName, t.originalName, t.folderName, t.fileName, t.tmdb].some((v) => (v || '').toLowerCase().includes(q))));
+    tbody.replaceChildren(...shown.slice(0, 500).map((t) => h('tr', { 'data-id': t.itemId, onclick: () => select(t) },
+      h('td', {}, h('div', { class: 'name' }, titleOf(t)), h('div', { class: 'hint' }, t.folderName || t.fileName || '')),
+      h('td', {}, t.kind === 'movie' ? 'Film' : 'Series'),
+      h('td', {}, t.overridden ? h('span', { class: 'pill active' }, 'Fixed here')
+        : t.reasons.length ? h('span', { class: 'pill disabled' }, t.reasons.map((r) => r.code).join(', ')) : h('span', { class: 'hint' }, '—')))));
+    if (!shown.length) tbody.append(h('tr', {}, h('td', { colspan: '3', class: 'muted' }, 'Nothing to show.')));
+    if (shown.length > 500) tbody.append(h('tr', {}, h('td', { colspan: '3', class: 'muted' }, `${shown.length - 500} more: search to narrow.`)));
+    const current = items.find((t) => t.itemId === selected);
+    if (current) select(current);
+  };
+  search.addEventListener('input', draw);
+  filter.addEventListener('change', draw);
+  show(h('div', { class: 'users' },
+    h('div', {}, h('div', { class: 'toolbar' }, h('h2', {}, 'Identification'), search, filter),
+      h('p', { class: 'notice' }, "Each film and series is shown as the TMDB title Jellyfin matched it to. Those that may be wrong come first, with why. A fix is kept by Overfin: Jellyfin isn't changed, and its scans don't undo it."),
+      h('table', {}, h('thead', {}, h('tr', {}, ...['Title', 'Kind', 'Check'].map((x) => h('th', {}, x)))), tbody)),
+    detail));
+  draw();
+}
+
+// identificationDetail is the selected title: its files, the TMDB title
+// it's taken for, why it may be wrong, and TMDB searched for the right one.
+function identificationDetail(t, reload) {
+  const msg = h('p', {});
+  const act = async (method, body) => {
+    msg.className = '';
+    msg.textContent = 'Saving…';
+    try {
+      await api(method, `/admin/api/identification/${t.itemId}`, body);
+      await reload();
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    }
+  };
+  const facts = [
+    t.folderName && ['Folder', t.folderName],
+    t.fileName && ['File', t.fileName],
+    t.runtimeMin && ['Length', `${t.runtimeMin} min`],
+    t.episodes && ['Episodes here', String(t.episodes)],
+    ['TMDB', t.tmdb ? `${t.tmdb}${t.overridden && t.jellyfinTmdb !== t.tmdb ? ` (Jellyfin said ${t.jellyfinTmdb || 'none'})` : ''}` : 'none'],
+    t.originalName && ['Original title', `${t.originalName}${t.language ? ` (${t.language})` : ''}`],
+  ].filter(Boolean);
+
+  // TMDB, searched from the folder's name by default.
+  const guess = (t.folderName || t.fileName || t.name).replace(/\[[^\]]*\]|\{[^}]*\}/g, '').replace(/\.[a-z0-9]{2,4}$/i, '').replace(/[._]/g, ' ').replace(/^(.+?)\s*\(?\b(?:19|20)\d{2}\b\)?\s*$/, '$1').trim();
+  const query = h('input', { type: 'search', value: guess, class: 'search' });
+  const results = h('ul', { class: 'items candidates' });
+  const find = async (e) => {
+    e?.preventDefault();
+    results.replaceChildren(h('li', { class: 'muted' }, 'Searching…'));
+    try {
+      const { items } = await api('POST', '/admin/api/identification/search', { query: query.value, kind: t.kind });
+      results.replaceChildren(...items.map((c) => h('li', {},
+        c.poster ? h('img', { src: c.poster, alt: '', loading: 'lazy' }) : h('span', { class: 'noposter' }),
+        h('div', {},
+          h('div', { class: 'name' }, `${c.name}${c.year ? ` (${c.year})` : ''}`),
+          h('div', { class: 'hint' }, [c.originalName && c.originalName !== c.name ? c.originalName : '', c.language, `TMDB ${c.tmdb}`].filter(Boolean).join(' · ')),
+          c.overview && h('div', { class: 'hint clamp' }, c.overview)),
+        c.tmdb === t.tmdb ? h('span', { class: 'pill' }, 'current')
+          : h('button', { type: 'button', onclick: () => act('PUT', { tmdb: c.tmdb }) }, 'Use this one'))));
+      if (!items.length) results.append(h('li', { class: 'muted' }, 'TMDB found nothing.'));
+    } catch (err) {
+      results.replaceChildren(h('li', { class: 'error' }, err.message));
+    }
+  };
+
+  return [
+    h('h2', {}, t.tmdbName ? `${t.tmdbName}${t.tmdbYear ? ` (${t.tmdbYear})` : ''}` : 'No TMDB title',
+      t.overridden ? h('span', { class: 'pill active' }, 'Fixed here') : null),
+    h('ul', { class: 'items facts' }, ...facts.map(([k, v]) => h('li', {}, h('span', { class: 'hint' }, k), h('span', {}, v)))),
+    t.reasons.length ? h('div', { class: 'notice' }, h('strong', {}, 'Why it may be wrong'),
+      h('ul', {}, ...t.reasons.map((r) => h('li', {}, r.text)))) : null,
+    h('div', { class: 'danger-zone' },
+      t.reasons.length && t.tmdb ? h('button', { type: 'button', onclick: () => act('PUT', { tmdb: t.tmdb }) }, "It's right") : null,
+      t.overridden ? h('button', { type: 'button', onclick: () => act('DELETE') }, "Back to Jellyfin's") : null),
+    msg,
+    h('h3', {}, 'Find the right one on TMDB'),
+    h('form', { onsubmit: find, class: 'toolbar' }, query, h('button', { type: 'submit' }, 'Search')),
+    results,
+  ];
+}
+
 // ---- Layout ----------------------------------------------------------------
 
 function show(...nodes) {
@@ -515,11 +626,12 @@ async function moduleView(name) {
 
 async function route() {
   const tab = location.hash.startsWith('#/m/') ? location.hash.slice(1)
-    : { '#/users': 'users', '#/templates': 'templates' }[location.hash] || 'settings';
+    : { '#/users': 'users', '#/templates': 'templates', '#/identification': 'identification' }[location.hash] || 'settings';
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === tab);
   if (tab.startsWith('/m/')) return moduleView(decodeURIComponent(tab.slice(3)));
   if (tab === 'users') return users();
   if (tab === 'templates') return templatesView();
+  if (tab === 'identification') return identification();
   $('#main').classList.remove('wide');
   const state = await api('GET', '/admin/api/features');
   state.jellyfin = await api('GET', '/admin/api/jellyfin').catch(() => null);

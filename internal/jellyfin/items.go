@@ -48,19 +48,23 @@ type RawItem struct {
 	IndexNumber             *int
 	IndexNumberEnd          *int
 	Status                  string
-	ChildCount              *int
-	AlbumId                 string
-	Album                   string
-	ArtistItems             []NameID
-	AlbumArtists            []NameID
-	NormalizationGain       *float64
-	HasLyrics               bool
-	ChannelId               string
-	Number                  string
-	SongCount               *int
-	AlbumCount              *int
-	Width                   *int
-	Height                  *int
+	// Path is where the file (or the series' folder) is on Jellyfin's
+	// server. Only the catalog asks for it, keeps only its last names, and
+	// never sends it on (SECURITY.md rule 55).
+	Path              string
+	ChildCount        *int
+	AlbumId           string
+	Album             string
+	ArtistItems       []NameID
+	AlbumArtists      []NameID
+	NormalizationGain *float64
+	HasLyrics         bool
+	ChannelId         string
+	Number            string
+	SongCount         *int
+	AlbumCount        *int
+	Width             *int
+	Height            *int
 }
 
 type NameID struct {
