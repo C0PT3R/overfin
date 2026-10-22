@@ -6,7 +6,7 @@
 // invitation shapes it (its account template, when its access ends, a label)
 // and counts as used. With "accounts only by invitation" on, nobody gets an
 // account without one, except people bringing their previous account over,
-// whose old account is proof enough.
+// whose old account is proof enough, and the site's admins.
 package invites
 
 import (
@@ -162,7 +162,7 @@ func (Feature) NewAccount(ctx context.Context, h feature.Host, r *http.Request) 
 		}
 	}
 	if inv == nil {
-		if h.Setting("required") == "on" && !feature.Adopting(ctx) {
+		if h.Setting("required") == "on" && !feature.Adopting(ctx) && !feature.Admin(ctx) {
 			return nil, &feature.Refusal{Type: feature.InvitationRequired}
 		}
 		return nil, nil

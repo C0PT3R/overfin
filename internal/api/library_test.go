@@ -289,6 +289,9 @@ type options struct {
 	directory connector.Directory
 	// tmdb, when set, is TMDB for the pages fetched when opened.
 	tmdb catalog.TitleSource
+	// adminGroup, when set, is the control panel's group, sent in the
+	// Remote-Groups header.
+	adminGroup string
 	// signUp, when set, makes the identity provider's sign-up links.
 	signUp func(ctx context.Context, previous string, uses int, until time.Time) (string, string, error)
 }
@@ -344,7 +347,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	prov := &provision.Provisioner{Store: st, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"), Logger: logger}
+	prov := &provision.Provisioner{Store: st, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"), Logger: logger,
+		AdminGroup: o.adminGroup}
 	// Overfin's one Jellyfin account, which serves everyone: the fake's
 	// user, with its token.
 	if err := st.SetService(context.Background(), store.ServiceAccount{UserID: userJF, Username: "overfin-service-test", Token: token}); err != nil {
@@ -353,7 +357,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	service := &provision.Service{Provisioner: func() *provision.Provisioner { return prov }}
 	sessions := &api.Sessions{Provisioner: prov, Store: st, Logger: logger, Lifetime: time.Hour}
 	extra := []plugin.Plugin{}
-	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "", "|")
+	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "Remote-Groups", "|")
 	identify := ids.Middleware
 	if o.provider != nil {
 		auth := &api.Auth{Sessions: sessions, Store: st, Provisioner: prov, Provider: o.provider,

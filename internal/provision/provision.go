@@ -63,8 +63,11 @@ type Provisioner struct {
 	Jellyfin      *jellyfin.Client
 	AdminKey      string
 	RequiredGroup string
-	LogKey        []byte // keys.LogID, for pseudonymous log entries
-	Logger        *slog.Logger
+	// AdminGroup is the control panel's group: its members need no
+	// invitation for their own account.
+	AdminGroup string
+	LogKey     []byte // keys.LogID, for pseudonymous log entries
+	Logger     *slog.Logger
 	// DeleteSeerrUser, when set, deletes a deleted account's Seerr user
 	// (by its Seerr ID); nil when no Seerr is connected.
 	DeleteSeerrUser func(ctx context.Context, seerrID int) error

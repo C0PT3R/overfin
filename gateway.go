@@ -86,6 +86,7 @@ func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
 		Jellyfin:      sh.jf,
 		AdminKey:      cfg.Secrets.JellyfinAdminKey,
 		RequiredGroup: cfg.Identity.RequiredGroup,
+		AdminGroup:    adminGroup(cfg),
 		LogKey:        sh.keys.LogID,
 		Logger:        sh.logger,
 	}
@@ -127,7 +128,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	if o := cfg.OIDC; o.Enabled() {
 		needGroups := cfg.Identity.Mode == "oidc" && cfg.Identity.RequiredGroup != ""
 		groupsClaim := ""
-		if needGroups {
+		if needGroups || adminGroup(cfg) != "" {
 			groupsClaim = o.GroupsClaim
 		}
 		auth := &api.Auth{Sessions: sessions, Store: db, Provisioner: prov, Logger: logger,
@@ -136,6 +137,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 			LoginLifetime: 30 * 24 * time.Hour,
 			Recheck:       time.Duration(o.RecheckMinutes) * time.Minute,
 			NeedGroups:    needGroups,
+			AdminGroup:    adminGroup(cfg),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: o.RedirectURL, GroupsClaim: groupsClaim, HTTP: oidc.NewClient(o.Dial)}}
 		sessions.Auth = auth
@@ -645,4 +647,13 @@ func signUp(cfg *config.Config) func(ctx context.Context, previous string, uses 
 		}
 		return link(t), t.ID, nil
 	}
+}
+
+// adminGroup is the control panel's group, when people log in to the site
+// with Overfin's own login: the site learns who's in it from their login.
+func adminGroup(cfg *config.Config) string {
+	if !cfg.Admin.Enabled() || cfg.Identity.Mode != "oidc" {
+		return ""
+	}
+	return cfg.Admin.Group
 }

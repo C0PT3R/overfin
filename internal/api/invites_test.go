@@ -177,3 +177,28 @@ func TestInviteSignUpLinks(t *testing.T) {
 		t.Errorf("calls %v, want %v", calls, want)
 	}
 }
+
+// With accounts only by invitation, the site's admins still get theirs.
+func TestInvitesAdminsNeedNone(t *testing.T) {
+	srv, _ := newServerWith(t, options{modules: []feature.Feature{invites.Feature{}}, adminGroup: "site-admins",
+		settings: map[string]map[string]string{"invites": {"required": "on"}}})
+	as := func(who, groups string) (int, string) {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/me", strings.NewReader("{}"))
+		req.Header.Set("Remote-User", who)
+		req.Header.Set("Remote-Groups", groups)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := client(srv, who).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	if code, body := as("someone", "friends"); code != 403 || !strings.Contains(body, "invitation-required") {
+		t.Errorf("not an admin: %d %s", code, body)
+	}
+	if code, body := as("boss", "friends|site-admins"); code != 201 {
+		t.Errorf("an admin: %d %s", code, body)
+	}
+}

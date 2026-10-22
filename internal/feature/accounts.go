@@ -56,6 +56,10 @@ const InvitationRequired ProblemType = problem.InvitationRequired
 // than as a new one.
 func Adopting(ctx context.Context) bool { return creation.IsAdopting(ctx) }
 
+// Admin reports, in an AccountGate's methods, whether the account is for
+// one of the site's admins (in the control panel's group, by their login).
+func Admin(ctx context.Context) bool { return creation.IsAdmin(ctx) }
+
 // AccountTemplate is an account template: what an account on it may do.
 type AccountTemplate struct {
 	ID          string

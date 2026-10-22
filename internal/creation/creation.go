@@ -17,3 +17,16 @@ func IsAdopting(ctx context.Context) bool {
 	v, _ := ctx.Value(adoptingKey{}).(bool)
 	return v
 }
+
+type adminKey struct{}
+
+// Admin marks ctx as creating the account of one of the site's admins.
+func Admin(ctx context.Context) context.Context {
+	return context.WithValue(ctx, adminKey{}, true)
+}
+
+// IsAdmin reports whether ctx was marked by Admin.
+func IsAdmin(ctx context.Context) bool {
+	v, _ := ctx.Value(adminKey{}).(bool)
+	return v
+}

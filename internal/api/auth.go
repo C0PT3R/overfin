@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,10 @@ type Auth struct {
 	// NeedGroups asks the provider for the user's groups, for a required
 	// group.
 	NeedGroups bool
+	// AdminGroup, when set, is the control panel's group: logins also ask
+	// for groups, and keep this one only (unless NeedGroups keeps them all),
+	// so the site knows its admins.
+	AdminGroup string
 	Logger     *slog.Logger
 
 	mu      sync.Mutex
@@ -169,8 +174,8 @@ func (a *Auth) current(ctx context.Context, token string) *store.Login {
 		a.Logger.Error("re-checking a login failed for too long; refusing it", "err", err)
 		return nil
 	}
-	if a.NeedGroups && got.Groups != nil {
-		l.Groups = identity.CleanGroups(got.Groups)
+	if a.asksGroups() && got.Groups != nil {
+		l.Groups = a.keptGroups(got.Groups)
 	}
 	if err := a.Store.LoginChecked(ctx, l.ID, l.Groups, got.RefreshToken, a.LoginLifetime); err != nil {
 		a.Logger.Error("saving a login check failed", "err", err)
@@ -242,7 +247,7 @@ func (a *Auth) startLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	binding := oidc.Random(32)
 	scope := []string{"offline_access"}
-	if a.NeedGroups {
+	if a.asksGroups() {
 		// Groups come with "profile" (Authentik) or "groups" (Pocket ID);
 		// providers ignore the scopes they don't know.
 		scope = append(scope, "profile", "groups")
@@ -406,11 +411,11 @@ func (a *Auth) finishLogin(w http.ResponseWriter, r *http.Request, p pendingAuth
 			"and aren't re-checked; allow refresh tokens (usually the offline_access scope) to fix that")
 	}
 	var groups []string
-	if a.NeedGroups {
-		if login.Groups == nil {
+	if a.asksGroups() {
+		if login.Groups == nil && a.NeedGroups {
 			a.Logger.Error("the identity provider sent no groups claim")
 		}
-		groups = identity.CleanGroups(login.Groups)
+		groups = a.keptGroups(login.Groups)
 	}
 	if a.Provisioner.Allowed(identity.Identity{Subject: login.Subject, Groups: groups}) != nil {
 		problem.Send(w, problem.AccountNotAllowed, "")
@@ -481,4 +486,20 @@ func (a *Auth) finishStepUp(w http.ResponseWriter, r *http.Request, p pendingAut
 		a.Logger.Error("step-up: unlocking PINs failed", "err", err)
 	}
 	http.Redirect(w, r, p.Return, http.StatusSeeOther)
+}
+
+// asksGroups reports whether logins ask the provider for groups.
+func (a *Auth) asksGroups() bool { return a.NeedGroups || a.AdminGroup != "" }
+
+// keptGroups is what a login keeps of the groups the provider sent: all of
+// them for a required group, else the admins' group alone, if there.
+func (a *Auth) keptGroups(raw []string) []string {
+	groups := identity.CleanGroups(raw)
+	if a.NeedGroups {
+		return groups
+	}
+	if slices.Contains(groups, a.AdminGroup) {
+		return []string{a.AdminGroup}
+	}
+	return []string{}
 }

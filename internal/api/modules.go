@@ -278,6 +278,9 @@ func creationHooks(r *http.Request, mounts []Mount, prov *provision.Provisioner)
 	var said []say
 	return &provision.Hooks{
 		Before: func(ctx context.Context) error {
+			if id, ok := identity.FromContext(r.Context()); ok && prov.AdminGroup != "" && slices.Contains(id.Groups, prov.AdminGroup) {
+				ctx = creation.Admin(ctx)
+			}
 			for _, m := range mounts {
 				g, ok := m.Module.(feature.AccountGate)
 				if !ok {
