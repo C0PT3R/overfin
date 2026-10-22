@@ -255,6 +255,8 @@ export interface PlaybackRequest {
   capabilities: Capabilities;
   startPositionMs?: number;
   versionId?: string;
+  /** The language to start in, when the video has it and no audioTrack is given. */
+  audioLanguage?: string;
   audioTrack?: string;
   subtitleTrack?: string;
   maxBitrateKbps?: number;
@@ -266,6 +268,8 @@ export interface PlayerOptions {
   startMs?: number;
   audioTrack?: string;
   subtitleTrack?: string;
+  /** The language to start in (the app's), when the video has it and no audioTrack is given. */
+  audioLanguage?: string;
   /** What the browser can play; detected by default. */
   capabilities?: Capabilities;
   /** Every (re)start, with the playback: tracks, segments, method. */
@@ -372,4 +376,6 @@ export class Overfin {
   reportProgress(id: string, report: { positionMs: number; paused?: boolean; ended?: boolean }): Promise<null>;
   stopPlayback(id: string, positionMs: number, options?: { keepalive?: boolean }): Promise<null>;
   play(video: HTMLVideoElement, titleId: string, options?: PlayerOptions): Promise<Player>;
+  /** Keeps the language the active profile chose for subtitles ('' for none), for its next playbacks. */
+  setSubtitleLanguage(language: string): Promise<null>;
 }

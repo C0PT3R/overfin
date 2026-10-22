@@ -231,6 +231,9 @@ type Profile struct {
 	BlockedTags []string
 	HasPIN      bool
 	Created     time.Time
+	// SubtitleLanguage is the language it last chose for subtitles; ""
+	// for none.
+	SubtitleLanguage string
 }
 
 // NewOwner describes the owner profile created with an account.
@@ -332,7 +335,8 @@ func (s *Store) Profiles(ctx context.Context, accountID string) ([]*Profile, err
 
 const profileSelect = `
 	SELECT id, account_id, name, kind, owner, jellyfin_user_id, jellyfin_username,
-		jellyfin_token, language, movie_ceiling, series_ceiling, libraries, blocked_tags, pin_hash IS NOT NULL, created_at
+		jellyfin_token, language, movie_ceiling, series_ceiling, libraries, blocked_tags, pin_hash IS NOT NULL, created_at,
+		subtitle_language
 	FROM profiles`
 
 // scanner is what *sql.Row and *sql.Rows have in common.
@@ -342,11 +346,11 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	var p Profile
 	var owner int
 	var sealed []byte
-	var language, movie, series, jfUser, jfName sql.NullString
+	var language, movie, series, jfUser, jfName, subtitles sql.NullString
 	var libraries, tags *string
 	var created int64
 	err := sc.Scan(&p.ID, &p.AccountID, &p.Name, &p.Kind, &owner, &jfUser,
-		&jfName, &sealed, &language, &movie, &series, &libraries, &tags, &p.HasPIN, &created)
+		&jfName, &sealed, &language, &movie, &series, &libraries, &tags, &p.HasPIN, &created, &subtitles)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -363,7 +367,7 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 		p.JellyfinToken = string(token)
 	}
 	p.Owner = owner == 1
-	p.Language = language.String
+	p.Language, p.SubtitleLanguage = language.String, subtitles.String
 	p.MovieCeiling, p.SeriesCeiling = movie.String, series.String
 	p.Libraries, p.BlockedTags = scanList(libraries), scanList(tags)
 	p.Created = time.Unix(created, 0).UTC()
@@ -554,6 +558,20 @@ func (s *Store) RenameProfile(ctx context.Context, accountID, profileID, name st
 // SetProfileLanguage changes a profile's preferred metadata language.
 func (s *Store) SetProfileLanguage(ctx context.Context, accountID, profileID, language string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET language = ? WHERE id = ? AND account_id = ?`,
+		nullable(language), profileID, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetSubtitleLanguage keeps the language a profile chose for subtitles
+// ("" for none).
+func (s *Store) SetSubtitleLanguage(ctx context.Context, accountID, profileID, language string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET subtitle_language = ? WHERE id = ? AND account_id = ?`,
 		nullable(language), profileID, accountID)
 	if err != nil {
 		return err

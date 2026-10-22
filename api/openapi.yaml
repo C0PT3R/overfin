@@ -405,6 +405,32 @@ paths:
         "403":
           $ref: "#/components/responses/OwnerOnly"
 
+  /me/subtitles:
+    put:
+      operationId: setSubtitleLanguage
+      summary: Keep the active profile's subtitle language
+      description: The language the profile chose for subtitles, or `""`
+        for none. Its next playbacks start with subtitles in it when the
+        video has them (text first, whole before forced). Each profile has
+        its own.
+      tags: [playback]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [language]
+              properties:
+                language:
+                  type: string
+                  maxLength: 35
+      responses:
+        "204":
+          description: Kept.
+        "400":
+          description: Not a language Overfin knows (`invalid-request`).
+
   /me/export:
     post:
       operationId: exportMyData
@@ -3017,9 +3043,17 @@ components:
         audioTrack:
           type: string
           maxLength: 64
+        audioLanguage:
+          type: string
+          description: The language to start in (the app's, BCP 47 or ISO
+            639), when the video has a track in it and no `audioTrack` is
+            given.
+          maxLength: 35
         subtitleTrack:
           type: string
-          description: A subtitle track ID, or `off`.
+          description: A subtitle track ID, or `off`. Without one, the
+            active profile's subtitle language (`PUT /me/subtitles`) is
+            turned on when the video has it; none otherwise.
           maxLength: 64
         maxBitrateKbps:
           type: integer
@@ -3168,6 +3202,8 @@ components:
             $ref: "#/components/schemas/Track"
         subtitleTrack:
           type: string
+          description: The subtitles on. A text track (with a `url`) is
+            shown by the client; a picture track is burned in.
         maxBitrateKbps:
           type: integer
         segments:

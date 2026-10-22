@@ -230,6 +230,12 @@ export class Overfin {
 
   /** Starts a playback. Most clients want play() instead, which does the rest. */
   startPlayback(request) { return this.request('POST', '/playback', request); }
+
+  /**
+   * Keeps the language the active profile chose for subtitles ('' for
+   * none): its next playbacks start with them, when the video has them.
+   */
+  setSubtitleLanguage(language) { return this.request('PUT', '/me/subtitles', { language }); }
   playback(id) { return this.request('GET', `/playback/${enc(id)}`); }
   currentPlayback() { return this.request('GET', '/playback/current'); }
   reportProgress(id, report) { return this.request('POST', `/playback/${enc(id)}/progress`, report); }
@@ -380,6 +386,7 @@ export class Player {
         titleId: this.titleId,
         capabilities: this.options.capabilities || capabilities(),
         startPositionMs: Math.round(at),
+        ...clean({ audioLanguage: this.options.audioLanguage }),
         ...clean(this.choice),
       });
     } catch (err) {
@@ -418,6 +425,12 @@ export class Player {
       video.src = pb.stream.url;
       if (startAt) video.addEventListener('loadedmetadata', () => { video.currentTime = startAt; }, { once: true });
     }
+    // Text subtitles the server turned on (the profile's language) show,
+    // unless the person chose otherwise since.
+    const picked = (pb.subtitleTracks || []).find((t) => t.id === pb.subtitleTrack && t.url);
+    if (picked && !this.wanted && !this.choice.subtitleTrack && this.textTrack === null && !this.chose) {
+      this.textTrack = picked.id;
+    }
     // A subtitle asked for in the options: shown if it's text, burned in
     // (one restart) if it's an image.
     if (this.wanted) {
@@ -439,6 +452,7 @@ export class Player {
    * image-based ones are burned in, which restarts the stream.
    */
   setSubtitleTrack(id) {
+    this.chose = true;
     const tracks = this.playback?.subtitleTracks || [];
     const isText = (tid) => Boolean(tracks.find((t) => t.id === tid)?.url);
     const burnedIn = Boolean(this.choice.subtitleTrack);

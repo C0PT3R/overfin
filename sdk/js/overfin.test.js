@@ -263,3 +263,26 @@ test('batch: several calls in one, each answered or failed on its own', async ()
   assert.deepEqual(first, { items: [1] });
   assert.ok(second instanceof OverfinError && second.type === 'not-found');
 });
+
+test('subtitles: the language kept, and those the server turned on shown', async () => {
+  const calls = fakeServer({
+    'PUT /api/v1/me/subtitles': () => [204, null],
+    'POST /api/v1/playback': (_, body) => [201, {
+      id: 'pb1', title: { id: body.titleId, name: 'Film' }, method: 'direct', stream: { url: '/x', protocol: 'file' },
+      positionMs: 0, subtitleTrack: 's3', subtitleTracks: [{ id: 's3', label: 'Français', url: '/vtt' }],
+    }],
+    'POST /api/v1/playback/pb1/stop': () => [204, null],
+  });
+  const realDocument = globalThis.document;
+  globalThis.document = { createElement: () => ({ dataset: {} }) }; // the <track> elements
+  const overfin = new Overfin();
+  await overfin.setSubtitleLanguage('fr');
+  assert.deepEqual(calls[0].body, { language: 'fr' });
+  // The app's language goes with the start; the subtitles the server
+  // turned on show.
+  const player = await overfin.play(fakeVideo(), 'title_movie_tmdb_1', { startMs: 0, capabilities: {}, audioLanguage: 'fr' });
+  assert.equal(calls.find((c) => c.url === '/api/v1/playback').body.audioLanguage, 'fr');
+  assert.equal(player.subtitleTrack, 's3');
+  await player.close();
+  globalThis.document = realDocument;
+});

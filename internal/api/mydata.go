@@ -67,15 +67,17 @@ type exportAccountJSON struct {
 }
 
 type exportProfileJSON struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Kind          string `json:"kind"`
-	Owner         bool   `json:"owner"`
-	Language      string `json:"language,omitempty"`
-	MovieCeiling  string `json:"movieCeiling,omitempty"`
-	SeriesCeiling string `json:"seriesCeiling,omitempty"`
-	HasPIN        bool   `json:"hasPin"`
-	CreatedAt     string `json:"createdAt"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Owner    bool   `json:"owner"`
+	Language string `json:"language,omitempty"`
+	// SubtitleLanguage is the language it last chose for subtitles.
+	SubtitleLanguage string `json:"subtitleLanguage,omitempty"`
+	MovieCeiling     string `json:"movieCeiling,omitempty"`
+	SeriesCeiling    string `json:"seriesCeiling,omitempty"`
+	HasPIN           bool   `json:"hasPin"`
+	CreatedAt        string `json:"createdAt"`
 	// WatchHistory is read from the media server for this download.
 	WatchHistory []exportItemJSON `json:"watchHistory"`
 	// Titles is what Overfin keeps about what the profile did with each
@@ -216,7 +218,7 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		out.Profiles = append(out.Profiles, exportProfileJSON{
-			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language,
+			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language, SubtitleLanguage: p.SubtitleLanguage,
 			MovieCeiling: p.MovieCeiling, SeriesCeiling: p.SeriesCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
 			WatchHistory: history, Titles: titles, Requests: requests, Modules: mods,
 		})

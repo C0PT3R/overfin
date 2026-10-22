@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/lang"
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/playback"
 	"github.com/overfin/server/internal/plugin"
@@ -46,6 +47,7 @@ func (pb Playback) Register(r *plugin.Registrar) error {
 		"POST /api/v1/playback/{id}/progress":         pb.progress,
 		"POST /api/v1/playback/{id}/stop":             pb.stop,
 		"GET /api/v1/playback/{id}/trickplay/{sheet}": pb.trickplaySheet,
+		"PUT /api/v1/me/subtitles":                    pb.setSubtitles,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
 			return err
@@ -241,8 +243,11 @@ type startRequest struct {
 	AudioTrack      string                `json:"audioTrack"`
 	SubtitleTrack   string                `json:"subtitleTrack"`
 	MaxBitrateKbps  int                   `json:"maxBitrateKbps"`
-	Queue           []string              `json:"queue"`
-	Device          string                `json:"device"`
+	// AudioLanguage is the language to start in (the site's), when the
+	// video has it and no AudioTrack is asked for.
+	AudioLanguage string   `json:"audioLanguage"`
+	Queue         []string `json:"queue"`
+	Device        string   `json:"device"`
 }
 
 // Shapes from the API specification.
@@ -423,23 +428,58 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	info, err := l.Jellyfin.PlaybackInfo(ctx, play, uid, jfItem, pr)
-	if err != nil {
-		l.upstreamError(w, err)
-		return
+	// Without a subtitle track asked for, none is burned in: the profile's
+	// language, if any, is chosen below.
+	if req.SubtitleTrack == "" {
+		off := -1
+		pr.SubtitleStreamIndex = &off
 	}
 	audioItem := summary.Kind == "track" || summary.Kind == "audiobook"
-	dec, err := playback.Decide(info, jfItem, audioItem, play.DeviceID)
-	switch {
-	case errors.Is(err, playback.ErrNotPlayable):
-		problem.Send(w, problem.NotPlayable, "")
+	var info *jellyfin.PlaybackInfo
+	var dec *playback.Decision
+	decide := func() bool {
+		var err error
+		if info, err = l.Jellyfin.PlaybackInfo(ctx, play, uid, jfItem, pr); err != nil {
+			l.upstreamError(w, err)
+			return false
+		}
+		dec, err = playback.Decide(info, jfItem, audioItem, play.DeviceID)
+		switch {
+		case errors.Is(err, playback.ErrNotPlayable):
+			problem.Send(w, problem.NotPlayable, "")
+			return false
+		case errors.Is(err, playback.ErrUnsafeUpstream):
+			pb.Logger.Warn("refused an unexpected stream URL from Jellyfin", "item", req.ItemID, "err", err)
+			problem.Send(w, problem.NotPlayable, "")
+			return false
+		case err != nil:
+			l.upstreamError(w, err)
+			return false
+		}
+		return true
+	}
+	if !decide() {
 		return
-	case errors.Is(err, playback.ErrUnsafeUpstream):
-		pb.Logger.Warn("refused an unexpected stream URL from Jellyfin", "item", req.ItemID, "err", err)
-		problem.Send(w, problem.NotPlayable, "")
-		return
-	case err != nil:
-		l.upstreamError(w, err)
+	}
+	// The languages: the audio in the one asked for (the site's), the
+	// subtitles in the profile's, when the video has them and no track was
+	// asked for. Jellyfin is asked again only when that changes the stream
+	// (another audio track, subtitles burned into the picture).
+	textSubtitle := ""
+	again := false
+	if req.AudioTrack == "" && req.AudioLanguage != "" {
+		if n, ok := audioIn(dec.Source, req.AudioLanguage); ok && n != defaultAudio(dec.Source) {
+			pr.AudioStreamIndex, again = &n, true
+		}
+	}
+	if req.SubtitleTrack == "" && p.SubtitleLanguage != "" {
+		if n, text, ok := subtitlesIn(dec.Source, p.SubtitleLanguage); ok && text {
+			textSubtitle = "s" + strconv.Itoa(n)
+		} else if ok {
+			pr.SubtitleStreamIndex, again = &n, true
+		}
+	}
+	if again && !decide() {
 		return
 	}
 
@@ -524,14 +564,15 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if pr.AudioStreamIndex != nil {
-		out.AudioTrack = req.AudioTrack
-	} else if i := dec.Source.DefaultAudioStreamIndex; i != nil {
-		out.AudioTrack = "a" + strconv.Itoa(*i)
+		out.AudioTrack = "a" + strconv.Itoa(*pr.AudioStreamIndex)
+	} else if i := defaultAudio(dec.Source); i >= 0 {
+		out.AudioTrack = "a" + strconv.Itoa(i)
 	}
-	if pr.SubtitleStreamIndex != nil {
-		out.SubtitleTrack = req.SubtitleTrack
-	} else if i := dec.Source.DefaultSubtitleStreamIndex; i != nil && *i >= 0 {
-		out.SubtitleTrack = "s" + strconv.Itoa(*i)
+	switch {
+	case textSubtitle != "":
+		out.SubtitleTrack = textSubtitle // shown by the client, from its URL
+	case pr.SubtitleStreamIndex != nil && *pr.SubtitleStreamIndex >= 0:
+		out.SubtitleTrack = "s" + strconv.Itoa(*pr.SubtitleStreamIndex)
 	}
 	// Skip markers are a bonus: playback goes on without them.
 	if segs, err := l.Jellyfin.MediaSegments(ctx, ja, jfItem); err == nil {
@@ -638,4 +679,94 @@ func (pb Playback) trickplaySheet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.Write(data)
+}
+
+// defaultAudio is the index of the audio track a version plays unless
+// asked otherwise: Jellyfin's default, else the one marked default, else
+// the first; -1 when it has none.
+func defaultAudio(src jellyfin.MediaSource) int {
+	if i := src.DefaultAudioStreamIndex; i != nil {
+		return *i
+	}
+	first := -1
+	for _, ms := range src.MediaStreams {
+		if ms.Type != "Audio" {
+			continue
+		}
+		if ms.IsDefault {
+			return ms.Index
+		}
+		if first < 0 {
+			first = ms.Index
+		}
+	}
+	return first
+}
+
+// audioIn is the index of a version's audio track in a language: its
+// default one if that's in it, else the first.
+func audioIn(src jellyfin.MediaSource, language string) (int, bool) {
+	found, ok := 0, false
+	for _, ms := range src.MediaStreams {
+		if ms.Type != "Audio" || !lang.Same(ms.Language, language) {
+			continue
+		}
+		if ms.IsDefault {
+			return ms.Index, true
+		}
+		if !ok {
+			found, ok = ms.Index, true
+		}
+	}
+	return found, ok
+}
+
+// subtitlesIn is the index of a version's subtitle track in a language,
+// and whether it's text (shown by the client) rather than pictures
+// (burned in): text first, whole subtitles before forced ones and those
+// for the hearing impaired.
+func subtitlesIn(src jellyfin.MediaSource, language string) (index int, text, ok bool) {
+	best := -1
+	for _, ms := range src.MediaStreams {
+		if ms.Type != "Subtitle" || !lang.Same(ms.Language, language) {
+			continue
+		}
+		score := 0
+		if ms.IsTextSubtitleStream {
+			score += 4
+		}
+		if !ms.IsForced {
+			score += 2
+		}
+		if !ms.IsHearingImpaired {
+			score++
+		}
+		if score > best {
+			best, index, text = score, ms.Index, ms.IsTextSubtitleStream
+		}
+	}
+	return index, text, best >= 0
+}
+
+// setSubtitles keeps the language the active profile chose for subtitles
+// ("" for none): its next playbacks start with them, when the video has
+// them.
+func (pb Playback) setSubtitles(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Language string `json:"language"`
+	}
+	if !decode(r, &req) || (req.Language != "" && lang.Base(req.Language) == "") {
+		problem.Send(w, problem.InvalidRequest, "")
+		return
+	}
+	l := pb.Library
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	if err := l.Provisioner.Store.SetSubtitleLanguage(r.Context(), p.AccountID, p.ID, lang.Base(req.Language)); err != nil {
+		l.storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -197,6 +197,9 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 1):
 		json.NewEncoder(w).Encode(movie(0))
 	case r.Method == "POST" && r.URL.Path == "/Items/"+fmt.Sprintf("%032x", 1)+"/PlaybackInfo":
+		var asked map[string]any
+		json.NewDecoder(r.Body).Decode(&asked)
+		f.calls = append(f.calls, fmt.Sprintf("PlaybackInfo audio=%v subtitles=%v", asked["AudioStreamIndex"], asked["SubtitleStreamIndex"]))
 		json.NewEncoder(w).Encode(map[string]any{
 			"PlaySessionId": "abc123",
 			"MediaSources": []map[string]any{{
@@ -206,6 +209,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"RunTimeTicks":   72000000000,
 				"MediaStreams": []map[string]any{
 					{"Index": 1, "Type": "Audio", "Codec": "eac3", "Language": "fre", "DisplayTitle": "Français - EAC3 5.1", "Channels": 6, "IsDefault": true},
+					{"Index": 2, "Type": "Audio", "Codec": "aac", "Language": "eng", "DisplayTitle": "English - AAC 2.0", "Channels": 2},
 					{"Index": 3, "Type": "Subtitle", "Codec": "srt", "Language": "eng", "DisplayTitle": "English", "IsTextSubtitleStream": true},
 					{"Index": 4, "Type": "Subtitle", "Codec": "PGSSUB", "DisplayTitle": "Blu-ray"},
 				},
@@ -671,7 +675,7 @@ func TestStartPlaybackNeverLeaksUpstream(t *testing.T) {
 		!strings.HasPrefix(s.Stream.URL, "/api/v1/stream/") || !strings.HasSuffix(s.Stream.URL, "/master.m3u8") {
 		t.Errorf("session: %+v", s)
 	}
-	if s.DurationMs != 7_200_000 || len(s.AudioTracks) != 1 || s.AudioTracks[0].ID != "a1" || s.AudioTracks[0].Language != "fre" {
+	if s.DurationMs != 7_200_000 || len(s.AudioTracks) != 2 || s.AudioTracks[0].ID != "a1" || s.AudioTracks[0].Language != "fre" {
 		t.Errorf("tracks/duration: %+v", s)
 	}
 	// Text subtitles get a WebVTT URL; image subtitles don't (they're burned in).
@@ -819,6 +823,56 @@ func TestPlaybackPreviews(t *testing.T) {
 	}
 	if code, _ := getAs(t, srv, "other-subject", tp.Sheets[6]); code != 404 {
 		t.Errorf("another account: %d", code)
+	}
+}
+
+// Languages: the audio in the site's language, the subtitles in the
+// profile's last choice, when the video has them; Jellyfin asked again
+// only when the stream changes (another audio track).
+func TestPlaybackLanguages(t *testing.T) {
+	srv, fake := newServer(t)
+	start := func(extra string) (audio, subtitles string) {
+		t.Helper()
+		code, body := post(t, srv, "/api/v1/playback",
+			`{"itemId":"item_`+fmt.Sprintf("%032x", 1)+`","capabilities":{},"device":"Laptop"`+extra+`}`)
+		var pb struct{ AudioTrack, SubtitleTrack string }
+		json.Unmarshal([]byte(body), &pb)
+		if code != 201 {
+			t.Fatalf("start: %d %s", code, body)
+		}
+		return pb.AudioTrack, pb.SubtitleTrack
+	}
+	// Nothing chosen: Jellyfin's default audio, no subtitles.
+	if a, s := start(``); a != "a1" || s != "" || fake.called("PlaybackInfo audio=<nil> subtitles=-1") != 1 {
+		t.Errorf("default: %q %q %v", a, s, fake.calls)
+	}
+	// The site in English: the English audio, Jellyfin asked again for it.
+	if a, _ := start(`,"audioLanguage":"en"`); a != "a2" || fake.called("PlaybackInfo audio=2 subtitles=-1") != 1 {
+		t.Errorf("English audio: %q %v", a, fake.calls)
+	}
+	// In French: the default already is.
+	if a, _ := start(`,"audioLanguage":"fr-CA"`); a != "a1" || fake.called("PlaybackInfo audio=2") != 1 {
+		t.Errorf("French audio: %q", a)
+	}
+	// The profile chose English subtitles: the text track, from its URL.
+	if code, _ := put(t, srv, "PUT", "/api/v1/me/subtitles", `{"language":"en"}`); code != 204 {
+		t.Fatalf("set subtitles: %d", code)
+	}
+	if _, s := start(``); s != "s3" {
+		t.Errorf("subtitles: %q", s)
+	}
+	// None again; a track asked for wins.
+	put(t, srv, "PUT", "/api/v1/me/subtitles", `{"language":""}`)
+	if _, s := start(``); s != "" {
+		t.Errorf("no subtitles: %q", s)
+	}
+	if a, _ := start(`,"audioLanguage":"en","audioTrack":"a1"`); a != "a1" {
+		t.Errorf("asked track: %q", a)
+	}
+	for _, bad := range []string{`{"language":"klingon"}`, `{"language":"und"}`, `{}x`} {
+		if code, _ := put(t, srv, "PUT", "/api/v1/me/subtitles", bad); code != 400 {
+			t.Errorf("%s: %d", bad, code)
+		}
 	}
 }
 

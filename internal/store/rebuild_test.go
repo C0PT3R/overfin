@@ -29,6 +29,11 @@ func TestProfilesRebuildKeepsReferences(t *testing.T) {
 	if err := s.apply(ctx, "017 again", string(body), 17); err != nil {
 		t.Fatal(err)
 	}
+	// The columns profiles got since, back.
+	later, _ := migrations.ReadFile("migrations/031_subtitle_language.sql")
+	if err := s.apply(ctx, "031 again", string(later), 31); err != nil {
+		t.Fatal(err)
+	}
 
 	if got, err := s.Profile(ctx, acct.ID, prof.ID); err != nil || got.JellyfinToken != prof.JellyfinToken || got.Name != prof.Name {
 		t.Errorf("profile: %+v %v", got, err)
