@@ -2,32 +2,28 @@
 // their old login, and moving them for good once the old way is closed.
 export default async function render(root, panel) {
   const { h, api } = panel;
-  const msg = h('p', { class: 'muted' });
+  const { card, badge, toast, busy, status, fill, plural } = panel.ui;
   const show = ({ linked, mode }) => {
-    const move = linked > 0 && h('button', { class: 'danger', onclick: async () => {
-      if (!confirm(`Move ${linked} linked account${linked === 1 ? '' : 's'} for good? Their old logins stop working.`)) return;
-      move.disabled = true;
-      msg.textContent = 'Moving…';
-      try {
+    const st = status(linked === 0
+      ? 'No account is linked.'
+      : `${plural(linked, 'account is', 'accounts are')} linked. Once you close the old way in, move them for good.`);
+    const move = linked > 0 && h('button', { class: 'danger', type: 'button', onclick: () => {
+      if (!confirm(`Move ${plural(linked, 'linked account')} for good? Their old logins stop working.`)) return;
+      busy(move, async () => {
+        st.set('Moving…');
         const out = await api('POST', '/linked/move', {});
         show({ linked: out.linked, mode });
-        msg.textContent = out.linked > 0
-          ? `${out.moved} moved; ${out.linked} could not be, see the logs, then try again.`
-          : `${out.moved} moved.`;
-      } catch (err) {
-        move.disabled = false;
-        msg.textContent = err.message;
-      }
+        if (out.linked > 0) toast(`${out.moved} moved; ${out.linked} could not be: the log says why. Try again.`, true);
+        else toast(`${plural(out.moved, 'account')} moved.`);
+      }, (err) => st.set(err.message, 'error'));
     } }, 'Move linked accounts');
-    root.replaceChildren(h('section', {},
-      h('h2', {}, 'Migration'),
-      h('p', {}, mode === 'link'
-        ? 'Accounts brought over stay linked: their old login keeps working.'
-        : 'Accounts brought over are moved: their old login stops working at once.'),
-      h('p', {}, linked === 0
-        ? 'No account is linked.'
-        : `${linked} account${linked === 1 ? ' is' : 's are'} linked. Once you close the old way in, move them for good.`),
-      move, msg));
+    fill(root, card({
+      title: 'Bringing accounts over',
+      badge: mode === 'link' ? badge('Link mode', 'warn') : badge('Move mode', 'info'),
+      description: mode === 'link'
+        ? 'Accounts brought over stay linked: their old login keeps working until you move them.'
+        : 'Accounts brought over are moved: their old login stops working at once.',
+    }, null, [st, move]));
   };
   show(await api('GET', '/linked'));
 }

@@ -9,13 +9,14 @@
 <script type="module" src="panel.js"></script>
 </head>
 <body>
-<header>
-  <strong>Overfin</strong> <span class="muted">control panel</span>
-  <nav hidden><a href="#/settings" data-tab="settings">Settings</a><a href="#/users" data-tab="users">Users</a><a href="#/templates" data-tab="templates">Templates</a><a href="#/identification" data-tab="identification">Identification</a><a href="#/apps" data-tab="apps">Apps</a></nav>
-  <span class="grow"></span>
-  <span id="who" class="muted"></span>
-  <button id="signout" type="button" hidden>Sign out</button>
-</header>
-<main id="main"><p class="muted">Loading…</p></main>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">O</span><div><strong>Overfin</strong><small>Control panel</small></div></div>
+    <nav hidden></nav>
+    <div class="me" hidden><span id="who"></span><button id="signout" class="ghost small" type="button">Sign out</button></div>
+  </aside>
+  <main id="main"><p class="loading">Loading…</p></main>
+</div>
+<div id="toasts" aria-live="polite"></div>
 </body>
 </html>

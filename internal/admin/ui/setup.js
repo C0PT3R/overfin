@@ -19,7 +19,7 @@ async function load() {
 async function save() {
   const status = $('#status');
   const button = $('#save');
-  status.className = 'muted';
+  status.className = 'status';
   status.textContent = 'Testing…';
   button.disabled = true;
   try {
@@ -33,7 +33,7 @@ async function save() {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      status.className = 'error';
+      status.className = 'status error';
       status.textContent = body.error || `Something went wrong (${res.status}).`;
       await load(); // what's still missing, after a partial save
       return;
@@ -44,7 +44,7 @@ async function save() {
     $('#next-panel').hidden = asks.site;
     $('#next-site').hidden = !asks.site;
   } catch {
-    status.className = 'error';
+    status.className = 'status error';
     status.textContent = "Overfin didn't answer. Is it still running?";
   } finally {
     button.disabled = false;
