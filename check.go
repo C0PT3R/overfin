@@ -234,10 +234,10 @@ func (c *checker) identity(ctx context.Context, cfg *config.Config) {
 			strings.Join(cfg.Identity.TrustedProxies, ", "))
 	}
 	if cn := cfg.Connector; cn.Enabled() {
-		a := &connector.Authentik{BaseURL: cn.URL, Token: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
+		a := connector.New(cn.Kind, cn.URL, cfg.Secrets.ConnectorToken, oidc.NewClient(cn.Dial))
 		switch err := a.Check(ctx); {
-		case errors.Is(err, connector.ErrUnauthorized):
-			c.fail("connector (%s): its token (OVERFIN_CONNECTOR_TOKEN) is refused, or may not view users", cn.URL)
+		case connector.Refused(err):
+			c.fail("connector (%s): its key (OVERFIN_CONNECTOR_TOKEN) is refused, or may not view users", cn.URL)
 		case err != nil:
 			c.fail("connector (%s): %v", cn.URL, err)
 		default:

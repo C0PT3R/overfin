@@ -2,6 +2,8 @@ package connector
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -9,6 +11,30 @@ import (
 // Directory is a connector's view of people, by the user ID logins carry.
 type Directory interface {
 	People(ctx context.Context) (map[string]Person, error)
+}
+
+// Provider is a connector to an identity provider: who people are, and
+// whether its credentials work.
+type Provider interface {
+	Directory
+	Check(ctx context.Context) error
+}
+
+// New returns the connector for a provider kind ("authentik", "pocketid"),
+// at baseURL, with its API credential; nil for an unknown kind.
+func New(kind, baseURL, credential string, client *http.Client) Provider {
+	switch kind {
+	case "authentik":
+		return &Authentik{BaseURL: baseURL, Token: credential, HTTP: client}
+	case "pocketid":
+		return &PocketID{BaseURL: baseURL, Key: credential, HTTP: client}
+	}
+	return nil
+}
+
+// Refused says whether err is a provider refusing the credential.
+func Refused(err error) bool {
+	return errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrPocketIDKey)
 }
 
 // keepFor is how long a Cache keeps what its directory said.

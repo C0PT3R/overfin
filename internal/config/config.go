@@ -298,7 +298,7 @@ type Admin struct {
 // Connector reads people from the identity provider's own API, for the
 // control panel: their names, and later invitations. Off unless Kind is set.
 type Connector struct {
-	// Kind is the provider: "authentik".
+	// Kind is the provider: "authentik" or "pocketid".
 	Kind string `toml:"kind"`
 	// URL is the provider's address, e.g. "https://auth.example.org".
 	URL string `toml:"url"`
@@ -696,8 +696,8 @@ func (c *Config) validate() error {
 	}
 
 	if cn := c.Connector; cn.Enabled() {
-		if cn.Kind != "authentik" {
-			add("connector.kind must be \"authentik\" (the only one so far), got %q", cn.Kind)
+		if cn.Kind != "authentik" && cn.Kind != "pocketid" {
+			add("connector.kind must be \"authentik\" or \"pocketid\", got %q", cn.Kind)
 		}
 		if u, err := url.Parse(cn.URL); err != nil || u.Scheme != "https" || u.Host == "" {
 			add("connector.url must be the provider's https:// address")

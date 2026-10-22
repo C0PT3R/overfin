@@ -360,8 +360,7 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 		searches: &api.SearchLimiter{PerMinute: 30}, requested: &api.SeerrRequested{Logger: logger},
 		service: &provision.Service{}}
 	if cn := cfg.Connector; cn.Enabled() {
-		sh.directory = &connector.Cache{Directory: &connector.Authentik{BaseURL: cn.URL, Token: cfg.Secrets.ConnectorToken,
-			HTTP: oidc.NewClient(cn.Dial)}}
+		sh.directory = &connector.Cache{Directory: connector.New(cn.Kind, cn.URL, cfg.Secrets.ConnectorToken, oidc.NewClient(cn.Dial))}
 	}
 	return sh, nil
 }
