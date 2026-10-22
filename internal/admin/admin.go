@@ -350,7 +350,8 @@ func (p *Panel) login(w http.ResponseWriter, r *http.Request) {
 	pd := pending{binding: oidc.Random(32), nonce: oidc.Random(32), verifier: oidc.Random(32),
 		ret: safeReturn(r.URL.Query().Get("return")), started: p.clock()}
 	state := oidc.Random(32)
-	target, err := p.Provider.AuthURL(r.Context(), state, pd.nonce, pd.verifier, true, "profile")
+	// Groups come with "profile" (Authentik) or "groups" (Pocket ID).
+	target, err := p.Provider.AuthURL(r.Context(), state, pd.nonce, pd.verifier, true, "profile", "groups")
 	if err != nil {
 		p.Logger.Error("admin sign-in: identity provider unavailable", "err", err)
 		http.Error(w, "The identity provider is unavailable", http.StatusServiceUnavailable)

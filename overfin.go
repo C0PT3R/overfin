@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -300,6 +301,10 @@ func run(logger *slog.Logger) error {
 	go sh.titles.Run(ctx)
 	go unrestrictKids(ctx, db, gw.Provisioner, logger)
 	// Each profile's data, brought over from Jellyfin once.
+	// With Pocket ID, Overfin sets up its own client and groups there.
+	if cn := cfg.Connector; cn.Kind == "pocketid" && cfg.OIDC.Enabled() {
+		go setUpPocketID(ctx, cfg, logger)
+	}
 	// The library's artwork, kept on disk next to the database.
 	go (&catalog.LibraryArtwork{Store: db, Images: sh.images, Logger: logger, Every: time.Hour}).Run(ctx)
 	go (&personal.Importer{Jellyfin: sh.jf, Store: db, Logger: logger, Every: 10 * time.Minute}).Run(ctx)
@@ -502,6 +507,39 @@ func unrestrictKids(ctx context.Context, db *store.Store, prov func() *provision
 		case <-ctx.Done():
 			return
 		case <-time.After(10 * time.Minute):
+		}
+	}
+}
+
+// setUpPocketID makes sure Pocket ID has Overfin's client (its ID, secret
+// and return addresses: the site's and the control panel's) and the groups
+// the configuration names, trying again until Pocket ID answers.
+func setUpPocketID(ctx context.Context, cfg *config.Config, logger *slog.Logger) {
+	cn, o := cfg.Connector, cfg.OIDC
+	p := &connector.PocketID{BaseURL: cn.URL, Key: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
+	client := connector.Client{ID: o.ClientID, Name: "Overfin", Secret: cfg.Secrets.OIDCClientSecret}
+	for _, u := range []string{o.RedirectURL, cfg.Admin.RedirectURL} {
+		if u != "" {
+			client.CallbackURLs = append(client.CallbackURLs, u)
+		}
+	}
+	var groups []string
+	for _, g := range []string{cfg.Admin.Group, cfg.Identity.RequiredGroup} {
+		if g != "" && !slices.Contains(groups, g) {
+			groups = append(groups, g)
+		}
+	}
+	for wait := 5 * time.Second; ; wait = min(2*wait, 5*time.Minute) {
+		err := p.Setup(ctx, client, groups)
+		if err == nil {
+			logger.Info("Pocket ID is set up for Overfin", "client", client.ID, "groups", groups)
+			return
+		}
+		logger.Warn("setting up Pocket ID failed; trying again", "err", err, "in", wait)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
 		}
 	}
 }

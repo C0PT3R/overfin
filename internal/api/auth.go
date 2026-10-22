@@ -243,7 +243,9 @@ func (a *Auth) startLogin(w http.ResponseWriter, r *http.Request) {
 	binding := oidc.Random(32)
 	scope := []string{"offline_access"}
 	if a.NeedGroups {
-		scope = append(scope, "profile")
+		// Groups come with "profile" (Authentik) or "groups" (Pocket ID);
+		// providers ignore the scopes they don't know.
+		scope = append(scope, "profile", "groups")
 	}
 	target, ok := a.begin(w, r, pendingAuth{Binding: binding, Return: ret}, false, scope...)
 	if !ok {
