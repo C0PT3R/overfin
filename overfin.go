@@ -435,6 +435,9 @@ func purgeExpired(ctx context.Context, db *store.Store, logger *slog.Logger) {
 		if _, err := db.DeleteExpiredLogins(ctx); err != nil && ctx.Err() == nil {
 			logger.Error("purging expired logins failed", "err", err)
 		}
+		if err := db.DeleteOldSigninCodes(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("purging old sign-in codes failed", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return

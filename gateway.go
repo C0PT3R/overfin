@@ -24,6 +24,7 @@ import (
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/keys"
+	"github.com/overfin/server/internal/mail"
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/pin"
 	"github.com/overfin/server/internal/playback"
@@ -115,7 +116,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		ids = identity.NewForwardAuth(cfg.Identity.Proxies, cfg.Identity.UserHeader, cfg.Identity.GroupsHeader, cfg.Identity.GroupsSeparator)
 	case "anonymous":
 		ids = identity.NewAnonymous(cfg.Identity.Proxies)
-	case "oidc":
+	case "oidc", "managed":
 		ids = identity.NewHeaderless(cfg.Identity.Proxies)
 	default:
 		return nil, fmt.Errorf("identity mode %q is not supported", cfg.Identity.Mode)
@@ -125,6 +126,8 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	sessions := &api.Sessions{Provisioner: prov, Store: db, Logger: logger, Lifetime: 30 * 24 * time.Hour}
 	checker := &pin.Checker{Key: k.PIN, Store: db, MaxFailures: cfg.Limits.PINAttempts}
 	identityMiddleware := ids.Middleware
+	// Overfin's own sign-in, and step-up, when it has them.
+	var signIn []plugin.Plugin
 	if o := cfg.OIDC; o.Enabled() {
 		needGroups := cfg.Identity.Mode == "oidc" && cfg.Identity.RequiredGroup != ""
 		groupsClaim := ""
@@ -140,13 +143,25 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 			AdminGroup:    adminGroup(cfg),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: o.RedirectURL, GroupsClaim: groupsClaim, HTTP: oidc.NewClient(o.Dial)}}
-		sessions.Auth = auth
+		sessions.StepUpURL, sessions.FreshFor = api.StepUpPath, auth.FreshFor
+		signIn = append(signIn, auth)
 		if auth.Login {
+			sessions.SignIn = auth
 			// The login cookie sets the identity; the headerless resolver
 			// only finds the client address.
 			identityMiddleware = func(h http.Handler) http.Handler { return ids.Middleware(auth.Middleware(h)) }
 		}
-	} else {
+	}
+	var managed *api.Managed
+	if cfg.Identity.Mode == "managed" {
+		managed = &api.Managed{Sessions: sessions, Store: db, Provisioner: prov, CodeKey: k.SigninCode,
+			Mail: mailer(cfg), SiteURL: cfg.Site.URL, LoginLifetime: 30 * 24 * time.Hour, FreshFor: 5 * time.Minute,
+			Logger: logger}
+		sessions.StepUpURL, sessions.FreshFor, sessions.SignIn = api.StepUpPath, managed.FreshFor, managed
+		signIn = append(signIn, managed)
+		identityMiddleware = func(h http.Handler) http.Handler { return ids.Middleware(managed.Middleware(h)) }
+	}
+	if sessions.StepUpURL == "" {
 		// Without step-up the owner can't confirm a login, so PIN locks
 		// end by themselves.
 		checker.UnlockAfter = 15 * time.Minute
@@ -183,6 +198,9 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		return nil, err
 	}
 	sessions.SetupOffers = offers
+	if managed != nil {
+		managed.Mounts = mounts // newcomers' invitations
+	}
 	// Accounts and profiles are always on; everything else is a plugin the
 	// operator enables.
 	plugins := []plugin.Plugin{
@@ -191,9 +209,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, Service: sh.service,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 	}
-	if sessions.Auth != nil {
-		plugins = append(plugins, sessions.Auth)
-	}
+	plugins = append(plugins, signIn...)
 	if cfg.Plugins.Enabled("library") {
 		plugins = append(plugins, lib)
 	}
@@ -224,7 +240,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		plugins = append(plugins, m)
 	}
 	logger.Info("plugins", "enabled", cfg.Plugins.Enable)
-	siteHandler, err := newSite(cfg.Site, api.SiteGate(sessions.Auth, prov))
+	siteHandler, err := newSite(cfg.Site, api.SiteGate(sessions.SignIn, prov))
 	if err != nil {
 		return nil, err
 	}
@@ -649,9 +665,24 @@ func signUp(cfg *config.Config) func(ctx context.Context, previous string, uses 
 	}
 }
 
+// mailer is the SMTP server the configuration names; nil without one.
+func mailer(cfg *config.Config) func() api.Mailer {
+	m := cfg.Mail
+	if !m.Enabled() {
+		return nil
+	}
+	s := &mail.Sender{Host: m.Host, Port: m.Port, TLS: m.TLS, From: m.From, Username: m.Username,
+		Password: cfg.Secrets.MailPassword}
+	return func() api.Mailer { return s }
+}
+
 // adminGroup is the control panel's group, when people log in to the site
 // with Overfin's own login: the site learns who's in it from their login.
+// With managed sign-in, admins are marked as such, in a group of its own.
 func adminGroup(cfg *config.Config) string {
+	if cfg.Identity.Mode == "managed" {
+		return api.ManagedAdminGroup
+	}
 	if !cfg.Admin.Enabled() || cfg.Identity.Mode != "oidc" {
 		return ""
 	}

@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"maps"
 	"net"
+	"net/mail"
 	"net/netip"
 	"net/url"
 	"os"
@@ -46,6 +47,7 @@ type Config struct {
 	Admin     Admin     `toml:"admin"`
 	Connector Connector `toml:"connector"`
 	Site      Site      `toml:"site"`
+	Mail      Mail      `toml:"mail"`
 
 	// FeaturesInFile reports whether the file held feature settings
 	// (limits, privacy, plugins, accounts, modules). Those live in the
@@ -64,9 +66,10 @@ type Jellyfin struct {
 }
 
 type Identity struct {
-	// Mode is "oidc" (Overfin logs users in with the [oidc] provider),
-	// "forwardauth" (a reverse proxy does, and sends identity headers) or
-	// "anonymous".
+	// Mode is "managed" (the default: Overfin signs people in itself, with
+	// their email and a code it sends, or a password), "oidc" (Overfin logs
+	// users in with the [oidc] provider), "forwardauth" (a reverse proxy
+	// does, and sends identity headers) or "anonymous".
 	Mode string `toml:"mode"`
 	// TrustedProxies are the reverse proxies in front of Overfin: they may
 	// send identity headers in forwardauth mode, and the client address in
@@ -315,6 +318,25 @@ type Connector struct {
 // digits, dots, hyphens and underscores, 50 characters at most.
 var emailPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$`)
 
+// Mail is the SMTP server Overfin sends its emails through (sign-in
+// codes). Off unless Host is set: people then sign in with a password.
+type Mail struct {
+	Host string `toml:"host"`
+	// Port defaults to 587 (465 with TLS = "tls", 25 with "none").
+	Port int `toml:"port"`
+	// TLS is "starttls" (the default), "tls", or "none" (a relay on the
+	// local network only: no password is sent then).
+	TLS string `toml:"tls"`
+	// From is the sender: "address" or "Name <address>".
+	From string `toml:"from"`
+	// Username, when set, signs in to the SMTP server with
+	// OVERFIN_MAIL_PASSWORD.
+	Username string `toml:"username"`
+}
+
+// Enabled reports whether an SMTP server is configured.
+func (m Mail) Enabled() bool { return m.Host != "" }
+
 // Enabled reports whether a connector is configured.
 func (c Connector) Enabled() bool { return c.Kind != "" }
 
@@ -335,6 +357,9 @@ type Site struct {
 	// single-page apps with their own routing need. The built-in client
 	// always gets it.
 	SPAFallback bool `toml:"spa_fallback"`
+	// URL is the site's public address, e.g. "https://media.example.org".
+	// Optional: with it, sign-in emails carry a link besides the code.
+	URL string `toml:"url"`
 }
 
 // DefaultCSP is the site's Content-Security-Policy unless the operator sets
@@ -374,6 +399,8 @@ type Secrets struct {
 	// ConnectorToken is the identity provider API token, required only
 	// with [connector].
 	ConnectorToken string
+	// MailPassword is the SMTP server's password, with mail.username.
+	MailPassword string
 }
 
 // PrivateAddr reports whether ip is private: loopback, link-local, the
@@ -396,7 +423,7 @@ func defaults() Config {
 		Storage: Storage{Path: "/data/overfin.db"},
 		// No default identity headers: they depend on the proxy, and naming
 		// them explicitly avoids trusting the wrong one by accident.
-		Identity: Identity{Mode: "forwardauth", GroupsSeparator: "|"},
+		Identity: Identity{Mode: "managed", GroupsSeparator: "|"},
 		Limits: Limits{
 			MaxTranscodesTotal: 4,
 			PINAttempts:        5,
@@ -427,6 +454,12 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 		return nil, fmt.Errorf("config: unknown keys: %s", strings.Join(keys, ", "))
 	}
 
+	// Before managed sign-in, forwardauth was the default: a file written
+	// for it must now say so, rather than quietly sign people in otherwise.
+	if !meta.IsDefined("identity", "mode") && cfg.Identity.UserHeader != "" {
+		return nil, errors.New("config: identity.mode is \"managed\" by default now: add mode = \"forwardauth\" to [identity]")
+	}
+
 	for _, section := range []string{"limits", "adoption", "privacy", "plugins", "accounts", "modules"} {
 		if meta.IsDefined(section) {
 			cfg.FeaturesInFile = true
@@ -449,6 +482,20 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 			return nil, err
 		}
 		cfg.Secrets.OIDCClientSecret = s
+	}
+	if cfg.Mail.Username != "" {
+		s, err := secret("OVERFIN_MAIL_PASSWORD", getenv)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Secrets.MailPassword = s
+	}
+	if m := &cfg.Mail; m.Enabled() {
+		m.TLS = cmp.Or(m.TLS, "starttls")
+		if m.Port == 0 {
+			m.Port = map[string]int{"tls": 465, "none": 25}[m.TLS]
+			m.Port = cmp.Or(m.Port, 587)
+		}
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -577,6 +624,16 @@ func (c *Config) validate() error {
 	}
 
 	switch c.Identity.Mode {
+	case "managed":
+		if c.OIDC.Enabled() {
+			add("[oidc] is for identity.mode = \"oidc\": with managed sign-in, Overfin confirms logins itself")
+		}
+		if c.Identity.UserHeader != "" || c.Identity.GroupsHeader != "" {
+			add("identity.user_header and groups_header are for forwardauth; managed sign-in reads no identity headers")
+		}
+		if c.Identity.RequiredGroup != "" {
+			add("identity.required_group needs groups from an identity provider; managed sign-in has none")
+		}
 	case "oidc":
 		if !c.OIDC.Enabled() {
 			add("identity.mode = \"oidc\" needs the [oidc] section")
@@ -596,7 +653,7 @@ func (c *Config) validate() error {
 		}
 	case "anonymous":
 	default:
-		add("identity.mode must be \"oidc\", \"forwardauth\" or \"anonymous\", got %q", c.Identity.Mode)
+		add("identity.mode must be \"managed\", \"oidc\", \"forwardauth\" or \"anonymous\", got %q", c.Identity.Mode)
 	}
 	if c.Identity.GroupsSeparator != "|" && c.Identity.GroupsSeparator != "," {
 		add("identity.groups_separator must be \"|\" or \",\"")
@@ -701,6 +758,29 @@ func (c *Config) validate() error {
 	}
 	if s := c.Site.CSP; s == "" || len(s) > 2048 || strings.ContainsAny(s, "\r\n\x00") {
 		add("site.csp must be a single line, 1 to 2048 characters")
+	}
+	if s := c.Site.URL; s != "" {
+		if u, err := url.Parse(s); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" ||
+			u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			add("site.url must be the site's address alone, e.g. \"https://media.example.org\"")
+		}
+	}
+
+	if m := c.Mail; m.Enabled() {
+		if m.TLS != "starttls" && m.TLS != "tls" && m.TLS != "none" {
+			add("mail.tls must be \"starttls\", \"tls\" or \"none\", got %q", m.TLS)
+		}
+		if m.Port < 1 || m.Port > 65535 {
+			add("mail.port must be a port number")
+		}
+		if a, err := mail.ParseAddress(m.From); err != nil || !strings.Contains(a.Address, "@") {
+			add("mail.from must be an email address, or \"Name <address>\"")
+		}
+		if m.TLS == "none" && m.Username != "" {
+			add("mail.username needs TLS: a password is never sent unencrypted")
+		}
+	} else if c.Mail != (Mail{}) {
+		add("mail.host is required to send emails")
 	}
 
 	if cn := c.Connector; cn.Enabled() {

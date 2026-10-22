@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}</title>
+<link rel="stylesheet" href="{{.CSS}}">
+<script src="{{.JS}}" defer></script>
+</head>
+<body data-return="{{.Return}}" data-fresh="{{if .Fresh}}1{{end}}" data-email="{{.Email}}"
+      data-code-sent="{{.T.codeSent}}" data-failed="{{.T.failed}}">
+<main>
+  <h1>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}</h1>
+  {{if .Fresh}}<p class="muted">{{.Intro}}</p>{{end}}
+
+  <form id="start" novalidate>
+    {{if not .Fresh}}
+    <label>{{.T.email}}
+      <input id="email" type="email" autocomplete="username" required autofocus>
+    </label>
+    {{end}}
+    <label>{{.T.password}}
+      <input id="password" type="password" autocomplete="current-password" {{if not .Codes}}required{{end}} {{if .Fresh}}autofocus{{end}}>
+    </label>
+    {{if .Codes}}<p class="hint muted">{{.T.passwordHint}}</p>{{end}}
+    <button class="primary" type="submit">{{if .Fresh}}{{.T.confirm}}{{else}}{{.T.continue}}{{end}}</button>
+  </form>
+
+  <form id="code" hidden novalidate>
+    <p id="sent"></p>
+    <label>{{.T.code}}
+      <input id="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required>
+    </label>
+    <button class="primary" type="submit">{{if .Fresh}}{{.T.confirm}}{{else}}{{.T.signIn}}{{end}}</button>
+    <p class="links">
+      <button class="link" type="button" id="new-code">{{.T.newCode}}</button>
+      {{if not .Fresh}}<button class="link" type="button" id="other-email">{{.T.otherEmail}}</button>{{end}}
+    </p>
+  </form>
+
+  <form id="link" hidden novalidate>
+    <p>{{.T.linkIntro}}</p>
+    <button class="primary" type="submit">{{if .Fresh}}{{.T.confirm}}{{else}}{{.T.signIn}}{{end}}</button>
+  </form>
+
+  <p id="error" class="error" role="alert"></p>
+</main>
+</body>
+</html>

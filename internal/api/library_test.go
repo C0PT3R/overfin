@@ -292,6 +292,11 @@ type options struct {
 	// adminGroup, when set, is the control panel's group, sent in the
 	// Remote-Groups header.
 	adminGroup string
+	// managed signs people in with Overfin's own sign-in, sending codes
+	// to mailbox (none when nil); signIn receives it.
+	managed bool
+	mailbox *mailbox
+	signIn  **api.Managed
 	// signUp, when set, makes the identity provider's sign-up links.
 	signUp func(ctx context.Context, previous string, uses int, until time.Time) (string, string, error)
 }
@@ -362,11 +367,28 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	if o.provider != nil {
 		auth := &api.Auth{Sessions: sessions, Store: st, Provisioner: prov, Provider: o.provider,
 			FreshFor: 5 * time.Minute, Login: o.login, LoginLifetime: time.Hour, Logger: logger}
-		sessions.Auth = auth
+		sessions.StepUpURL, sessions.FreshFor = api.StepUpPath, auth.FreshFor
 		extra = append(extra, auth)
 		if o.login {
+			sessions.SignIn = auth
 			ids = identity.NewHeaderless([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")})
 			identify = func(h http.Handler) http.Handler { return ids.Middleware(auth.Middleware(h)) }
+		}
+	}
+	var managed *api.Managed
+	if o.managed {
+		managed = &api.Managed{Sessions: sessions, Store: st, Provisioner: prov, CodeKey: []byte("code-key"),
+			SiteURL: "https://media.example.org", LoginLifetime: time.Hour, FreshFor: 5 * time.Minute, Logger: logger}
+		if box := o.mailbox; box != nil {
+			managed.Mail = func() api.Mailer { return box }
+		}
+		prov.AdminGroup = api.ManagedAdminGroup
+		sessions.StepUpURL, sessions.FreshFor, sessions.SignIn = api.StepUpPath, managed.FreshFor, managed
+		extra = append(extra, managed)
+		ids = identity.NewHeaderless([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")})
+		identify = func(h http.Handler) http.Handler { return ids.Middleware(managed.Middleware(h)) }
+		if o.signIn != nil {
+			*o.signIn = managed
 		}
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Service: service, Logger: logger}
@@ -422,6 +444,9 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	if sessions.SetupOffers, err = api.SetupOffers(mounts); err != nil {
 		t.Fatal(err)
 	}
+	if managed != nil {
+		managed.Mounts = mounts
+	}
 	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb},
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, PINs: checker, Mounts: mounts},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, Service: service, LogoutURL: "/sign-out", Logger: logger,
@@ -429,7 +454,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}, extra...)
 	var siteHandler http.Handler
 	if o.site {
-		if siteHandler, err = site.Embedded(web.Files, config.DefaultCSP, true, api.SiteGate(sessions.Auth, prov)); err != nil {
+		if siteHandler, err = site.Embedded(web.Files, config.DefaultCSP, true, api.SiteGate(sessions.SignIn, prov)); err != nil {
 			t.Fatal(err)
 		}
 	}

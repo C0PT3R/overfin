@@ -546,6 +546,9 @@ func (p *Provisioner) rollback(userID string) {
 
 // logID is a keyed hash of a subject, so logs can correlate events without
 // naming anyone (SECURITY.md rule 54).
+// LogID is how logs name a user: a keyed hash of their subject (rule 54).
+func (p *Provisioner) LogID(subject string) string { return p.logID(subject) }
+
 func (p *Provisioner) logID(subject string) string {
 	h := hmac.New(sha256.New, p.LogKey)
 	h.Write([]byte(subject))

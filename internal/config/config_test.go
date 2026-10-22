@@ -435,3 +435,52 @@ func TestJellyfinBothOrNeither(t *testing.T) {
 		t.Errorf("key without address: %v", err)
 	}
 }
+
+func TestManaged(t *testing.T) {
+	// Nothing about identity: managed sign-in, people sign in with
+	// passwords until there's a mail server.
+	cfg, err := Load(writeFile(t, "[jellyfin]\nurl = \"http://192.0.2.10:8096\"\n"), env(goodEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Identity.Mode != "managed" || cfg.Mail.Enabled() {
+		t.Errorf("defaults: mode %q, mail %+v", cfg.Identity.Mode, cfg.Mail)
+	}
+
+	// A mail server, with its defaults and password.
+	vars := goodEnv()
+	vars["OVERFIN_MAIL_PASSWORD"] = "smtp-secret"
+	vars["OVERFIN_OIDC_CLIENT_SECRET"] = "oidc-secret"
+	cfg, err = Load(writeFile(t, `
+[jellyfin]
+url = "http://192.0.2.10:8096"
+[site]
+url = "https://media.example.org"
+[mail]
+host = "smtp.example.org"
+from = "Media <media@example.org>"
+username = "media@example.org"
+`), env(vars))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := cfg.Mail; m.Port != 587 || m.TLS != "starttls" || cfg.Secrets.MailPassword != "smtp-secret" {
+		t.Errorf("mail: %+v", m)
+	}
+
+	for file, want := range map[string]string{
+		// Written when forwardauth was the default.
+		"[identity]\ntrusted_proxies = [\"198.51.100.7\"]\nuser_header = \"Remote-User\"\n":                 `add mode = "forwardauth"`,
+		"[identity]\nrequired_group = \"media\"\n":                                                          "required_group",
+		"[mail]\nhost = \"smtp.example.org\"\nfrom = \"not an address\"\n":                                  "mail.from",
+		"[mail]\nhost = \"smtp.example.org\"\nfrom = \"a@example.org\"\ntls = \"none\"\nusername = \"a\"\n": "needs TLS",
+		"[mail]\nfrom = \"a@example.org\"\n":                                                                "mail.host is required",
+		"[site]\nurl = \"https://media.example.org/movies\"\n":                                              "site.url",
+		"[oidc]\nissuer = \"https://auth.example.org\"\n":                                                   "[oidc] is for",
+	} {
+		_, err := Load(writeFile(t, file), env(vars))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: error %v, want %q", file, err, want)
+		}
+	}
+}

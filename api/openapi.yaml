@@ -486,16 +486,134 @@ paths:
           description: Off to the identity provider, or straight to `return`
             when already logged in.
 
+  /signin:
+    get:
+      operationId: signinPage
+      summary: The sign-in page (navigate here, don't fetch)
+      description: |
+        With managed sign-in (identity mode "managed") only. An HTML page
+        asking for an email and, optionally, a password; without one, a code
+        goes to the email. With `fresh=1`, it confirms a fresh login for the
+        person signed in (step-up). A link from a sign-in email opens this
+        page with `#link=…`, which the page sends to `/signin/link` on a
+        click. Gives the browser the cookie codes are bound to.
+      tags: [account]
+      security: []
+      parameters:
+        - name: return
+          in: query
+          description: Path on this site to come back to. Anything that isn't
+            a plain path is replaced by `/`.
+          schema:
+            type: string
+        - name: fresh
+          in: query
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: The page.
+          content:
+            text/html: {}
+        "303":
+          description: Already signed in, off to `return`.
+    post:
+      operationId: signin
+      summary: Sign in with a password, or ask for a code by email
+      description: |
+        With a password, signs in (or, with `fresh`, confirms a fresh login)
+        and answers where to go next. Without one, sends a code to the email
+        and answers `sent`, the same whether or not the email has an account
+        here; codes go to unknown emails only for a visitor bringing an
+        invitation. A wrong password and an unknown email give the same
+        `signin-failed` (401). Five codes an hour per email, then
+        `rate-limited` (429).
+      tags: [account]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Signin"
+      responses:
+        "200":
+          description: Signed in (`next`), or a code is on its way (`sent`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SigninDone"
+        "400":
+          description: Not an email, or no code can be sent (this server has
+            no email; use a password).
+        "401":
+          description: Wrong email or password (`signin-failed`).
+        "429":
+          description: Too many tries (`rate-limited`).
+
+  /signin/code:
+    post:
+      operationId: signinWithCode
+      summary: Sign in with the code sent by email
+      description: Only in the browser that asked for it. A code works once,
+        for 15 minutes, and five wrong tries end it. A newcomer with an
+        invitation gets their sign-in made now.
+      tags: [account]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Signin"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SigninDone"
+        "401":
+          description: Wrong or expired code (`signin-failed`).
+        "403":
+          description: A newcomer without an invitation
+            (`invitation-required`).
+
+  /signin/link:
+    post:
+      operationId: signinWithLink
+      summary: Sign in with the link sent by email
+      description: In any browser, once, within 15 minutes.
+      tags: [account]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Signin"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SigninDone"
+        "401":
+          description: Expired or used link (`signin-failed`).
+
   /gate:
     get:
       operationId: gate
       summary: Tell a reverse proxy whether to serve a page
       description: |
-        With Overfin's own login only. For the reverse proxy's forward auth
+        With Overfin's own sign-in only. For the reverse proxy's forward auth
         in front of the site's pages, not for clients. Answers 204 for a
-        logged-in, allowed visitor; for a visitor's page request
-        (`Sec-Fetch-Dest` of `document`), a redirect to `/login` coming back
-        to `X-Forwarded-Uri`; `not-authenticated` for anything else.
+        signed-in, allowed visitor; for a visitor's page request
+        (`Sec-Fetch-Dest` of `document`), a redirect to `/login` (`/signin`
+        with managed sign-in) coming back to `X-Forwarded-Uri`;
+        `not-authenticated` for anything else.
       tags: [account]
       security: []
       responses:
@@ -574,9 +692,10 @@ paths:
     get:
       operationId: startStepUp
       summary: Confirm a fresh login (navigate here, don't fetch)
-      description: Sends the browser to the identity provider for a new
-        login, then back to `return`. Only offered when the instance has
-        step-up configured. The provider returns to
+      description: Sends the browser to confirm it's them, then back to
+        `return`; with managed sign-in, to `/signin?fresh=1`, otherwise to
+        the identity provider for a new login. Only offered when the
+        instance has step-up. The provider returns to
         `/auth/callback`, which forwards to `/auth/finish`; neither is
         for clients to call.
       tags: [account]
@@ -2212,6 +2331,38 @@ components:
         examples: [prof_3kq9x2m8w7v1]
 
   schemas:
+    Signin:
+      description: What a sign-in step sends; each step uses its own fields.
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          description: Ignored with `fresh`, which is for the person signed in.
+        password:
+          type: string
+        code:
+          type: string
+          description: The six digits from the email; spaces don't matter.
+        link:
+          type: string
+          description: The token after `#link=` in the email's link.
+        fresh:
+          type: boolean
+          description: Confirms a fresh login (step-up) instead of signing in.
+        return:
+          type: string
+          description: Path on this site to go to next.
+    SigninDone:
+      type: object
+      properties:
+        next:
+          type: string
+          description: Where to go now, signed in.
+        sent:
+          type: boolean
+          description: A code is on its way, if the email can sign in here.
     Problem:
       description: An error, as RFC 9457 problem details.
       type: object

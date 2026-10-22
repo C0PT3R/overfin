@@ -46,8 +46,8 @@ func (a Account) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	if a.KeepOnDelete {
 		out["history"] = "kept"
 	}
-	if auth := a.Sessions.Auth; auth != nil && auth.Login {
-		auth.Logout(w, r)
+	if in := a.Sessions.SignIn; in != nil {
+		in.Logout(w, r)
 	}
 	writeOK(w, out)
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/overfin/server/internal/identity"
+	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
@@ -31,22 +32,41 @@ type Sessions struct {
 	// than a new one, as account-setup-required carries them. While there
 	// are any, a first visit asks instead of creating an account.
 	SetupOffers map[string]string
-	// Auth is the instance's OpenID Connect side, nil when it has none:
-	// actions that need a fresh login are then refused.
-	Auth *Auth
+	// StepUpURL is where a fresh login is confirmed, and FreshFor how long
+	// it counts; without one, actions that need a fresh login are refused.
+	StepUpURL string
+	FreshFor  time.Duration
+	// SignIn is Overfin's own sign-in, nil when someone else signs people
+	// in (forward auth) or no one does (anonymous).
+	SignIn SignIn
+}
+
+// SignIn is Overfin's own sign-in: through an identity provider (Auth) or
+// by itself (Managed).
+type SignIn interface {
+	plugin.Plugin
+	// Middleware sets the identity from the login cookie.
+	Middleware(next http.Handler) http.Handler
+	// Admit lets a request for the site's pages through when the visitor
+	// is signed in and allowed; otherwise it answers itself (a page visit
+	// goes to the sign-in) and reports false.
+	Admit(w http.ResponseWriter, r *http.Request) bool
+	// Logout ends this browser's login. It returns where to go to also
+	// leave the identity provider, if anywhere.
+	Logout(w http.ResponseWriter, r *http.Request) string
 }
 
 // RequireFresh lets an action through only if the session confirmed a login
 // recently (rule 21). Otherwise it writes step-up-required, with where to
 // confirm one, and returns false.
 func (s *Sessions) RequireFresh(w http.ResponseWriter, c *Caller) bool {
-	if s.Auth != nil && !c.Session.FreshLogin.IsZero() && time.Since(c.Session.FreshLogin) < s.Auth.FreshFor {
+	if s.StepUpURL != "" && !c.Session.FreshLogin.IsZero() && time.Since(c.Session.FreshLogin) < s.FreshFor {
 		return true
 	}
 	p := problem.New(problem.StepUpRequired, "")
 	p.StepUp = "login"
-	if s.Auth != nil {
-		p.StepUpURL = stepUpPath
+	if s.StepUpURL != "" {
+		p.StepUpURL = s.StepUpURL
 	} else {
 		p.Detail = "this server offers no way to confirm a login, so this can't be done here"
 	}

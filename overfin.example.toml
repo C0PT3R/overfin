@@ -14,6 +14,7 @@
 #                                identity provider
 #   OVERFIN_CONNECTOR_TOKEN      with [connector]: the identity provider API
 #                                token
+#   OVERFIN_MAIL_PASSWORD        with mail.username: the SMTP password
 
 # Address Overfin listens on.
 listen = ":8080"
@@ -28,6 +29,9 @@ url = "http://192.0.2.10:8096"
 
 [identity]
 # How users log in:
+#   "managed"      the default: Overfin signs people in itself, with their
+#                  email and a code it sends there ([mail]), or a password
+#                  they set. Nothing else to set up; [oidc] is then unused.
 #   "oidc"         Overfin logs them in with the identity provider in [oidc]
 #                  (recommended: one client registration for login and
 #                  step-up, no identity headers to trust).
@@ -82,6 +86,16 @@ groups_claim = "groups"
 [storage]
 path = "/data/overfin.db"
 
+[mail]
+# Managed sign-in only: the SMTP server sign-in codes are sent through.
+# Without it, people sign in with a password. Off when host is empty.
+host = ""                       # e.g. "smtp.example.org"
+port = 587                      # 587 for starttls, 465 for tls
+tls = "starttls"                # "starttls", "tls", or "none" (a relay on
+                                # the local network, without a password)
+from = ""                       # e.g. "Media <media@example.org>"
+username = ""                   # with OVERFIN_MAIL_PASSWORD
+
 [admin]
 # Overfin's control panel, on its own listener: never on the internet. It
 # answers only private addresses (LAN, VPN, an SSH tunnel), and only members
@@ -129,6 +143,9 @@ serve = "builtin"
 # For single-page apps: paths that aren't files get index.html. Always on for
 # the built-in client, whose pages have real paths (/item/…).
 spa_fallback = false
+# The site's public address. Optional: with it, sign-in emails also carry a
+# link to sign in with, besides the code.
+# url = "https://example.org"
 
 # ---- Feature settings --------------------------------------------------------
 # Everything below is switched on and off in the control panel, and lives in

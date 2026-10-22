@@ -25,7 +25,7 @@ import (
 const (
 	loginPath    = "/api/v1/login"
 	gatePath     = "/api/v1/gate"
-	stepUpPath   = "/api/v1/step-up"
+	StepUpPath   = "/api/v1/step-up"
 	callbackPath = "/api/v1/auth/callback"
 	finishPath   = "/api/v1/auth/finish"
 
@@ -102,7 +102,7 @@ const (
 func (*Auth) Name() string { return "auth" }
 
 func (a *Auth) Register(r *plugin.Registrar) error {
-	if err := r.HandleFunc("GET "+stepUpPath, a.startStepUp); err != nil {
+	if err := r.HandleFunc("GET "+StepUpPath, a.startStepUp); err != nil {
 		return err
 	}
 	if err := r.HandleNavigation("GET "+callbackPath, http.HandlerFunc(a.callback)); err != nil {
@@ -201,29 +201,16 @@ func (a *Auth) Admit(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (a *Auth) admit(w http.ResponseWriter, r *http.Request, ret string) bool {
-	if id, ok := identity.FromContext(r.Context()); ok {
-		if a.Provisioner.Allowed(id) != nil {
-			problem.Send(w, problem.AccountNotAllowed, "")
-			return false
-		}
-		return true
-	}
-	dest := r.Header.Get("Sec-Fetch-Dest")
-	if dest == "document" || (dest == "" && strings.Contains(r.Header.Get("Accept"), "text/html")) {
-		target := loginPath + "?" + url.Values{"return": {safeReturn(ret)}}.Encode()
-		http.Redirect(w, r, target, http.StatusFound)
-		return false
-	}
-	problem.Send(w, problem.NotAuthenticated, "")
-	return false
+	return admit(w, r, a.Provisioner, ret, loginPath)
 }
 
-// SiteGate is who may get the site's pages: with Overfin's own login, the
-// logged-in and allowed (Auth.Admit); otherwise (forward auth, anonymous)
-// whoever has an identity the reverse proxy vouched for, if allowed.
-func SiteGate(a *Auth, prov *provision.Provisioner) func(http.ResponseWriter, *http.Request) bool {
-	if a != nil && a.Login {
-		return a.Admit
+// SiteGate is who may get the site's pages: with Overfin's own sign-in,
+// the signed-in and allowed (SignIn.Admit); otherwise (forward auth,
+// anonymous) whoever has an identity the reverse proxy vouched for, if
+// allowed.
+func SiteGate(in SignIn, prov *provision.Provisioner) func(http.ResponseWriter, *http.Request) bool {
+	if in != nil {
+		return in.Admit
 	}
 	return func(w http.ResponseWriter, r *http.Request) bool {
 		id, ok := identity.FromContext(r.Context())
@@ -263,8 +250,9 @@ func (a *Auth) startLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
-// Logout ends this browser's login, if any.
-func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
+// Logout ends this browser's login, if any, and returns the provider's
+// end-session address.
+func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) string {
 	if c, err := r.Cookie(LoginCookie); err == nil && len(c.Value) <= 64 {
 		if l, err := a.Store.LoginByToken(r.Context(), c.Value); err == nil {
 			_ = a.Store.DeleteLogin(r.Context(), l.ID)
@@ -272,6 +260,7 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: LoginCookie, Value: "", Path: "/", MaxAge: -1,
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	return a.Provider.LogoutURL(r.Context())
 }
 
 // ---- Step-up ------------------------------------------------------------------------

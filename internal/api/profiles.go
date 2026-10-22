@@ -779,10 +779,9 @@ func (p Profiles) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	clearCookie(w)
 	logoutURL := p.LogoutURL
-	if a := p.Sessions.Auth; a != nil && a.Login {
-		a.Logout(w, r)
-		if logoutURL == "" {
-			logoutURL = a.Provider.LogoutURL(ctx)
+	if in := p.Sessions.SignIn; in != nil {
+		if leave := in.Logout(w, r); logoutURL == "" {
+			logoutURL = leave
 		}
 	}
 	out := map[string]string{}

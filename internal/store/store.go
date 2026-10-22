@@ -1062,6 +1062,10 @@ func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	// With managed sign-in, the person's email and password go too.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE subject = ?`, subject); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM logins WHERE subject = ?`, subject); err != nil {
 		return err
 	}

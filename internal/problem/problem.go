@@ -33,7 +33,10 @@ const (
 	// ClaimFailed: wrong username or password, deliberately not saying
 	// which. ClaimNotAllowed: the credentials were right, but that account
 	// can't be adopted (an administrator, or already adopted).
-	ClaimFailed         Type = "claim-failed"
+	ClaimFailed Type = "claim-failed"
+	// SigninFailed: a wrong password or code, or an unusable link, never
+	// saying whether the email has an account.
+	SigninFailed        Type = "signin-failed"
 	ClaimNotAllowed     Type = "claim-not-allowed"
 	CrossSiteRequest    Type = "cross-site-request"
 	NotPlayable         Type = "not-playable"
@@ -87,6 +90,7 @@ var registry = map[Type]info{
 	AccountExpired:       {http.StatusForbidden, "Access to this account has ended"},
 	InvitationRequired:   {http.StatusForbidden, "An invitation is needed to join"},
 	ClaimFailed:          {http.StatusForbidden, "Wrong username or password"},
+	SigninFailed:         {http.StatusUnauthorized, "Sign-in failed"},
 	ClaimNotAllowed:      {http.StatusForbidden, "This account can't be brought over"},
 	CrossSiteRequest:     {http.StatusForbidden, "Cross-site requests are not allowed"},
 	NotPlayable:          {http.StatusConflict, "This item can't be played"},
