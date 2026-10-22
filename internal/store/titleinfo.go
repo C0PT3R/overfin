@@ -349,7 +349,7 @@ func (s *Store) InLibrary(ctx context.Context, kind, tmdb string) (bool, error) 
 
 // ImageTitles lists the titles (by key) an image of TMDB's, at path, is
 // one of: a title's poster, backdrop or logo, a season's poster, an
-// episode's still. At most limit.
+// episode's still, a cast member's photo. At most limit.
 func (s *Store) ImageTitles(ctx context.Context, typ, path string, limit int) ([]string, error) {
 	var q string
 	switch typ {
@@ -359,6 +359,10 @@ func (s *Store) ImageTitles(ctx context.Context, typ, path string, limit int) ([
 			UNION SELECT 'series/tmdb/' || series || '/s' || season FROM catalog_seasons WHERE ?1 = 'poster' AND poster = ?2`
 	case "logo":
 		q = `SELECT key FROM artwork WHERE type = ?1 AND path = ?2`
+	case "profile":
+		// A film's or a series' cast member.
+		q = `SELECT t.kind || '/tmdb/' || t.tmdb AS key FROM catalog_titles t, json_each(t.details, '$.cast') c
+			WHERE ?1 = 'profile' AND t.details IS NOT NULL AND json_extract(c.value, '$.profile') = ?2`
 	case "still":
 		q = `SELECT key FROM artwork WHERE type = ?1 AND path = ?2
 			UNION SELECT 'series/tmdb/' || series || '/s' || season || '/e' || episode FROM catalog_episodes WHERE still = ?2`

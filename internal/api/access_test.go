@@ -35,6 +35,7 @@ func TestLibrariesAndHiddenTags(t *testing.T) {
 	if err := st.PutCatalog(ctx, items, 1); err != nil {
 		t.Fatal(err)
 	}
+	st.RefreshTitleKeys(ctx)
 	st.SetCatalogState(ctx, store.CatalogState{Pass: 1})
 
 	code, body := post(t, srv, "/api/v1/profiles", `{"name":"Partner"}`)
@@ -70,24 +71,25 @@ func TestLibrariesAndHiddenTags(t *testing.T) {
 		}
 		var out []string
 		for _, it := range page.Items {
-			out = append(out, strings.TrimLeft(strings.TrimPrefix(it.ID, "item_"), "0"))
+			out = append(out, strings.TrimLeft(strings.TrimPrefix(it.ID, "title_item_"), "0"))
 		}
 		return out, page.TotalCount
 	}
 	// From the index: films 1 to 4, counted by Overfin.
-	if got, total := ids("/api/v1/items?kind=movie"); strings.Join(got, ",") != "1,2,3,4" || total == nil || *total != 4 {
+	if got, total := ids("/api/v1/titles?kind=movie"); strings.Join(got, ",") != "1,2,3,4" || total == nil || *total != 4 {
 		t.Errorf("index: %v %v", got, total)
-	}
-	// From Jellyfin (any kind): the same, 7 left out by its library; no total.
-	if got, total := ids("/api/v1/items"); strings.Join(got, ",") != "1,2,3,4" || total != nil {
-		t.Errorf("jellyfin: %v %v", got, total)
 	}
 	var libs struct{ Items []struct{ ID string } }
 	if get(t, srv, "/api/v1/libraries", &libs); len(libs.Items) != 1 || libs.Items[0].ID != "lib_"+films {
 		t.Errorf("libraries: %+v", libs)
 	}
-	if code := get(t, srv, fmt.Sprintf("/api/v1/items/item_%032x", 3), nil); code != 200 {
-		t.Errorf("item 3: %d", code)
+	if code := get(t, srv, fmt.Sprintf("/api/v1/titles/title_item_%032x", 3), nil); code != 200 {
+		t.Errorf("title 3: %d", code)
+	}
+	for _, n := range []int{5, 6} { // a hidden tag, another library
+		if code := get(t, srv, fmt.Sprintf("/api/v1/titles/title_item_%032x", n), nil); code != 404 {
+			t.Errorf("title %d: %d", n, code)
+		}
 	}
 
 	// Every library again, and no tag: everything.
@@ -98,8 +100,8 @@ func TestLibrariesAndHiddenTags(t *testing.T) {
 	}
 }
 
-// Items show Overfin's own artwork where it has some, Jellyfin's otherwise.
-func TestArtworkOnItems(t *testing.T) {
+// Titles show TMDB's artwork, served only at paths Overfin keeps.
+func TestArtworkOnTitles(t *testing.T) {
 	var st *store.Store
 	srv, _ := newServerWith(t, options{store: &st})
 	ctx := context.Background()
@@ -118,8 +120,8 @@ func TestArtworkOnItems(t *testing.T) {
 			Backdrops []struct{ URL string }
 		}
 	}
-	if code := get(t, srv, fmt.Sprintf("/api/v1/items/item_%032x", 3), &it); code != 200 {
-		t.Fatalf("item: %d", code)
+	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_949", &it); code != 200 {
+		t.Fatalf("title: %d", code)
 	}
 	if it.Images.Primary.URL != "/api/v1/images/tmdbart_poster_heatposter1_jpg" || it.Images.Logo.URL != "/api/v1/images/tmdbart_logo_heatlogo123_png" {
 		t.Errorf("artwork: %+v", it.Images)

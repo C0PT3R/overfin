@@ -87,6 +87,7 @@ func TestDiscover(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.RefreshTitleKeys(context.Background())
+	st.SetCatalogState(context.Background(), store.CatalogState{Pass: 1})
 	// The lists, read in the background as Overfin does.
 	lists := catalog.NewLists(func() tmdb.Source { return s }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 1)
 	if err := lists.Refresh(context.Background()); err != nil {
@@ -130,41 +131,9 @@ func TestDiscover(t *testing.T) {
 		}
 	}
 
-	// A title's page.
-	var det struct {
-		title
-		Genres []string
-		Cast   []struct {
-			Name, Character string
-			Image           *struct{ URL string }
-		}
-	}
-	if code := get(t, srv, "/api/v1/catalog/movie/949", &det); code != 200 || det.Availability != "available" ||
-		len(det.Genres) != 1 || len(det.Cast) != 2 || det.Cast[0].Name != "Al Pacino" {
-		t.Errorf("title: %d %+v", code, det)
-	}
-	// Cast photos: as images of the title, the unsafe path dropped.
-	if det.Cast[0].Image == nil || det.Cast[0].Image.URL != "/api/v1/images/tmdb_movie_949_profile_pacino12345_jpg" || det.Cast[1].Image != nil {
-		t.Errorf("cast photos: %+v", det.Cast)
-	}
-	// A photo of no one on the title's cast is refused before TMDB is asked.
-	if code := get(t, srv, "/api/v1/images/tmdb_movie_949_profile_someoneelse1_jpg", nil); code != 404 {
-		t.Errorf("photo of someone else: %d", code)
-	}
-	if code := get(t, srv, "/api/v1/catalog/movie/12345", nil); code != 404 {
-		t.Errorf("unknown title: %d", code)
-	}
-	// A title in no list, opened from a link: asked of Seerr, then kept.
-	if code := get(t, srv, "/api/v1/catalog/movie/555", nil); code != 200 {
-		t.Errorf("a linked title: %d", code)
-	}
-	if kept, _ := st.TitleByTMDB(context.Background(), "movie", "555"); kept == nil || kept.Details == nil {
-		t.Errorf("not kept: %+v", kept)
-	}
-
 	// An image ID with a path Seerr never gave is refused before TMDB is
 	// asked for anything.
-	if code := get(t, srv, "/api/v1/images/tmdb_movie_949_poster_inventedpath1_jpg", nil); code != 404 {
+	if code := get(t, srv, "/api/v1/images/tmdbart_poster_inventedpath1_jpg", nil); code != 404 {
 		t.Errorf("invented image path: %d", code)
 	}
 
@@ -191,10 +160,10 @@ func TestDiscover(t *testing.T) {
 		len(out.Items) != 1 || out.Items[0].ID != "title_movie_tmdb_949" || out.Items[0].Availability != "available" {
 		t.Errorf("kids discover: %d %+v", code, out.Items)
 	}
-	if code := get(t, srv, "/api/v1/catalog/movie/949", nil); code != 200 {
+	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_949", nil); code != 200 {
 		t.Errorf("kids title 949: %d", code)
 	}
-	if code := get(t, srv, "/api/v1/catalog/movie/100", nil); code != 404 {
+	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_100", nil); code != 404 {
 		t.Errorf("kids title 100: %d", code)
 	}
 	// The library: only item 3 (film 949); every other item is unrated.
@@ -202,15 +171,9 @@ func TestDiscover(t *testing.T) {
 		Items      []struct{ ID string }
 		TotalCount *int
 	}
-	if code := get(t, srv, "/api/v1/items?kind=movie", &page); code != 200 || len(page.Items) != 1 ||
-		page.Items[0].ID != fmt.Sprintf("item_%032x", 3) || page.TotalCount != nil {
+	if code := get(t, srv, "/api/v1/titles?kind=movie", &page); code != 200 || len(page.Items) != 1 ||
+		page.Items[0].ID != "title_movie_tmdb_949" || page.TotalCount == nil || *page.TotalCount != 1 {
 		t.Errorf("kids listing: %d %+v", code, page)
-	}
-	if code := get(t, srv, fmt.Sprintf("/api/v1/items/item_%032x", 3), nil); code != 200 {
-		t.Errorf("kids item 3: %d", code)
-	}
-	if code := get(t, srv, fmt.Sprintf("/api/v1/items/item_%032x", 4), nil); code != 404 {
-		t.Errorf("kids item 4: %d", code)
 	}
 	if code, body := post(t, srv, "/api/v1/playback", fmt.Sprintf(`{"itemId":"item_%032x"}`, 4)); code != 404 {
 		t.Errorf("kids playback of item 4: %d %s", code, body)

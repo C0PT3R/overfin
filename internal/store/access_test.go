@@ -52,10 +52,6 @@ func TestAccessAndListings(t *testing.T) {
 	if len(tags) != 1 {
 		t.Errorf("tags: %v", tags)
 	}
-	// A person's titles.
-	if got := list(ListQuery{PersonID: "p1"}); !slices.Equal(got, []string{id(0), id(2)}) {
-		t.Errorf("person: %v", got)
-	}
 
 	acct, prof, _ := s.CreateAccount(ctx, "subject-1", owner("1"))
 	_ = acct

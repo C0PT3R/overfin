@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/overfin/server/internal/jellyfin"
@@ -16,9 +15,8 @@ import (
 // (SECURITY.md rule 5). Browsers never contact it (rule 43).
 const tmdbImageBase = "https://image.tmdb.org/t/p/"
 
-// TMDBRef is a parsed TMDB image ID: tmdb_<kind>_<id>_<type>_<file>_<ext>,
-// for a catalog title's poster or backdrop. The file is the image path TMDB
-// gives, without its slash and extension.
+// TMDBRef is a parsed TMDB image ID (ParseArtwork). The file is the image
+// path TMDB gives, without its slash and extension.
 type TMDBRef struct {
 	Kind   string // movie, series; "" for a library title's artwork
 	TMDBID int
@@ -26,24 +24,10 @@ type TMDBRef struct {
 	Path   string // as TMDB gives it: "/abc123.jpg"
 }
 
-var tmdbRefPattern = regexp.MustCompile(`^tmdb_(movie|series)_([0-9]{1,10})_(poster|backdrop|profile)_([A-Za-z0-9]{8,64})_(jpg|png)$`)
-
-// ParseTMDB validates a TMDB image ID.
-func ParseTMDB(id string) (TMDBRef, error) {
-	m := tmdbRefPattern.FindStringSubmatch(id)
-	if m == nil {
-		return TMDBRef{}, ErrInvalid
-	}
-	n, err := strconv.Atoi(m[2])
-	if err != nil || n <= 0 {
-		return TMDBRef{}, ErrInvalid
-	}
-	return TMDBRef{Kind: m[1], TMDBID: n, Type: m[3], Path: "/" + m[4] + "." + m[5]}, nil
-}
-
-// artworkPattern is a library title's artwork: tmdbart_<type>_<file>_<ext>.
-// The title it belongs to is found from its path.
-var artworkPattern = regexp.MustCompile(`^tmdbart_(poster|backdrop|logo|still)_([A-Za-z0-9]{8,64})_(jpg|png)$`)
+// artworkPattern is a title's image: tmdbart_<type>_<file>_<ext>, a
+// poster, backdrop, logo, still, or a cast member's photo (profile). The
+// titles it belongs to are found from its path.
+var artworkPattern = regexp.MustCompile(`^tmdbart_(poster|backdrop|logo|still|profile)_([A-Za-z0-9]{8,64})_(jpg|png)$`)
 
 // ParseArtwork validates a library artwork ID.
 func ParseArtwork(id string) (TMDBRef, error) {
@@ -65,17 +49,6 @@ func ArtworkID(typ, path string) string {
 }
 
 var tmdbPath = regexp.MustCompile(`^/([A-Za-z0-9]{8,64})\.(jpg|png)$`)
-
-// TMDBImageID is the image ID of a title's poster, backdrop or cast
-// member's photo (profile) at path; ""
-// when the path isn't one.
-func TMDBImageID(kind string, tmdbID int, typ, path string) string {
-	m := tmdbPath.FindStringSubmatch(path)
-	if m == nil {
-		return ""
-	}
-	return fmt.Sprintf("tmdb_%s_%d_%s_%s_%s", kind, tmdbID, typ, m[1], m[2])
-}
 
 // tmdbWidths are TMDB's own sizes nearest to each of Overfin's.
 var tmdbWidths = map[string]map[string]string{

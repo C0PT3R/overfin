@@ -44,9 +44,9 @@ test('a lapsed login goes through the login and back', async () => {
 });
 
 test('queries repeat list values and skip empty ones', async () => {
-  const calls = fakeServer({ 'GET /api/v1/items': () => [200, { items: [] }] });
-  await new Overfin().items({ kind: ['movie', 'series'], genre: '', sort: 'name', limit: 10 });
-  assert.equal(calls[0].url, '/api/v1/items?kind=movie&kind=series&sort=name&limit=10');
+  const calls = fakeServer({ 'GET /api/v1/titles': () => [200, { items: [] }] });
+  await new Overfin().titles({ kind: ['movie', 'series'], genre: '', sort: 'name', limit: 10 });
+  assert.equal(calls[0].url, '/api/v1/titles?kind=movie&kind=series&sort=name&limit=10');
 });
 
 test('pages follow cursors and keep the shuffle seed', async () => {
@@ -76,17 +76,17 @@ test('onWatchlist is a yes or no', async () => {
 
 test('discovery asks for its list and filters', async () => {
   const calls = fakeServer({
-    'GET /api/v1/discover': () => [200, { items: [{ tmdbId: '949', availability: 'missing' }] }],
-    'GET /api/v1/catalog/movie/949': () => [200, { tmdbId: '949', genres: ['Crime'] }],
+    'GET /api/v1/discover': () => [200, { items: [{ id: 'title_movie_tmdb_949', availability: 'missing' }] }],
+    'GET /api/v1/titles/title_movie_tmdb_949': () => [200, { id: 'title_movie_tmdb_949', genres: ['Crime'] }],
   });
   const overfin = new Overfin();
   const page = await overfin.discover('trending', 'movie', { availability: 'missing', limit: 20 });
-  assert.equal(page.items[0].tmdbId, '949');
+  assert.equal(page.items[0].id, 'title_movie_tmdb_949');
   assert.match(calls[0].url, /list=trending/);
   assert.match(calls[0].url, /mediaKind=movie/);
   assert.match(calls[0].url, /availability=missing/);
   assert.doesNotMatch(calls[0].url, /cursor=/);
-  assert.deepEqual((await overfin.catalogTitle('movie', '949')).genres, ['Crime']);
+  assert.deepEqual((await overfin.title('title_movie_tmdb_949')).genres, ['Crime']);
 });
 
 test('marks are PUT or DELETE on the title', async () => {
@@ -132,7 +132,7 @@ function playbackServer() {
   const state = { gone: null };
   const calls = fakeServer({
     'POST /api/v1/playback': (_, body) => [201, {
-      id: `pb${++n}`, item: { id: 'item_1', name: 'Film' }, title: { id: body.titleId, name: 'Film' }, method: 'direct',
+      id: `pb${++n}`, title: { id: body.titleId, name: 'Film' }, method: 'direct',
       stream: { url: `/api/v1/stream/t${n}/file`, protocol: 'file' }, positionMs: body.startPositionMs,
     }],
     'POST /api/v1/playback/pb1/progress': () => state.gone || [204, null],
@@ -189,7 +189,7 @@ test('without a start position, the player resumes where the profile left off', 
   const calls = fakeServer({
     'GET /api/v1/titles/title_movie_tmdb_1': () => [200, { id: 'title_movie_tmdb_1', userState: { positionMs: 42000 } }],
     'POST /api/v1/playback': (_, body) => [201, {
-      id: 'pb1', item: { id: 'item_1', name: 'Film' }, method: 'direct',
+      id: 'pb1', title: { id: 'title_movie_tmdb_1', name: 'Film' }, method: 'direct',
       stream: { url: '/x', protocol: 'file' }, positionMs: body.startPositionMs,
     }],
     'POST /api/v1/playback/pb1/stop': () => [204, null],

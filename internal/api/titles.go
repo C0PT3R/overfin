@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -288,14 +287,12 @@ func (l Library) title(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := titleDetail{TitleSummary: sums[0], Overview: t.Overview, Tagline: t.Details.Tagline, Genres: t.Details.Genres}
-	if n, err := strconv.Atoi(ref.TMDB()); err == nil && (ref.Kind == "movie" || ref.Kind == "series") {
-		for _, c := range t.Details.Cast {
-			tc := titleCast{Name: c.Name, Character: c.Character}
-			if id := images.TMDBImageID(ref.Kind, n, "profile", c.Profile); id != "" {
-				tc.Image = &library.ImageRef{URL: "/api/v1/images/" + id}
-			}
-			out.Cast = append(out.Cast, tc)
+	for _, c := range t.Details.Cast {
+		tc := titleCast{Name: c.Name, Character: c.Character}
+		if id := images.ArtworkID("profile", c.Profile); id != "" {
+			tc.Image = &library.ImageRef{URL: "/api/v1/images/" + id}
 		}
+		out.Cast = append(out.Cast, tc)
 	}
 	switch ref.Kind {
 	case "series":

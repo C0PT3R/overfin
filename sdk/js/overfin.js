@@ -122,21 +122,16 @@ export class Overfin {
   // ---- Library -----------------------------------------------------------
 
   async libraries() { return (await this.request('GET', '/libraries')).items; }
-  item(id) { return this.request('GET', `/items/${enc(id)}`); }
   /** A title's page, in a library or not: a series with its seasons, a season with its episodes. */
   title(id) { return this.request('GET', `/titles/${enc(id)}`); }
-  /** A person's page; their work is items({ person: id }). */
-  person(id) { return this.request('GET', `/people/${enc(id)}`); }
 
   /**
-   * One page of items. query: library, kind (string or list), parent, genre,
-   * person, studio, yearFrom, yearTo, played, favorite, inProgress, sort
-   * (name, addedAt, premiereDate, communityRating, lastPlayed, random),
-   * order (asc, desc), seed, limit, cursor. Resolves with
-   * { items, nextCursor?, totalCount?, seed? }.
+   * One page of a library's titles. query: library, kind ('movie',
+   * 'series', or both), genre, yearFrom, yearTo, played, favorite,
+   * inProgress, sort (name, addedAt, premiereDate, communityRating,
+   * lastPlayed, random), order (asc, desc), seed, limit, cursor. Resolves
+   * with { items, nextCursor?, totalCount?, seed? }.
    */
-  items(query = {}) { return this.request('GET', '/items' + toQuery(query)); }
-  /** One page of a library's titles: the same query as items(), kind required. */
   titles(query = {}) { return this.request('GET', '/titles' + toQuery(query)); }
 
   /** Every page of titles, one after the other: for await (const page of overfin.pages(q)). */
@@ -151,10 +146,8 @@ export class Overfin {
     } while (cursor);
   }
 
-  async resume(limit = 12) { return (await this.request('GET', `/items/resume${toQuery({ limit })}`)).items; }
   /** Continue Watching: started titles and each followed series' next episode, a library's or not. */
   async continueWatching(limit = 20) { return (await this.request('GET', `/titles/continue${toQuery({ limit })}`)).items; }
-  async nextUp(limit = 12) { return (await this.request('GET', `/items/next-up${toQuery({ limit })}`)).items; }
   async genres(libraryId) { return (await this.request('GET', `/genres${toQuery({ library: libraryId })}`)).items; }
   /** What's new: films and series, a series by its newest episode. */
   async latest(libraryId, limit = 16) { return (await this.request('GET', `/titles/latest${toQuery({ library: libraryId, limit })}`)).items; }
@@ -198,8 +191,6 @@ export class Overfin {
   discover(list, mediaKind, { availability, limit, cursor } = {}) {
     return this.request('GET', `/discover${toQuery({ list, mediaKind, availability, limit, cursor })}`);
   }
-  /** A title's page, by its TMDB ID: genres, cast, and each season's place for series. */
-  catalogTitle(mediaKind, tmdbId) { return this.request('GET', `/catalog/${enc(mediaKind)}/${enc(tmdbId)}`); }
 
   /** The address of an image reference, in a size: 'small', 'medium' or 'large'. */
   imageUrl(ref, size = 'medium') { return ref ? `${ref.url}?size=${size}` : ''; }

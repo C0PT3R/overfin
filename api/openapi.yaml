@@ -23,14 +23,14 @@ info:
     while.
 
     **Forward compatibility.** Clients must ignore fields they don't know and
-    must handle enum values they don't know (for example a new item `kind`).
+    must handle enum values they don't know (for example a new title `kind`).
     This is what makes additive changes safe.
 
-    **IDs.** IDs are opaque strings with a type prefix, such as `item_…`,
+    **IDs.** IDs are opaque strings with a type prefix, such as `title_…`,
     `prof_…` or `play_…`. Clients must not parse them or build them, and an
-    ID of the wrong type is rejected. Item IDs are stable for as long as the
-    media server keeps the item, so clients may store them; they stay valid
-    if Overfin later serves several media servers at once.
+    ID of the wrong type is rejected. Title IDs name the title itself (by
+    TMDB's IDs), not a file: they stay the same whatever copies a library
+    has, on any Overfin server, so clients may store them.
 
     **Planned endpoints.** Operations marked `x-status: planned` are
     designed but not served yet: until they are, they answer `not-found`.
@@ -936,210 +936,15 @@ paths:
                     items:
                       $ref: "#/components/schemas/Library"
 
-  /items:
-    get:
-      operationId: queryItems
-      summary: List items, filtered and sorted
-      description: |
-        Every listing is a query on this endpoint: a library's movies, a
-        series' seasons (`parent`), an album's tracks, a genre, a person's
-        work, unwatched items, and so on. Results are already limited to what
-        the active profile may see.
-      tags: [library]
-      parameters:
-        - name: library
-          in: query
-          schema:
-            type: string
-            maxLength: 64
-        - name: kind
-          in: query
-          description: One or more item kinds; repeat the parameter for several.
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 10
-            items:
-              $ref: "#/components/schemas/ItemKind"
-        - name: parent
-          in: query
-          description: Only direct children of this item, e.g. a series'
-            seasons or an album's tracks.
-          schema:
-            type: string
-            maxLength: 64
-        - name: genre
-          in: query
-          description: Genre name; repeat for several (items matching any).
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 10
-            items:
-              type: string
-              maxLength: 64
-        - name: person
-          in: query
-          schema:
-            type: string
-            maxLength: 64
-        - name: studio
-          in: query
-          schema:
-            type: string
-            maxLength: 128
-        - name: yearFrom
-          in: query
-          schema:
-            type: integer
-            minimum: 1800
-            maximum: 9999
-        - name: yearTo
-          in: query
-          schema:
-            type: integer
-            minimum: 1800
-            maximum: 9999
-        - name: played
-          in: query
-          schema:
-            type: boolean
-        - name: favorite
-          in: query
-          schema:
-            type: boolean
-        - name: inProgress
-          in: query
-          schema:
-            type: boolean
-        - name: sort
-          in: query
-          schema:
-            type: string
-            enum: [name, premiereDate, addedAt, communityRating, lastPlayed, random]
-            default: name
-        - name: order
-          in: query
-          schema:
-            type: string
-            enum: [asc, desc]
-            default: asc
-        - $ref: "#/components/parameters/Seed"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: A page of items.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemPage"
-
-  /items/resume:
-    get:
-      operationId: listResumeItems
-      summary: Items started but not finished
-      tags: [library]
-      parameters:
-        - name: kind
-          in: query
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 10
-            items:
-              $ref: "#/components/schemas/ItemKind"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: Most recently played first.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemPage"
-
-  /items/next-up:
-    get:
-      operationId: listNextUp
-      summary: The next episode to watch for each series in progress
-      tags: [library]
-      parameters:
-        - name: series
-          in: query
-          description: Only this series.
-          schema:
-            type: string
-            maxLength: 64
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: A page of episodes.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemPage"
-
-  /items/continue:
-    get:
-      operationId: listContinueWatching
-      summary: What to continue, and what's next, together
-      description: The items started but not finished and the next episode
-        of each series in progress, in one list. A series appears once; an
-        episode started stands for it rather than its next one.
-      tags: [library]
-      parameters:
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: Most recently watched first.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemPage"
-
-  /items/latest:
-    get:
-      operationId: listLatest
-      summary: Recently added items
-      description: Films and series only. A series counts as new when one of
-        its episodes is, and is listed once, by its newest episode.
-      tags: [library]
-      parameters:
-        - name: library
-          in: query
-          schema:
-            type: string
-            maxLength: 64
-        - $ref: "#/components/parameters/Limit"
-      responses:
-        "200":
-          description: Newest first.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ItemSummary"
-
   /titles:
     get:
       operationId: listTitles
       summary: A library's titles, filtered and sorted
       description: >-
-        From Overfin's index. Films and series (`kind`), or a series'
-        seasons and episodes (`parent`), with the same filters and sorts as
-        `/items`. Each title appears once, whatever copies the library has.
-        Empty until the index is first read.
+        A library's films and series (`kind`), filtered and sorted by what
+        TMDB says of them (genres, year, name, release date, rating) and
+        what the profile did with them. Each title appears once, whatever
+        copies the library has. Empty until the index is first read.
       tags: [titles]
       parameters:
         - name: library
@@ -1154,26 +959,11 @@ paths:
           explode: true
           schema:
             type: array
-            maxItems: 4
+            maxItems: 2
             items:
               type: string
-              enum: [movie, series, season, episode]
-        - name: parent
-          in: query
-          schema:
-            type: string
-            maxLength: 64
+              enum: [movie, series]
         - name: genre
-          in: query
-          schema:
-            type: string
-            maxLength: 100
-        - name: person
-          in: query
-          schema:
-            type: string
-            maxLength: 64
-        - name: studio
           in: query
           schema:
             type: string
@@ -1373,26 +1163,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /items/{itemId}:
+  /titles/{titleId}/similar:
     parameters:
-      - $ref: "#/components/parameters/ItemId"
-    get:
-      operationId: getItem
-      summary: Everything about one item, for its detail page
-      tags: [library]
-      responses:
-        "200":
-          description: The item.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Item"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{itemId}/similar:
-    parameters:
-      - $ref: "#/components/parameters/ItemId"
+      - $ref: "#/components/parameters/TitleId"
     get:
       x-status: planned
       operationId: listSimilar
@@ -1415,73 +1188,13 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: "#/components/schemas/ItemSummary"
+                      $ref: "#/components/schemas/TitleSummary"
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /items/{itemId}/favorite:
+  /titles/{titleId}/lyrics:
     parameters:
-      - $ref: "#/components/parameters/ItemId"
-    put:
-      operationId: addFavorite
-      summary: Mark as a favorite of the active profile
-      tags: [library]
-      responses:
-        "200":
-          $ref: "#/components/responses/UserStateChanged"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    delete:
-      operationId: removeFavorite
-      summary: Unmark as a favorite
-      tags: [library]
-      responses:
-        "200":
-          $ref: "#/components/responses/UserStateChanged"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{itemId}/played:
-    parameters:
-      - $ref: "#/components/parameters/ItemId"
-    put:
-      operationId: markPlayed
-      summary: Mark as watched or listened to
-      description: On a series, season or album, marks all of its children.
-      tags: [library]
-      responses:
-        "200":
-          $ref: "#/components/responses/UserStateChanged"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    delete:
-      operationId: markUnplayed
-      summary: Mark as not watched
-      tags: [library]
-      responses:
-        "200":
-          $ref: "#/components/responses/UserStateChanged"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{itemId}/progress:
-    parameters:
-      - $ref: "#/components/parameters/ItemId"
-    delete:
-      operationId: forgetProgress
-      summary: Remove from Continue Watching
-      description: Forgets where the active profile stopped in this title;
-        whether it watched it is kept.
-      tags: [library]
-      responses:
-        "200":
-          $ref: "#/components/responses/UserStateChanged"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{itemId}/lyrics:
-    parameters:
-      - $ref: "#/components/parameters/ItemId"
+      - $ref: "#/components/parameters/TitleId"
     get:
       x-status: planned
       operationId: getLyrics
@@ -1497,9 +1210,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /items/{itemId}/trickplay:
+  /titles/{titleId}/trickplay:
     parameters:
-      - $ref: "#/components/parameters/ItemId"
+      - $ref: "#/components/parameters/TitleId"
     get:
       x-status: planned
       operationId: getTrickplay
@@ -1547,29 +1260,6 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Genre"
-
-  /people/{personId}:
-    parameters:
-      - name: personId
-        in: path
-        required: true
-        schema:
-          type: string
-          maxLength: 64
-    get:
-      operationId: getPerson
-      summary: A person's page
-      description: Their work is listed with `GET /items?person=…`.
-      tags: [library]
-      responses:
-        "200":
-          description: The person.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Person"
-        "404":
-          $ref: "#/components/responses/NotFound"
 
   /search:
     post:
@@ -1854,7 +1544,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemPage"
+                $ref: "#/components/schemas/TitlePage"
         "404":
           $ref: "#/components/responses/NotFound"
         "410":
@@ -2048,34 +1738,6 @@ paths:
                         items:
                           $ref: "#/components/schemas/TitleSummary"
 
-  /catalog/{mediaKind}/{tmdbId}:
-    parameters:
-      - name: mediaKind
-        in: path
-        required: true
-        schema:
-          type: string
-          enum: [movie, series]
-      - name: tmdbId
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: "^[0-9]{1,12}$"
-    get:
-      operationId: getCatalogTitle
-      summary: A title's details, with per-season status for series
-      tags: [catalog]
-      responses:
-        "200":
-          description: The title.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CatalogDetail"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
   /lists:
     get:
       x-status: planned
@@ -2141,7 +1803,7 @@ paths:
                       items:
                         type: array
                         items:
-                          $ref: "#/components/schemas/CatalogTitle"
+                          $ref: "#/components/schemas/TitleSummary"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -2379,16 +2041,6 @@ components:
       schema:
         type: string
         maxLength: 512
-    Seed:
-      name: seed
-      in: query
-      description: For `sort=random`, makes the shuffle repeatable, so a
-        shuffled list survives a reload. Without it, the server picks one and
-        returns it in the page.
-      schema:
-        type: string
-        maxLength: 32
-        pattern: "^[A-Za-z0-9]+$"
     TitleId:
       name: titleId
       in: path
@@ -2402,14 +2054,6 @@ components:
         maxLength: 128
         pattern: "^title_[a-z0-9_]{1,122}$"
         examples: [title_movie_tmdb_949]
-    ItemId:
-      name: itemId
-      in: path
-      required: true
-      schema:
-        type: string
-        maxLength: 64
-        examples: [item_7f3a9c04b1e2]
     PlaybackId:
       name: playbackId
       in: path
@@ -2766,17 +2410,6 @@ components:
       format: date-time
       description: RFC 3339 timestamp in UTC.
 
-    CalendarDate:
-      type: string
-      format: date
-      description: A calendar date without time or time zone (`YYYY-MM-DD`).
-
-    # ---- Items -------------------------------------------------------------
-    #
-    # Every item has the same small core, plus one nested object named after
-    # its kind ("episode", "track", ...) holding the kind-specific fields.
-    # Clients skip kinds they don't know.
-
     ItemKind:
       type: string
       description: |
@@ -2858,167 +2491,6 @@ components:
           minimum: 0
           description: For series, seasons and albums, the number of children
             not yet played.
-
-    ExternalIds:
-      description: IDs of this item in public databases.
-      type: object
-      properties:
-        tmdb:
-          type: string
-        imdb:
-          type: string
-        tvdb:
-          type: string
-        musicBrainz:
-          type: string
-      additionalProperties:
-        type: string
-
-    ItemRef:
-      description: A minimal pointer to another item.
-      type: object
-      required: [id, name]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-
-    Credit:
-      description: A person's part in an item.
-      type: object
-      required: [person, role]
-      properties:
-        person:
-          type: object
-          required: [id, name]
-          properties:
-            id:
-              type: string
-            name:
-              type: string
-            image:
-              $ref: "#/components/schemas/ImageRef"
-        role:
-          type: string
-          description: Open set; clients must handle unknown values.
-          examples: [actor, director, writer, producer, composer, guestStar]
-        character:
-          type: string
-
-    Chapter:
-      type: object
-      required: [startMs]
-      properties:
-        name:
-          type: string
-        startMs:
-          $ref: "#/components/schemas/Milliseconds"
-        image:
-          $ref: "#/components/schemas/ImageRef"
-
-    ItemSummary:
-      description: The light shape used in lists, rows and grids.
-      type: object
-      required: [id, kind, name]
-      properties:
-        id:
-          type: string
-          examples: [item_7f3a9c04b1e2]
-        kind:
-          $ref: "#/components/schemas/ItemKind"
-        name:
-          type: string
-        premiereDate:
-          $ref: "#/components/schemas/CalendarDate"
-        year:
-          type: integer
-        durationMs:
-          $ref: "#/components/schemas/Milliseconds"
-        officialRating:
-          type: string
-          description: Age rating as published, e.g. `PG-13` or `TV-MA`.
-        images:
-          $ref: "#/components/schemas/Images"
-        userState:
-          $ref: "#/components/schemas/UserState"
-        # Kind-specific parts. At most one is present: the one matching `kind`.
-        movie:
-          $ref: "#/components/schemas/MoviePart"
-        series:
-          $ref: "#/components/schemas/SeriesPart"
-        season:
-          $ref: "#/components/schemas/SeasonPart"
-        episode:
-          $ref: "#/components/schemas/EpisodePart"
-        collection:
-          $ref: "#/components/schemas/CountPart"
-        musicVideo:
-          $ref: "#/components/schemas/MusicVideoPart"
-        musicArtist:
-          $ref: "#/components/schemas/MusicArtistPart"
-        musicAlbum:
-          $ref: "#/components/schemas/MusicAlbumPart"
-        track:
-          $ref: "#/components/schemas/TrackPart"
-        playlist:
-          $ref: "#/components/schemas/PlaylistPart"
-        audiobook:
-          $ref: "#/components/schemas/AudiobookPart"
-        book:
-          $ref: "#/components/schemas/BookPart"
-        photo:
-          $ref: "#/components/schemas/PhotoPart"
-        photoAlbum:
-          $ref: "#/components/schemas/CountPart"
-        liveChannel:
-          $ref: "#/components/schemas/LiveChannelPart"
-        liveProgram:
-          $ref: "#/components/schemas/LiveProgramPart"
-        recording:
-          $ref: "#/components/schemas/RecordingPart"
-
-    Item:
-      description: The full shape, used on detail pages.
-      allOf:
-        - $ref: "#/components/schemas/ItemSummary"
-        - type: object
-          properties:
-            overview:
-              type: string
-              description: Plain text; never contains markup.
-            genres:
-              type: array
-              items:
-                type: string
-            studios:
-              type: array
-              items:
-                type: string
-            communityRating:
-              type: number
-              minimum: 0
-              maximum: 10
-            criticRating:
-              type: number
-              minimum: 0
-              maximum: 100
-            credits:
-              type: array
-              items:
-                $ref: "#/components/schemas/Credit"
-            chapters:
-              type: array
-              items:
-                $ref: "#/components/schemas/Chapter"
-            externalIds:
-              $ref: "#/components/schemas/ExternalIds"
-            tags:
-              type: array
-              description: Absent unless the operator turns tags on; operators
-                often use tags for internal purposes.
-              items:
-                type: string
 
     TitleSummary:
       type: object
@@ -3127,21 +2599,6 @@ components:
               type: string
               description: For random order, the seed used.
 
-    ItemPage:
-      allOf:
-        - $ref: "#/components/schemas/PageInfo"
-        - type: object
-          required: [items]
-          properties:
-            items:
-              type: array
-              items:
-                $ref: "#/components/schemas/ItemSummary"
-            seed:
-              type: string
-              description: For random order, the seed used. Put it in the
-                page's URL to keep the same shuffle after a reload.
-
     Library:
       type: object
       required: [id, name, kind]
@@ -3167,27 +2624,6 @@ components:
         itemCount:
           type: integer
           minimum: 0
-
-    Person:
-      type: object
-      required: [id, name]
-      properties:
-        id:
-          type: string
-          examples: [pers_5t8w1n3k7q2z]
-        name:
-          type: string
-        overview:
-          type: string
-          description: Plain text.
-        image:
-          $ref: "#/components/schemas/ImageRef"
-        birthDate:
-          $ref: "#/components/schemas/CalendarDate"
-        deathDate:
-          $ref: "#/components/schemas/CalendarDate"
-        externalIds:
-          $ref: "#/components/schemas/ExternalIds"
 
     Lyrics:
       type: object
@@ -3270,48 +2706,13 @@ components:
         library:
           type: array
           items:
-            $ref: "#/components/schemas/ItemSummary"
+            $ref: "#/components/schemas/TitleSummary"
         catalog:
           description: Present only when the TMDB catalog is enabled and
             asked for.
           type: array
           items:
-            $ref: "#/components/schemas/CatalogTitle"
-
-    CatalogTitle:
-      description: A title known from TMDB, in the library or not. If it is
-        in the library, `libraryItem` carries the library item itself
-        (images, progress, watched state), so a site can show it like any
-        other library item and offer Play instead of Request.
-      type: object
-      required: [tmdbId, mediaKind, name, availability]
-      properties:
-        tmdbId:
-          type: string
-        mediaKind:
-          type: string
-          description: Open set.
-          examples: [movie, series]
-        name:
-          type: string
-        year:
-          type: integer
-        overview:
-          type: string
-          description: Plain text.
-        images:
-          $ref: "#/components/schemas/Images"
-        availability:
-          type: string
-          description: How much of it the library has. Open set.
-          examples: [available, partiallyAvailable, missing]
-        requestStatus:
-          type: string
-          description: Present only when requests are enabled and the title
-            has been requested. Same open set as `MediaRequest.status`.
-          examples: [pending, approved, declined, processing, available, failed]
-        libraryItem:
-          $ref: "#/components/schemas/ItemSummary"
+            $ref: "#/components/schemas/TitleSummary"
 
     CatalogList:
       description: A list defined by the operator, such as "Christmas
@@ -3335,53 +2736,6 @@ components:
 
     # ---- Catalog and requests -----------------------------------------------
 
-    CatalogDetail:
-      allOf:
-        - $ref: "#/components/schemas/CatalogTitle"
-        - type: object
-          properties:
-            officialRating:
-              type: string
-              description: Age rating in the instance's ratings country.
-            genres:
-              type: array
-              items:
-                type: string
-            cast:
-              type: array
-              items:
-                type: object
-                required: [name]
-                properties:
-                  name:
-                    type: string
-                  character:
-                    type: string
-                  image:
-                    $ref: "#/components/schemas/ImageRef"
-            seasons:
-              type: array
-              description: For series, each season's status.
-              items:
-                type: object
-                required: [number, availability]
-                properties:
-                  number:
-                    type: integer
-                    minimum: 0
-                  name:
-                    type: string
-                  episodeCount:
-                    type: integer
-                    minimum: 0
-                  availability:
-                    type: string
-                    description: Same open set as
-                      `CatalogTitle.availability`.
-                  requestStatus:
-                    type: string
-                    description: Same open set as `MediaRequest.status`.
-
     MediaRequest:
       type: object
       required: [id, title, status, requestedAt]
@@ -3390,7 +2744,7 @@ components:
           type: string
           examples: [req_4n7x2k9m5q1w]
         title:
-          $ref: "#/components/schemas/CatalogTitle"
+          $ref: "#/components/schemas/TitleSummary"
         seasons:
           type: array
           items:
@@ -3462,7 +2816,7 @@ components:
           type: string
           examples: [iss_8c3m6t1k9w2p]
         item:
-          $ref: "#/components/schemas/ItemSummary"
+          $ref: "#/components/schemas/TitleSummary"
         kind:
           type: string
         reason:
@@ -3654,13 +3008,11 @@ components:
 
     PlaybackSession:
       type: object
-      required: [id, item, method, stream, positionMs]
+      required: [id, title, method, stream, positionMs]
       properties:
         id:
           type: string
           examples: [play_9m2k7w4q1x8c]
-        item:
-          $ref: "#/components/schemas/ItemSummary"
         title:
           $ref: "#/components/schemas/TitleSummary"
         method:
@@ -3736,240 +3088,11 @@ components:
               description: The next few entries (at most 10).
               maxItems: 10
               items:
-                $ref: "#/components/schemas/ItemSummary"
+                $ref: "#/components/schemas/TitleSummary"
 
     # ---- Kind-specific parts -----------------------------------------------
 
-    MoviePart:
-      type: object
-      properties:
-        originalTitle:
-          type: string
-        tagline:
-          type: string
-
-    SeriesPart:
-      type: object
-      properties:
-        status:
-          type: string
-          description: Open set; clients must handle unknown values.
-          examples: [continuing, ended]
-        seasonCount:
-          type: integer
-          minimum: 0
-        episodeCount:
-          type: integer
-          minimum: 0
-        endDate:
-          $ref: "#/components/schemas/CalendarDate"
-
-    SeasonPart:
-      type: object
-      required: [seriesId]
-      properties:
-        seriesId:
-          type: string
-        seriesName:
-          type: string
-        number:
-          type: integer
-          minimum: 0
-          description: 0 is the specials season.
-        episodeCount:
-          type: integer
-          minimum: 0
-
-    EpisodePart:
-      type: object
-      required: [seriesId]
-      properties:
-        seriesId:
-          type: string
-        seriesName:
-          type: string
-        seasonId:
-          type: string
-        seasonNumber:
-          type: integer
-          minimum: 0
-        number:
-          type: integer
-          minimum: 0
-        numberEnd:
-          type: integer
-          minimum: 0
-          description: Last episode number, for files covering several
-            episodes.
-
-    CountPart:
-      description: For containers whose only specific field is a count.
-      type: object
-      properties:
-        itemCount:
-          type: integer
-          minimum: 0
-
-    MusicVideoPart:
-      type: object
-      properties:
-        artists:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemRef"
-
-    MusicArtistPart:
-      type: object
-      properties:
-        albumCount:
-          type: integer
-          minimum: 0
-        trackCount:
-          type: integer
-          minimum: 0
-
-    MusicAlbumPart:
-      type: object
-      properties:
-        albumArtists:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemRef"
-        trackCount:
-          type: integer
-          minimum: 0
-        normalizationGainDb:
-          type: number
-          description: Loudness adjustment for the whole album, in decibels.
-
-    TrackPart:
-      type: object
-      properties:
-        album:
-          $ref: "#/components/schemas/ItemRef"
-        artists:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemRef"
-        albumArtists:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemRef"
-        number:
-          type: integer
-          minimum: 0
-        discNumber:
-          type: integer
-          minimum: 0
-        normalizationGainDb:
-          type: number
-          description: Loudness adjustment for this track, in decibels.
-        hasLyrics:
-          type: boolean
-
-    PlaylistPart:
-      type: object
-      properties:
-        mediaKind:
-          type: string
-          description: Open set; clients must handle unknown values.
-          examples: [video, audio, mixed]
-        itemCount:
-          type: integer
-          minimum: 0
-
-    AudiobookPart:
-      type: object
-      properties:
-        authors:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemRef"
-        narrators:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemRef"
-
-    BookPart:
-      type: object
-      properties:
-        authors:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemRef"
-
-    PhotoPart:
-      description: |
-        Only what an album view needs. `takenAt`, `location` and `camera` are
-        privacy-sensitive: they are absent unless the operator turns each one
-        on. Image files themselves are always stripped of embedded metadata.
-      type: object
-      properties:
-        album:
-          $ref: "#/components/schemas/ItemRef"
-        width:
-          type: integer
-          minimum: 1
-        height:
-          type: integer
-          minimum: 1
-        takenAt:
-          $ref: "#/components/schemas/Timestamp"
-        location:
-          type: object
-          required: [latitude, longitude]
-          properties:
-            latitude:
-              type: number
-              minimum: -90
-              maximum: 90
-            longitude:
-              type: number
-              minimum: -180
-              maximum: 180
-            altitudeM:
-              type: number
-        camera:
-          type: object
-          properties:
-            make:
-              type: string
-            model:
-              type: string
-
-    LiveChannelPart:
-      type: object
-      properties:
-        number:
-          type: string
-          description: The channel number as displayed, e.g. `5.1`.
-
-    LiveProgramPart:
-      type: object
-      required: [channelId, startAt, endAt]
-      properties:
-        channelId:
-          type: string
-        startAt:
-          $ref: "#/components/schemas/Timestamp"
-        endAt:
-          $ref: "#/components/schemas/Timestamp"
-
-    RecordingPart:
-      type: object
-      properties:
-        channelId:
-          type: string
-        recordedAt:
-          $ref: "#/components/schemas/Timestamp"
-
   responses:
-    UserStateChanged:
-      description: The active profile's updated state for the item.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/UserState"
     PlaybackEnded:
       description: |
         This playback no longer exists. With `playback-taken-over`, another

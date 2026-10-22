@@ -74,11 +74,11 @@ func (l Library) nextCursor(r *http.Request, p *store.Profile, start int, seed s
 	return c
 }
 
-// titles serves a library's titles, filtered and sorted as asked, from the
-// index: films and series (or seasons and episodes, under a parent).
+// titles serves a library's films and series, filtered and sorted as
+// asked, from the index and TMDB's data.
 func (l Library) titles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if !onlyParams(w, r, "library", "kind", "parent", "genre", "person", "studio", "yearFrom", "yearTo",
+	if !onlyParams(w, r, "library", "kind", "genre", "yearFrom", "yearTo",
 		"played", "favorite", "inProgress", "sort", "order", "seed", "limit", "cursor") {
 		return
 	}

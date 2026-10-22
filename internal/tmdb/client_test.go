@@ -44,7 +44,7 @@ func fakeTMDB(t *testing.T) *Client {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			io.WriteString(w, `{"id":550,"title":"Fight Club","release_date":"1999-10-15","runtime":139,"tagline":"Mischief.",
+			io.WriteString(w, `{"id":550,"title":"Fight Club","release_date":"1999-10-15","runtime":139,"tagline":"Mischief.","vote_average":8.4,
 				"overview":"An insomniac.","genres":[{"name":"Drame"}],
 				"credits":{"cast":[{"name":"Edward Norton","character":"Narrator","profile_path":"/norton1234.jpg"}]},
 				"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
@@ -118,6 +118,7 @@ func TestClient(t *testing.T) {
 		t.Errorf("artwork: %+v", art)
 	}
 	if full.Name != "Fight Club" || full.Year != 1999 || full.Runtime != 139 || full.Tagline != "Mischief." ||
+		full.ReleaseDate != "1999-10-15" || full.Rating != 8.4 ||
 		full.Overview != "An insomniac." || len(full.Cast) != 1 || full.Cast[0].Profile != "/norton1234.jpg" {
 		t.Errorf("title: %+v", full)
 	}

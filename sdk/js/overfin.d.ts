@@ -72,31 +72,6 @@ export interface ImageRef {
   blurHash?: string;
 }
 
-/** A title known from TMDB, in the library or not. */
-export interface CatalogTitle {
-  tmdbId: string;
-  mediaKind: 'movie' | 'series' | (string & {});
-  name: string;
-  year?: number;
-  overview?: string;
-  images?: Images;
-  /** How much of it the library has: 'available', 'partiallyAvailable', 'missing'… */
-  availability: string;
-  /** The library item, when the library has it: play it like any other. */
-  libraryItem?: ItemSummary;
-}
-
-export interface CatalogDetail extends CatalogTitle {
-  genres?: string[];
-  cast?: { name: string; character?: string; image?: ImageRef }[];
-  seasons?: { number: number; name?: string; episodeCount: number; availability: string }[];
-}
-
-export interface CatalogPage {
-  items: CatalogTitle[];
-  nextCursor?: string;
-}
-
 export interface Images {
   primary?: ImageRef;
   backdrops?: ImageRef[];
@@ -113,49 +88,6 @@ export interface UserState {
   unplayedCount?: number;
 }
 
-export interface ItemSummary {
-  id: string;
-  kind: string;
-  name: string;
-  premiereDate?: string;
-  year?: number;
-  durationMs?: number;
-  officialRating?: string;
-  images?: Images;
-  userState?: UserState;
-  movie?: { originalTitle?: string; tagline?: string };
-  series?: { status?: string; seasonCount?: number; endDate?: string };
-  season?: { seriesId: string; seriesName?: string; number?: number; episodeCount?: number };
-  episode?: { seriesId: string; seriesName?: string; seasonId?: string; seasonNumber?: number; number?: number; numberEnd?: number };
-  [kindPart: string]: unknown;
-}
-
-export interface Person {
-  id: string;
-  name: string;
-  overview?: string;
-  image?: ImageRef;
-  birthDate?: string;
-  deathDate?: string;
-  externalIds?: Record<string, string>;
-}
-
-export interface Credit {
-  person: { id: string; name: string; image?: ImageRef };
-  role: string;
-  character?: string;
-}
-
-export interface Item extends ItemSummary {
-  overview?: string;
-  genres?: string[];
-  studios?: string[];
-  communityRating?: number;
-  criticRating?: number;
-  credits?: Credit[];
-  externalIds?: Record<string, string>;
-}
-
 export interface Genre {
   name: string;
   /** How many of the library's titles the profile may see have it. */
@@ -169,13 +101,11 @@ export interface Library {
   image?: ImageRef;
 }
 
-export interface ItemQuery {
+/** What a library's titles are filtered and sorted by. */
+export interface TitleQuery {
   library?: string;
-  kind?: string | string[];
-  parent?: string;
+  kind?: 'movie' | 'series' | ('movie' | 'series')[];
   genre?: string;
-  person?: string;
-  studio?: string;
   yearFrom?: number;
   yearTo?: number;
   played?: boolean;
@@ -186,13 +116,6 @@ export interface ItemQuery {
   seed?: string;
   limit?: number;
   cursor?: string;
-}
-
-export interface ItemPage {
-  items: ItemSummary[];
-  nextCursor?: string;
-  totalCount?: number;
-  seed?: string;
 }
 
 export interface Capabilities {
@@ -265,9 +188,8 @@ export interface TitlePage {
 
 export interface Playback {
   id: string;
-  item: ItemSummary;
-  /** What plays, as titles are shown everywhere else. */
-  title?: TitleSummary;
+  /** What plays. */
+  title: TitleSummary;
   method: 'direct' | 'remux' | 'transcode' | string;
   stream: { url: string; protocol: 'file' | 'hls'; mimeType?: string };
   positionMs: number;
@@ -363,16 +285,11 @@ export class Overfin {
   endOtherSessions(): Promise<null>;
 
   libraries(): Promise<Library[]>;
-  item(id: string): Promise<Item>;
   /** A title's page, in a library or not. */
   title(id: string): Promise<Title>;
-  person(id: string): Promise<Person>;
-  items(query?: ItemQuery): Promise<ItemPage>;
   /** A library's titles; kind is required. */
-  titles(query?: ItemQuery): Promise<TitlePage>;
-  pages(query?: ItemQuery): AsyncGenerator<TitlePage>;
-  resume(limit?: number): Promise<ItemSummary[]>;
-  nextUp(limit?: number): Promise<ItemSummary[]>;
+  titles(query?: TitleQuery): Promise<TitlePage>;
+  pages(query?: TitleQuery): AsyncGenerator<TitlePage>;
   /** Started titles and each followed series' next episode, a library's or not. */
   continueWatching(limit?: number): Promise<TitleSummary[]>;
   /** A library's genres (every library's without one), for filters. */
@@ -382,7 +299,6 @@ export class Overfin {
 
   discover(list: 'trending' | 'popular' | 'upcoming', mediaKind: 'movie' | 'series',
     options?: { availability?: 'all' | 'library' | 'missing'; limit?: number; cursor?: string }): Promise<TitlePage>;
-  catalogTitle(mediaKind: 'movie' | 'series', tmdbId: string): Promise<CatalogDetail>;
 
   setPlayed(id: string, played?: boolean): Promise<UserState>;
   setFavorite(id: string, favorite?: boolean): Promise<UserState>;

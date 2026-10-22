@@ -477,26 +477,6 @@ func externalIDs(in map[string]string) map[string]string {
 	return out
 }
 
-// PersonOf translates a Jellyfin person. ok is false for anything that isn't
-// a person.
-func PersonOf(r *jellyfin.RawItem) (Person, bool) {
-	id := wrap(PersonPrefix, r.Id)
-	name := textclean.Plain(r.Name, maxShort)
-	if r.Type != "Person" || id == "" || name == "" {
-		return Person{}, false
-	}
-	jfID, _ := jellyfin.NormalizeID(r.Id)
-	return Person{
-		ID:          id,
-		Name:        name,
-		Overview:    textclean.Plain(r.Overview, maxOverview),
-		Image:       imageRef(jfID, "primary", 0, r.ImageTags["Primary"], r.PrimaryImageAspectRatio, blurHash(r, "Primary")),
-		BirthDate:   calendarDate(r.PremiereDate),
-		DeathDate:   calendarDate(r.EndDate),
-		ExternalIDs: externalIDs(r.ProviderIds),
-	}, true
-}
-
 // ---- Images -----------------------------------------------------------------
 
 var imageTag = regexp.MustCompile(`^[0-9a-f]{32}$`)

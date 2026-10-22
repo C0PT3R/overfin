@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -390,9 +391,10 @@ type ListQuery struct {
 	// season's episodes.
 	ParentID string
 	Kinds    []string // index kinds; empty: any
-	Genres   []string // any of them
-	Studios  []string // any of them
-	YearFrom int      // 0: no bound
+	// Genres (any of them, TMDB's), YearFrom and YearTo (0: no bound)
+	// filter by what TMDB says of the title.
+	Genres   []string
+	YearFrom int
 	YearTo   int
 	// ProfileID, with Played, Favorite or InProgress, filters by what that
 	// profile did with the titles.
@@ -400,25 +402,30 @@ type ListQuery struct {
 	Played     *bool
 	Favorite   *bool
 	InProgress bool
-	// PersonID, when set, lists the titles that person is in.
-	PersonID string
 	// Access, when set, keeps only what the profile may see.
 	Access *Access
 	// Sort is "name", "premiereDate", "addedAt", "communityRating",
 	// "latest" (when the title or, for a series, its newest episode was
-	// added) or "lastPlayed" (by the profile's ProfileID). A Limit below 0 lists
-	// everything, for shuffling.
+	// added) or "lastPlayed" (by the profile's ProfileID). Names, dates and
+	// ratings are TMDB's, the index's only for a file TMDB doesn't know. A
+	// Limit below 0 lists everything, for shuffling.
 	Sort       string
 	Descending bool
 	Offset     int
 	Limit      int
 }
 
+// fromTMDB is a column of a listed film's or series' TMDB page, in SQL
+// (NULL for seasons, episodes, and files TMDB doesn't know).
+func fromTMDB(column string) string {
+	return `(SELECT t.` + column + ` FROM catalog_titles t WHERE t.kind = catalog_items.kind AND t.tmdb = catalog_items.tmdb)`
+}
+
 var listOrder = map[string]string{
-	"name":            "sort_name COLLATE NOCASE",
-	"premiereDate":    "premiere_date",
+	"name":            "coalesce(" + fromTMDB("sort_name") + ", lower(sort_name))",
+	"premiereDate":    "coalesce(" + fromTMDB("release_date") + ", premiere_date)",
 	"addedAt":         "added_at",
-	"communityRating": "community_rating",
+	"communityRating": "coalesce(" + fromTMDB("rating") + ", community_rating)",
 	"latest": `(SELECT max(e.added_at) FROM catalog_items e
 		WHERE e.id = catalog_items.id OR e.series_id = catalog_items.id)`,
 }
@@ -476,14 +483,11 @@ func (q ListQuery) where() ([]string, []any) {
 	if len(q.Kinds) > 0 {
 		in("kind", q.Kinds)
 	}
-	for table, values := range map[string][]string{"catalog_genres": q.Genres, "catalog_studios": q.Studios} {
-		if len(values) == 0 {
-			continue
-		}
-		column := map[string]string{"catalog_genres": "genre", "catalog_studios": "studio"}[table]
-		marks := strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")
-		where = append(where, "EXISTS (SELECT 1 FROM "+table+" x WHERE x.item_id = catalog_items.id AND x."+column+" IN ("+marks+"))")
-		for _, v := range values {
+	if len(q.Genres) > 0 {
+		where = append(where, `EXISTS (SELECT 1 FROM catalog_titles t, json_each(t.details, '$.genres') g
+			WHERE t.kind = catalog_items.kind AND t.tmdb = catalog_items.tmdb AND t.details IS NOT NULL
+			AND g.value IN (`+marks(len(q.Genres))+`))`)
+		for _, v := range q.Genres {
 			args = append(args, v)
 		}
 	}
@@ -520,15 +524,12 @@ func (q ListQuery) where() ([]string, []any) {
 			ELSE ` + mine("x.position_ms > 0") + ` END)`
 		where, args = append(where, cond), append(args, q.ProfileID, q.ProfileID)
 	}
-	if q.PersonID != "" {
-		where, args = append(where, `EXISTS (SELECT 1 FROM catalog_people x
-			WHERE x.item_id = catalog_items.id AND x.person_id = ?)`), append(args, q.PersonID)
-	}
+	year := "coalesce(" + fromTMDB("year") + ", year)"
 	if q.YearFrom > 0 {
-		where, args = append(where, "year >= ?"), append(args, q.YearFrom)
+		where, args = append(where, year+" >= ?"), append(args, q.YearFrom)
 	}
 	if q.YearTo > 0 {
-		where, args = append(where, "year <= ?"), append(args, q.YearTo)
+		where, args = append(where, year+" <= ?"), append(args, q.YearTo)
 	}
 	if q.Access != nil {
 		cond, a := q.Access.itemAllowed("catalog_items")
@@ -543,9 +544,9 @@ type GenreCount struct {
 	Count int
 }
 
-// CatalogGenres lists the genres of a library's films and series (any
-// library's, with libraryID empty), counting only what access lets the
-// profile see, by name.
+// CatalogGenres lists the genres (TMDB's) of a library's films and series
+// (any library's, with libraryID empty), counting only what access lets
+// the profile see, by name.
 func (s *Store) CatalogGenres(ctx context.Context, libraryID string, access *Access) ([]GenreCount, error) {
 	where := []string{"catalog_items.kind IN ('movie', 'series')"}
 	var args []any
@@ -556,10 +557,11 @@ func (s *Store) CatalogGenres(ctx context.Context, libraryID string, access *Acc
 		cond, a := access.itemAllowed("catalog_items")
 		where, args = append(where, cond), append(args, a...)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT g.genre, count(*) FROM catalog_genres g
-		JOIN catalog_items ON catalog_items.id = g.item_id
-		WHERE `+strings.Join(where, " AND ")+`
-		GROUP BY g.genre ORDER BY g.genre COLLATE NOCASE`, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT g.value, count(DISTINCT t.kind || t.tmdb)
+		FROM catalog_items JOIN catalog_titles t ON t.kind = catalog_items.kind AND t.tmdb = catalog_items.tmdb,
+			json_each(t.details, '$.genres') g
+		WHERE t.details IS NOT NULL AND `+strings.Join(where, " AND ")+`
+		GROUP BY g.value`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -572,5 +574,7 @@ func (s *Store) CatalogGenres(ctx context.Context, libraryID string, access *Acc
 		}
 		out = append(out, g)
 	}
+	// By name, accents aside.
+	slices.SortFunc(out, func(a, b GenreCount) int { return strings.Compare(SortName(a.Name), SortName(b.Name)) })
 	return out, rows.Err()
 }

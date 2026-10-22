@@ -1,18 +1,12 @@
 package api
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"slices"
 	"strconv"
 	"time"
 
-	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/cursor"
-	"github.com/overfin/server/internal/images"
-	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -21,41 +15,27 @@ import (
 )
 
 // Discovery serves the catalog's discovery: what's trending, popular or
-// upcoming, and a title's page, each with its place in the library (from
-// Overfin's index) and, when the library has it, the library item itself,
-// read with the profile's own token. Lists and titles are answered from
-// Overfin's database, which keeps them from TMDB in the background
-// (catalog.Lists); only a title's page may ask TMDB, the first time it's
-// opened and once a week after.
+// upcoming, as titles, each with its place in the library. Lists are
+// answered from Overfin's database, which keeps them from TMDB in the
+// background (catalog.Lists); a title's page is /titles/{id}.
 //
 // Kids profiles see only the titles their ceilings allow (rule 28).
 type Discovery struct {
 	Library Library
-	// Source is where TMDB's data comes from: TMDB itself, or Seerr.
-	Source tmdb.Source
-	Store  *store.Store
-	now    func() time.Time
+	Store   *store.Store
 }
 
 func (Discovery) Name() string { return "discovery" }
 
 func (d Discovery) Register(r *plugin.Registrar) error {
 	for pattern, h := range map[string]http.HandlerFunc{
-		"GET /api/v1/discover":                     d.discover,
-		"GET /api/v1/catalog/{mediaKind}/{tmdbId}": d.title,
+		"GET /api/v1/discover": d.discover,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (d Discovery) clock() time.Time {
-	if d.now != nil {
-		return d.now()
-	}
-	return time.Now()
 }
 
 // detailsFor is how long a title's page is kept before TMDB is asked for
@@ -168,255 +148,4 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 		out.Items = append(out.Items, t)
 	}
 	writeOK(w, out)
-}
-
-func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
-	if !onlyParams(w, r) {
-		return
-	}
-	kind := r.PathValue("mediaKind")
-	n, err := strconv.Atoi(r.PathValue("tmdbId"))
-	if (kind != "movie" && kind != "series") || err != nil || n <= 0 {
-		problem.Send(w, problem.NotFound, "")
-		return
-	}
-	tmdbID := strconv.Itoa(n)
-	p := d.Library.active(w, r)
-	if p == nil {
-		return
-	}
-	if may, err := d.mayOpen(r.Context(), p, kind, tmdbID); err != nil || !may {
-		d.Library.hidden(w, err)
-		return
-	}
-	t, err := d.Store.TitleByTMDB(r.Context(), kind, tmdbID)
-	if err != nil {
-		d.Library.Logger.Error("reading the catalog failed", "err", err)
-		problem.Send(w, problem.Internal, "")
-		return
-	}
-	// The page, from TMDB the first time and once a week; a kept one is
-	// served when TMDB can't answer.
-	if t == nil || t.Details == nil || d.clock().Sub(t.DetailsAt) > detailsFor {
-		fresh, err := d.fetchDetails(r.Context(), kind, n)
-		switch {
-		case err == nil:
-			t = fresh
-		case errors.Is(err, tmdb.ErrNotFound):
-			problem.Send(w, problem.NotFound, "")
-			return
-		case t == nil || t.Details == nil:
-			d.sourceError(w, err)
-			return
-		default:
-			d.Library.Logger.Warn("TMDB call failed; the kept page is served", "err", err)
-		}
-	}
-	var det store.TitleDetails
-	if err := json.Unmarshal(t.Details, &det); err != nil {
-		d.Library.Logger.Error("a title's kept page is unreadable", "err", err)
-		problem.Send(w, problem.Internal, "")
-		return
-	}
-	placed, err := d.place(r.Context(), p, []store.Title{*t})
-	if err != nil {
-		d.Library.upstreamError(w, err)
-		return
-	}
-	out := catalogDetail{catalogTitle: placed[0], Genres: det.Genres}
-	for _, c := range det.Cast {
-		cp := catalogPerson{Name: c.Name, Character: c.Character}
-		if id := images.TMDBImageID(t.Kind, n, "profile", c.Profile); id != "" {
-			cp.Image = &library.ImageRef{URL: "/api/v1/images/" + id}
-		}
-		out.Cast = append(out.Cast, cp)
-	}
-	// Each season's place, from the episodes the library has.
-	var have map[int]int
-	if out.LibraryItem != nil && kind == "series" {
-		if have, err = d.Store.CatalogEpisodes(r.Context(), t.ItemID); err != nil {
-			d.Library.Logger.Error("reading the catalog failed", "err", err)
-			problem.Send(w, problem.Internal, "")
-			return
-		}
-	}
-	for _, s := range det.Seasons {
-		a := "missing"
-		switch n := have[s.Number]; {
-		case n > 0 && n >= s.EpisodeCount:
-			a = "available"
-		case n > 0:
-			a = "partiallyAvailable"
-		}
-		out.Seasons = append(out.Seasons, catalogSeason{Number: s.Number, Name: s.Name, EpisodeCount: s.EpisodeCount, Availability: a})
-	}
-	writeOK(w, out)
-}
-
-// fetchDetails asks TMDB for a title's page and keeps it.
-func (d Discovery) fetchDetails(ctx context.Context, kind string, tmdbID int) (*store.Title, error) {
-	det, err := d.Source.Details(ctx, kind, tmdbID)
-	if err != nil {
-		return nil, err
-	}
-	sd := store.TitleDetails{Genres: det.Genres}
-	for _, c := range det.Cast {
-		sd.Cast = append(sd.Cast, store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile})
-	}
-	for _, s := range det.Seasons {
-		sd.Seasons = append(sd.Seasons, store.SeasonInfo{Number: s.Number, Name: s.Name, EpisodeCount: s.EpisodeCount})
-	}
-	raw, err := json.Marshal(sd)
-	if err != nil {
-		return nil, err
-	}
-	if err := d.Store.SetTitleDetails(ctx, catalog.StoreTitle(det.Title), raw, d.clock()); err != nil {
-		return nil, err
-	}
-	t, err := d.Store.TitleByTMDB(ctx, kind, strconv.Itoa(tmdbID))
-	if err == nil && t == nil {
-		err = errors.New("api: a title just kept is missing")
-	}
-	return t, err
-}
-
-// place gives titles their place in the library, as this profile sees it:
-// what the index has and Jellyfin shows the profile is in the library, with
-// the item itself; the rest is missing.
-func (d Discovery) place(ctx context.Context, p *store.Profile, titles []store.Title) ([]catalogTitle, error) {
-	var itemIDs []string
-	for _, t := range titles {
-		if t.ItemID != "" {
-			itemIDs = append(itemIDs, t.ItemID)
-		}
-	}
-	items := map[string]library.ItemSummary{}
-	if len(itemIDs) > 0 {
-		a, uid, err := d.Library.jf(ctx)
-		if err != nil {
-			return nil, err
-		}
-		page, err := d.Library.Jellyfin.Items(ctx, a, uid,
-			jellyfin.ItemQuery{IDs: itemIDs, Limit: len(itemIDs)})
-		if err != nil {
-			return nil, err
-		}
-		if page.Items, err = d.Library.keep(ctx, p, page.Items); err != nil {
-			return nil, err
-		}
-		var found []library.ItemSummary
-		for i := range page.Items {
-			if s, ok := library.Summary(&page.Items[i]); ok {
-				found = append(found, s)
-			}
-		}
-		if err := d.Library.withStates(ctx, p, found); err != nil {
-			return nil, err
-		}
-		for _, s := range found {
-			items[s.ID] = s
-		}
-	}
-	out := make([]catalogTitle, len(titles))
-	for i, t := range titles {
-		ct := catalogTitle{TMDBID: t.TMDB, MediaKind: t.Kind, Name: t.Name, Year: t.Year,
-			Overview: t.Overview, Images: tmdbImages(t), Availability: "missing"}
-		if s, ok := items["item_"+t.ItemID]; ok && t.ItemID != "" {
-			ct.LibraryItem = &s
-			ct.Availability = "available"
-			if t.Status == 4 {
-				ct.Availability = "partiallyAvailable"
-			}
-		}
-		out[i] = ct
-	}
-	return out, nil
-}
-
-func tmdbImages(t store.Title) *library.Images {
-	n, _ := strconv.Atoi(t.TMDB)
-	var im library.Images
-	if id := images.TMDBImageID(t.Kind, n, "poster", t.Poster); id != "" {
-		im.Primary = &library.ImageRef{URL: "/api/v1/images/" + id}
-	}
-	if id := images.TMDBImageID(t.Kind, n, "backdrop", t.Backdrop); id != "" {
-		im.Backdrops = []library.ImageRef{{URL: "/api/v1/images/" + id}}
-	}
-	if im.Primary == nil && im.Backdrops == nil {
-		return nil
-	}
-	return &im
-}
-
-// image serves a catalog title's TMDB image, for profiles that may see the
-// title, and only at the path the catalog keeps for it.
-func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profile, id, size string) {
-	ref, err := images.ParseTMDB(id)
-	if err != nil {
-		problem.Send(w, problem.NotFound, "")
-		return
-	}
-	data, contentType, err := d.Library.Images.TMDB(r.Context(), ref, size, func(ctx context.Context) error {
-		if may, err := d.mayOpen(ctx, p, ref.Kind, strconv.Itoa(ref.TMDBID)); err != nil {
-			return err
-		} else if !may {
-			return images.ErrHidden
-		}
-		t, err := d.Store.TitleByTMDB(ctx, ref.Kind, strconv.Itoa(ref.TMDBID))
-		if err != nil {
-			return err
-		}
-		if t == nil || (ref.Type == "poster" && t.Poster != ref.Path) || (ref.Type == "backdrop" && t.Backdrop != ref.Path) {
-			return images.ErrInvalid
-		}
-		// A photo only of someone on the title's kept cast.
-		if ref.Type == "profile" {
-			var det store.TitleDetails
-			if len(t.Details) == 0 || json.Unmarshal(t.Details, &det) != nil {
-				return images.ErrInvalid
-			}
-			for _, c := range det.Cast {
-				if c.Profile == ref.Path {
-					return nil
-				}
-			}
-			return images.ErrInvalid
-		}
-		return nil
-	})
-	switch {
-	case err == nil:
-	case errors.Is(err, images.ErrInvalid), errors.Is(err, images.ErrHidden):
-		problem.Send(w, problem.NotFound, "")
-		return
-	case errors.Is(err, images.ErrUnsafe):
-		d.Library.Logger.Warn("refused an unsafe image from TMDB", "image", id)
-		problem.Send(w, problem.NotFound, "")
-		return
-	default:
-		d.sourceError(w, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	_, _ = w.Write(data)
-}
-
-// mayOpen says whether the profile may see a TMDB title.
-func (d Discovery) mayOpen(ctx context.Context, p *store.Profile, kind, tmdb string) (bool, error) {
-	c, err := d.Library.ceiling(ctx, p)
-	if c == nil || err != nil {
-		return err == nil, err
-	}
-	return d.Store.TitleAllowed(ctx, *c, kind, tmdb)
-}
-
-func (d Discovery) sourceError(w http.ResponseWriter, err error) {
-	if errors.Is(err, tmdb.ErrNotFound) {
-		problem.Send(w, problem.NotFound, "")
-		return
-	}
-	d.Library.Logger.Error("TMDB call failed", "err", err)
-	problem.Send(w, problem.Internal, "")
 }

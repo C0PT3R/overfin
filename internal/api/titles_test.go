@@ -20,7 +20,11 @@ type testTitle struct {
 	UserState                    *struct{ Played, Favorite bool }
 	Overview                     string
 	Genres                       []string
-	Seasons, Episodes            []testTitle
+	Cast                         []struct {
+		Name  string
+		Image *struct{ URL string }
+	}
+	Seasons, Episodes []testTitle
 }
 
 // Titles, whether a library has them or not: one page, TMDB's data only,
@@ -44,7 +48,8 @@ func TestTitles(t *testing.T) {
 	now := time.Now()
 	det, _ := json.Marshal(store.TitleDetails{Genres: []string{"Drame"}, Seasons: []store.SeasonInfo{{Number: 1, EpisodeCount: 3}, {Number: 2, EpisodeCount: 2}}})
 	st.SetTitleDetails(ctx, store.Title{Kind: "series", TMDB: "1399", Name: "Le Trône de fer", Year: 2011, Overview: "Neuf familles.", Poster: "/poster1234.jpg"}, det, now)
-	film, _ := json.Marshal(store.TitleDetails{Genres: []string{"Crime"}})
+	film, _ := json.Marshal(store.TitleDetails{Genres: []string{"Crime"}, Cast: []store.CastMember{
+		{Name: "Al Pacino", Character: "Hanna", Profile: "/pacino12345.jpg"}, {Name: "Val Kilmer"}}})
 	st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: "100", Name: "Pas ici", Year: 2024}, film, now)
 	st.SetSeason(ctx, "1399", store.Season{Number: 1, Name: "Saison 1", Episodes: []store.Episode{
 		{Number: 1, Name: "L'hiver vient", AirDate: "2011-04-17"}, {Number: 2, Name: "La route", AirDate: "2011-04-24"},
@@ -98,6 +103,15 @@ func TestTitles(t *testing.T) {
 	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_100", &missing); code != 200 || missing.Availability != "missing" ||
 		missing.Playable || missing.UserState == nil || !missing.UserState.Favorite {
 		t.Errorf("film no library has: %d %+v", code, missing)
+	}
+	// Cast photos are the title's images; a photo of no one on a kept
+	// cast is refused before TMDB is asked.
+	if len(missing.Cast) != 2 || missing.Cast[0].Image == nil || missing.Cast[0].Image.URL != "/api/v1/images/tmdbart_profile_pacino12345_jpg" ||
+		missing.Cast[1].Image != nil {
+		t.Errorf("cast: %+v", missing.Cast)
+	}
+	if code := get(t, srv, "/api/v1/images/tmdbart_profile_someoneelse1_jpg", nil); code != 404 {
+		t.Errorf("photo of someone else: %d", code)
 	}
 
 	// Lists give titles: the library's, what's new, Continue Watching.

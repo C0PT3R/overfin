@@ -17,6 +17,11 @@ type Full struct {
 	// when TMDB doesn't say.
 	Runtime int
 	Tagline string
+	// ReleaseDate is a film's release or a series' first air date,
+	// YYYY-MM-DD, or "".
+	ReleaseDate string
+	// Rating is TMDB's users' average, 0 to 10; 0 when no one rated it.
+	Rating  float64
 	Artwork Artwork
 }
 
@@ -39,9 +44,10 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 	lang := c.language()
 	var raw struct {
 		rawDetails
-		Runtime        int    `json:"runtime"`
-		EpisodeRunTime []int  `json:"episode_run_time"`
-		Tagline        string `json:"tagline"`
+		Runtime        int     `json:"runtime"`
+		EpisodeRunTime []int   `json:"episode_run_time"`
+		Tagline        string  `json:"tagline"`
+		VoteAverage    float64 `json:"vote_average"`
 		Images         struct {
 			Logos   []rawImage `json:"logos"`
 			Posters []rawImage `json:"posters"`
@@ -71,6 +77,13 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 		seasons = append(seasons, Season{Number: s.SeasonNumber, Name: s.Name, EpisodeCount: s.EpisodeCount})
 	}
 	out := &Full{Details: *MakeDetails(t, genres, cast, seasons), Tagline: textclean.Plain(raw.Tagline, 300)}
+	out.ReleaseDate = date(raw.ReleaseDate)
+	if kind == "series" {
+		out.ReleaseDate = date(raw.FirstAirDate)
+	}
+	if raw.VoteAverage > 0 && raw.VoteAverage <= 10 {
+		out.Rating = raw.VoteAverage
+	}
 	runtime := raw.Runtime
 	if kind == "series" && len(raw.EpisodeRunTime) > 0 {
 		runtime = raw.EpisodeRunTime[0]

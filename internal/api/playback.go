@@ -274,8 +274,7 @@ type streamJSON struct {
 }
 
 type sessionJSON struct {
-	ID   string              `json:"id"`
-	Item library.ItemSummary `json:"item"`
+	ID string `json:"id"`
 	// Title is what plays, as titles are shown everywhere else.
 	Title          *library.TitleSummary `json:"title,omitempty"`
 	Method         string                `json:"method"`
@@ -470,7 +469,7 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := sessionJSON{
-		ID: s.ID, Item: summary, Method: dec.Method,
+		ID: s.ID, Method: dec.Method,
 		PositionMs: req.StartPositionMs, DurationMs: dec.Source.RunTimeTicks / 10_000,
 		VersionID: "ver_" + sourceID, MaxBitrateKbps: kbps,
 	}

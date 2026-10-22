@@ -342,8 +342,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Service: service, Logger: logger}
 	if o.seerr != nil {
 		lib.Images = images.New(jf, 1<<20)
-		disc := &api.Discovery{Library: lib, Source: o.seerr, Store: st}
-		lib.Discovery = disc
+		disc := &api.Discovery{Library: lib, Store: st}
 		extra = append(extra, disc)
 	}
 	if o.store != nil {
@@ -449,34 +448,48 @@ type page struct {
 	Type       string // set on errors
 }
 
+// indexedServer is a test server whose index has 7 films, "Movie 0" to
+// "Movie 6" (items 1 to 7), unknown to TMDB.
+func indexedServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	var st *store.Store
+	srv, _ := newServerWith(t, options{store: &st})
+	ctx := context.Background()
+	var items []store.CatalogItem
+	for i := 0; i < 7; i++ {
+		name := fmt.Sprintf("Movie %d", i)
+		items = append(items, store.CatalogItem{ID: fmt.Sprintf("%032x", i+1), Kind: "movie", Name: name, SortName: name})
+	}
+	if err := st.PutCatalog(ctx, items, 1); err != nil {
+		t.Fatal(err)
+	}
+	st.RefreshTitleKeys(ctx)
+	st.SetCatalogState(ctx, store.CatalogState{Pass: 1})
+	return srv
+}
+
 func TestPagingWithSignedCursors(t *testing.T) {
-	srv, fake := newServer(t)
+	srv := indexedServer(t)
 
 	var p1 page
-	if code := get(t, srv, "/api/v1/items?kind=movie&limit=3", &p1); code != 200 {
+	if code := get(t, srv, "/api/v1/titles?kind=movie&limit=3", &p1); code != 200 {
 		t.Fatalf("status %d", code)
 	}
 	if len(p1.Items) != 3 || p1.TotalCount != 7 || p1.NextCursor == "" || p1.Items[0].Kind != "movie" {
 		t.Fatalf("first page: %+v", p1)
 	}
-	if fake.lastQury.Get("includeItemTypes") != "Movie" || fake.lastQury.Get("recursive") != "true" {
-		t.Errorf("Jellyfin query: %v", fake.lastQury)
-	}
 
 	var p2 page
-	get(t, srv, "/api/v1/items?kind=movie&limit=3&cursor="+url.QueryEscape(p1.NextCursor), &p2)
+	get(t, srv, "/api/v1/titles?kind=movie&limit=3&cursor="+url.QueryEscape(p1.NextCursor), &p2)
 	if len(p2.Items) != 3 || p2.Items[0].Name != "Movie 3" {
 		t.Errorf("second page: %+v", p2)
 	}
 
 	// The same cursor with other filters is refused.
 	var bad page
-	code := get(t, srv, "/api/v1/items?kind=series&limit=3&cursor="+url.QueryEscape(p1.NextCursor), &bad)
+	code := get(t, srv, "/api/v1/titles?kind=series&limit=3&cursor="+url.QueryEscape(p1.NextCursor), &bad)
 	if code != http.StatusBadRequest || bad.Type != "invalid-cursor" {
 		t.Errorf("reused cursor: %d %q", code, bad.Type)
-	}
-	if fake.badAuth != 0 {
-		t.Errorf("%d Jellyfin calls without the profile's token", fake.badAuth)
 	}
 }
 
@@ -484,34 +497,35 @@ func TestInvalidQueries(t *testing.T) {
 	srv, _ := newServer(t)
 	for _, q := range []string{
 		"?kind=folder",
-		"?sort=name&seed=abc",   // a seed without random order
-		"?sort=random&seed=a-b", // seeds are letters and digits
-		"?limit=0",
-		"?limit=500",
-		"?library=../../x",
-		"?genre=a|b",
-		"?yearFrom=12",
-		"?unknown=1",
-		"?parent=item_ZZZ",
+		"?kind=episode",                    // seasons and episodes are on their series' page
+		"?kind=movie&sort=name&seed=abc",   // a seed without random order
+		"?kind=movie&sort=random&seed=a-b", // seeds are letters and digits
+		"?kind=movie&limit=0",
+		"?kind=movie&limit=500",
+		"?kind=movie&library=../../x",
+		"?kind=movie&genre=a|b",
+		"?kind=movie&yearFrom=12",
+		"?kind=movie&unknown=1",
+		"?kind=movie&person=pers_1",
+		"",
 	} {
 		var p page
-		if code := get(t, srv, "/api/v1/items"+q, &p); code != http.StatusBadRequest {
+		if code := get(t, srv, "/api/v1/titles"+q, &p); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", q, code)
 		}
 	}
 }
 
-func TestItemDetailAndHiddenItems(t *testing.T) {
-	srv, _ := newServer(t)
-	var it struct{ ID, Name string }
-	if code := get(t, srv, "/api/v1/items/item_"+fmt.Sprintf("%032x", 1), &it); code != 200 || it.Name != "Movie 0" {
-		t.Errorf("visible item: %d %+v", code, it)
+func TestTitleDetailAndUnknownTitles(t *testing.T) {
+	srv := indexedServer(t)
+	var it struct{ ID, Name, Kind string }
+	if code := get(t, srv, "/api/v1/titles/title_item_"+fmt.Sprintf("%032x", 1), &it); code != 200 || it.Name != "Movie 0" || it.Kind != "movie" {
+		t.Errorf("a file TMDB doesn't know: %d %+v", code, it)
 	}
-	// Jellyfin says 404 for items the profile may not see; so does Overfin.
-	if code := get(t, srv, "/api/v1/items/item_"+fmt.Sprintf("%032x", 99), nil); code != http.StatusNotFound {
-		t.Errorf("hidden item: status %d", code)
+	if code := get(t, srv, "/api/v1/titles/title_item_"+fmt.Sprintf("%032x", 99), nil); code != http.StatusNotFound {
+		t.Errorf("no such file: status %d", code)
 	}
-	if code := get(t, srv, "/api/v1/items/not-an-id", nil); code != http.StatusNotFound {
+	if code := get(t, srv, "/api/v1/titles/not-an-id", nil); code != http.StatusNotFound {
 		t.Errorf("malformed ID: status %d", code)
 	}
 }
@@ -541,12 +555,12 @@ func names(p page) []string {
 }
 
 func TestRandomOrderIsRepeatable(t *testing.T) {
-	srv, _ := newServer(t)
+	srv := indexedServer(t)
 
 	var a, b, other page
-	get(t, srv, "/api/v1/items?sort=random&seed=abc&limit=7", &a)
-	get(t, srv, "/api/v1/items?sort=random&seed=abc&limit=7", &b)
-	get(t, srv, "/api/v1/items?sort=random&seed=xyz&limit=7", &other)
+	get(t, srv, "/api/v1/titles?kind=movie&sort=random&seed=abc&limit=7", &a)
+	get(t, srv, "/api/v1/titles?kind=movie&sort=random&seed=abc&limit=7", &b)
+	get(t, srv, "/api/v1/titles?kind=movie&sort=random&seed=xyz&limit=7", &other)
 	if strings.Join(names(a), ",") != strings.Join(names(b), ",") {
 		t.Errorf("same seed, different order: %v vs %v", names(a), names(b))
 	}
@@ -559,12 +573,12 @@ func TestRandomOrderIsRepeatable(t *testing.T) {
 }
 
 func TestRandomPagesCoverEverythingOnce(t *testing.T) {
-	srv, _ := newServer(t)
+	srv := indexedServer(t)
 
 	// No seed given: the server picks one, returns it, and the cursor keeps
 	// using it on later pages.
 	var p page
-	get(t, srv, "/api/v1/items?sort=random&limit=3", &p)
+	get(t, srv, "/api/v1/titles?kind=movie&sort=random&limit=3", &p)
 	if p.Seed == "" {
 		t.Fatal("no seed returned")
 	}
@@ -585,7 +599,7 @@ func TestRandomPagesCoverEverythingOnce(t *testing.T) {
 		}
 		next := p.NextCursor
 		p = page{}
-		get(t, srv, "/api/v1/items?sort=random&limit=3&cursor="+url.QueryEscape(next), &p)
+		get(t, srv, "/api/v1/titles?kind=movie&sort=random&limit=3&cursor="+url.QueryEscape(next), &p)
 		if p.Seed != firstSeed {
 			t.Fatalf("seed changed between pages: %q then %q", firstSeed, p.Seed)
 		}
@@ -810,30 +824,6 @@ func TestPlaybackLifecycle(t *testing.T) {
 	// Another account can neither see nor stop these.
 	if code, _ := getAs(t, srv, "other-subject", "/api/v1/playback/"+second); code != http.StatusNotFound {
 		t.Errorf("other account: %d", code)
-	}
-}
-
-func TestPerson(t *testing.T) {
-	srv, _ := newServer(t)
-	code, body := getAs(t, srv, subject, "/api/v1/people/pers_"+fmt.Sprintf("%032x", 99))
-	if code != 200 {
-		t.Fatalf("person: %d %s", code, body)
-	}
-	for _, want := range []string{`"name":"Ada Lovelace"`, `"birthDate":"1815-12-10"`, `"deathDate":"1852-11-27"`,
-		`"imdb":"nm0000001"`, `"url":"/api/v1/images/img_`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("person lacks %s: %s", want, body)
-		}
-	}
-	if strings.Contains(body, "Evil") {
-		t.Errorf("unknown external ID passed through: %s", body)
-	}
-	// An item's ID isn't a person.
-	if code, _ := getAs(t, srv, subject, "/api/v1/people/pers_"+fmt.Sprintf("%032x", 1)); code != 404 {
-		t.Errorf("an item served as a person: %d", code)
-	}
-	if code, _ := getAs(t, srv, subject, "/api/v1/people/item_"+fmt.Sprintf("%032x", 99)); code != 404 {
-		t.Errorf("wrong prefix accepted: %d", code)
 	}
 }
 

@@ -65,8 +65,10 @@ yet.
 
 **Watching** (through the API, the SDK and overfin-web)
 
-- Browsing: libraries, filters, sorting, shuffle, continue watching, next
-  up, recently added, series → seasons → episodes, people.
+- Browsing titles, in a library or not, described by TMDB: libraries,
+  filters, sorting, shuffle, continue watching (next episodes included),
+  recently added, series → seasons → episodes, discovery. Watched,
+  favorites and the watchlist work on any title.
 - Playback: Overfin picks direct play, repackaging or transcoding from what
   the browser says it can play. WebVTT subtitles, audio tracks, "skip
   intro", resume on any device, streams that recover by themselves, one

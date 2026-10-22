@@ -38,27 +38,6 @@ func (l Library) ceiling(ctx context.Context, p *store.Profile) (*store.Ceiling,
 	return a.Ceiling, nil
 }
 
-// prefilter drops, among item IDs, those the index says the profile may
-// not see, before anything is asked of Jellyfin; keep still checks what's
-// left.
-func (l Library) prefilter(ctx context.Context, a *store.Access, ids []string) ([]string, error) {
-	if a == nil || len(ids) == 0 {
-		return ids, nil
-	}
-	allowed, indexed, err := l.Provisioner.Store.AllowedItems(ctx, *a, ids)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		// What the index doesn't have can't be rated: never for kids.
-		if allowed[id] || (!indexed[id] && a.Ceiling == nil) {
-			out = append(out, id)
-		}
-	}
-	return out, nil
-}
-
 // keep returns, of items read from Jellyfin, those the profile may see,
 // in order.
 func (l Library) keep(ctx context.Context, p *store.Profile, items []jellyfin.RawItem) ([]jellyfin.RawItem, error) {
