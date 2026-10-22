@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"log/slog"
 	"net/http"
@@ -151,6 +153,16 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case r.URL.Path == "/Items" && q.Get("fields") == "Trickplay":
+		// Item 1's version has previews at two widths.
+		id := fmt.Sprintf("%032x", 1)
+		json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{{"Id": id, "Trickplay": map[string]any{
+			id: map[string]any{
+				"160": map[string]int{"Width": 160, "Height": 68, "TileWidth": 10, "TileHeight": 10, "ThumbnailCount": 645, "Interval": 10000},
+				"320": map[string]int{"Width": 320, "Height": 136, "TileWidth": 10, "TileHeight": 10, "ThumbnailCount": 645, "Interval": 10000},
+			}}}}})
+	case r.URL.Path == "/Videos/"+fmt.Sprintf("%032x", 1)+"/Trickplay/320/6.jpg" && q.Get("mediaSourceId") == fmt.Sprintf("%032x", 1):
+		jpeg.Encode(w, image.NewRGBA(image.Rect(0, 0, 64, 32)), nil)
 	case r.URL.Path == "/Items" && q.Has("ids"):
 		var items []map[string]any
 		for _, id := range strings.Split(q.Get("ids"), ",") {
@@ -350,8 +362,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		src := o.tmdb
 		lib.Titles = catalog.NewTitles(func() catalog.TitleSource { return src }, st, logger, time.Hour, 0)
 	}
+	lib.Images = images.New(jf, 1<<20)
 	if o.seerr != nil {
-		lib.Images = images.New(jf, 1<<20)
 		disc := &api.Discovery{Library: lib, Store: st}
 		client := o.seerr
 		extra = append(extra, disc, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }, Directory: o.directory})
@@ -775,6 +787,39 @@ func eventually(t *testing.T, cond func() bool) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return false
+}
+
+// A playback offers its seek-bar previews, the set nearest 320 pixels
+// wide, sheet by sheet, to its own profile only.
+func TestPlaybackPreviews(t *testing.T) {
+	srv, _ := newServer(t)
+	code, body := post(t, srv, "/api/v1/playback",
+		`{"itemId":"item_`+fmt.Sprintf("%032x", 1)+`","capabilities":{},"device":"Laptop"}`)
+	var pb struct {
+		ID        string
+		Trickplay struct {
+			TileWidth, Columns, Rows, IntervalMs, TileCount int
+			Sheets                                          []string
+		}
+	}
+	json.Unmarshal([]byte(body), &pb)
+	tp := pb.Trickplay
+	if code != 201 || tp.TileWidth != 320 || tp.Columns != 10 || tp.TileCount != 645 || len(tp.Sheets) != 7 ||
+		tp.Sheets[6] != "/api/v1/playback/"+pb.ID+"/trickplay/6" {
+		t.Fatalf("previews: %d %s", code, body)
+	}
+	code, body = getAs(t, srv, subject, tp.Sheets[6])
+	if code != 200 || !strings.HasPrefix(body, "\xff\xd8") {
+		t.Errorf("sheet: %d", code)
+	}
+	for _, bad := range []string{"7", "-1", "06", "x"} {
+		if code, _ := getAs(t, srv, subject, "/api/v1/playback/"+pb.ID+"/trickplay/"+bad); code != 404 {
+			t.Errorf("sheet %s: %d", bad, code)
+		}
+	}
+	if code, _ := getAs(t, srv, "other-subject", tp.Sheets[6]); code != 404 {
+		t.Errorf("another account: %d", code)
+	}
 }
 
 func TestPlaybackLifecycle(t *testing.T) {

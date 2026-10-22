@@ -233,6 +233,18 @@ export interface Playback {
   subtitleTrack?: string;
   maxBitrateKbps?: number;
   segments?: Segment[];
+  /** Seek-bar previews, when the server has some: sheets of `columns` x `rows` tiles, tile n at n x `intervalMs`. */
+  trickplay?: Trickplay;
+}
+
+export interface Trickplay {
+  tileWidth: number;
+  tileHeight: number;
+  columns: number;
+  rows: number;
+  intervalMs: number;
+  tileCount: number;
+  sheets: string[];
 }
 
 export interface PlaybackRequest {

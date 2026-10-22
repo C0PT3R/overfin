@@ -29,6 +29,8 @@ type Stream struct {
 	AudioIndex    *int
 	SubtitleIndex *int
 	View          any // the session as last sent to the client, for restoring
+	// Trickplay is the set of seek-bar previews offered with it, if any.
+	Trickplay *jellyfin.Trickplay
 
 	// Guarded by the registry's lock.
 	// reencodes: a remux found to re-encode its video (Reencodes).

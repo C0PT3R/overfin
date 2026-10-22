@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -39,11 +40,12 @@ func (Playback) Name() string { return "playback" }
 
 func (pb Playback) Register(r *plugin.Registrar) error {
 	for pattern, h := range map[string]http.HandlerFunc{
-		"POST /api/v1/playback":               pb.start,
-		"GET /api/v1/playback/current":        pb.current,
-		"GET /api/v1/playback/{id}":           pb.get,
-		"POST /api/v1/playback/{id}/progress": pb.progress,
-		"POST /api/v1/playback/{id}/stop":     pb.stop,
+		"POST /api/v1/playback":                       pb.start,
+		"GET /api/v1/playback/current":                pb.current,
+		"GET /api/v1/playback/{id}":                   pb.get,
+		"POST /api/v1/playback/{id}/progress":         pb.progress,
+		"POST /api/v1/playback/{id}/stop":             pb.stop,
+		"GET /api/v1/playback/{id}/trickplay/{sheet}": pb.trickplaySheet,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
 			return err
@@ -267,6 +269,17 @@ type segmentJSON struct {
 	EndMs   int64  `json:"endMs"`
 }
 
+// trickplayJSON is a set of seek-bar previews (the API's Trickplay).
+type trickplayJSON struct {
+	TileWidth  int      `json:"tileWidth"`
+	TileHeight int      `json:"tileHeight"`
+	Columns    int      `json:"columns"`
+	Rows       int      `json:"rows"`
+	IntervalMs int      `json:"intervalMs"`
+	TileCount  int      `json:"tileCount"`
+	Sheets     []string `json:"sheets"`
+}
+
 type streamJSON struct {
 	URL      string `json:"url"`
 	Protocol string `json:"protocol"`
@@ -289,6 +302,7 @@ type sessionJSON struct {
 	SubtitleTrack  string                `json:"subtitleTrack,omitempty"`
 	MaxBitrateKbps int                   `json:"maxBitrateKbps,omitempty"`
 	Segments       []segmentJSON         `json:"segments,omitempty"`
+	Trickplay      *trickplayJSON        `json:"trickplay,omitempty"`
 }
 
 var (
@@ -528,6 +542,24 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Seek-bar previews are a bonus too: the set nearest 320 pixels wide.
+	if sets, err := l.Jellyfin.Trickplays(ctx, ja, uid, jfItem, sourceID); err == nil && len(sets) > 0 {
+		best := sets[0]
+		for _, t := range sets[1:] {
+			if max(t.Width-320, 320-t.Width) < max(best.Width-320, 320-best.Width) {
+				best = t
+			}
+		}
+		s.Trickplay = &best
+		tp := &trickplayJSON{TileWidth: best.Width, TileHeight: best.Height, Columns: best.Columns, Rows: best.Rows,
+			IntervalMs: best.IntervalMs, TileCount: best.Count}
+		perSheet := best.Columns * best.Rows
+		for n := 0; n*perSheet < best.Count; n++ {
+			tp.Sheets = append(tp.Sheets, "/api/v1/playback/"+s.ID+"/trickplay/"+strconv.Itoa(n))
+		}
+		out.Trickplay = tp
+	}
+
 	s.View = out
 	if err := l.Jellyfin.ReportStart(ctx, s.Auth, pb.state(s, pb.Tickets.Snapshot(s))); err != nil {
 		pb.Logger.Warn("could not report a playback start", "playback", s.ID, "err", err)
@@ -575,4 +607,35 @@ func (pb Playback) checkRemux(s *playback.Stream) {
 		pb.Tickets.Reencodes(s)
 		pb.Logger.Info("a playback taken for a remux re-encodes its video: counted as a transcode", "playback", s.ID)
 	}
+}
+
+// trickplaySheet serves one sheet of a playback's seek-bar previews, to
+// whoever may see the playback, re-encoded like every image (rule 10).
+func (pb Playback) trickplaySheet(w http.ResponseWriter, r *http.Request) {
+	s := pb.find(w, r)
+	if s == nil {
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("sheet"))
+	tp := s.Trickplay
+	if err != nil || tp == nil || n < 0 || n*tp.Columns*tp.Rows >= tp.Count || strconv.Itoa(n) != r.PathValue("sheet") {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	l := pb.Library
+	key := fmt.Sprintf("trickplay/%s/%s/%d/%d", s.ItemID, s.SourceID, tp.Width, n)
+	data, err := l.Images.Fetched(r.Context(), key, func(ctx context.Context) ([]byte, error) {
+		return l.Jellyfin.TrickplaySheet(ctx, s.Auth, s.ItemID, s.SourceID, tp.Width, n)
+	})
+	if err != nil {
+		if r.Context().Err() == nil {
+			pb.Logger.Warn("a seek-bar preview sheet failed", "playback", s.ID, "err", err)
+		}
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Write(data)
 }

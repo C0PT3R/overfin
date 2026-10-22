@@ -253,3 +253,28 @@ func Reencode(raw []byte, contentType string) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+
+// Fetched returns an image fetch gets, re-encoded as JPEG and kept in
+// memory under key: for images whose access the caller checked itself
+// (a playback's seek-bar previews).
+func (p *Pipeline) Fetched(ctx context.Context, key string, fetch func(context.Context) ([]byte, error)) ([]byte, error) {
+	if e, ok := p.cache.get(key); ok {
+		return e.data, nil
+	}
+	raw, err := fetch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case p.slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	data, err := Reencode(raw, "image/jpeg")
+	<-p.slots
+	if err != nil {
+		return nil, err
+	}
+	p.cache.put(key, entry{data: data, contentType: "image/jpeg"})
+	return data, nil
+}

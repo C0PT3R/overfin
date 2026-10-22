@@ -1275,30 +1275,6 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /titles/{titleId}/trickplay:
-    parameters:
-      - $ref: "#/components/parameters/TitleId"
-    get:
-      x-status: planned
-      operationId: getTrickplay
-      summary: Seek-bar preview thumbnails
-      tags: [library]
-      responses:
-        "200":
-          description: The available preview sets.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Trickplay"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
   /genres:
     get:
       operationId: listGenres
@@ -1435,34 +1411,6 @@ paths:
                 format: binary
         "404":
           $ref: "#/components/responses/NotFound"
-
-  /trickplay/{sheetId}:
-    parameters:
-      - name: sheetId
-        in: path
-        required: true
-        schema:
-          type: string
-          maxLength: 128
-    get:
-      x-status: planned
-      operationId: getTrickplaySheet
-      summary: One sheet of seek-bar previews
-      description: Use a URL from `Trickplay.sheets`. Checked against the
-        active profile like any image.
-      tags: [library]
-      responses:
-        "200":
-          description: The sheet.
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ---- Playback --------------------------------------------------------------
 
   /playback:
     post:
@@ -1636,6 +1584,29 @@ paths:
       responses:
         "204":
           description: Stopped.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /playback/{playbackId}/trickplay/{sheet}:
+    parameters:
+      - $ref: "#/components/parameters/PlaybackId"
+      - name: sheet
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      operationId: getTrickplaySheet
+      summary: One sheet of a playback's seek-bar previews
+      description: Use a URL from the playback's `trickplay.sheets`. Only for
+        the profile playing it; a JPEG, re-encoded by Overfin.
+      tags: [playback]
+      responses:
+        "200":
+          description: The sheet.
+          content:
+            image/jpeg: {}
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -3203,6 +3174,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MediaSegment"
+        trickplay:
+          description: Seek-bar previews of the version playing, when the
+            media server made some; absent otherwise.
+          allOf:
+            - $ref: "#/components/schemas/Trickplay"
         queue:
           description: Where playback is in the queue. The whole queue is
             available from `GET /playback/{id}/queue`.
