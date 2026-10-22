@@ -34,7 +34,7 @@ func TestPeople(t *testing.T) {
 	me, _ := db.CreateUser(context.Background(), "me@example.org", true)
 	made := &links{}
 	p := &Panel{Features: &memFeatures{f: config.DefaultFeatures()}, Store: db, People: made,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		SiteAdmin: func(*http.Request) (string, bool, bool) { return "me@example.org", true, true }}
 	h := p.SiteHandler(false)
 	login := httptest.NewRecorder()

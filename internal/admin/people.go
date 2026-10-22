@@ -28,7 +28,7 @@ type personJSON struct {
 	// AccountID is their account, once they signed in and made one.
 	AccountID string `json:"accountId,omitempty"`
 	// You: the admin asking.
-	You bool `json:"you,omitempty"`
+	You       bool   `json:"you,omitempty"`
 	CreatedAt string `json:"createdAt"`
 }
 
