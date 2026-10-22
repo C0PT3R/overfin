@@ -319,6 +319,20 @@ func keepsMainStream(q url.Values, audioItem bool) bool {
 	return true
 }
 
+// Reasons are Jellyfin's reasons for a stream it converts (none for a
+// file played as it is), for the logs and the player's information.
+func (d *Decision) Reasons() []string {
+	var out []string
+	for _, v := range param(d.Upstream.Query, "TranscodeReasons") {
+		for r := range strings.SplitSeq(v, ",") {
+			if r = strings.TrimSpace(r); r != "" {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
 // param returns a query parameter's values whatever its case, as Jellyfin
 // reads its own queries.
 func param(q url.Values, name string) []string {
