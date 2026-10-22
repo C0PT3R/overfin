@@ -12,8 +12,9 @@ import (
 )
 
 // TMDB's image server: the only host Overfin fetches TMDB images from
-// (SECURITY.md rule 5). Browsers never contact it (rule 43).
-const tmdbImageBase = "https://image.tmdb.org/t/p/"
+// (SECURITY.md rule 5). Browsers never contact it (rule 43). A variable
+// for tests only.
+var tmdbImageBase = "https://image.tmdb.org/t/p/"
 
 // TMDBRef is a parsed TMDB image ID (ParseArtwork). The file is the image
 // path TMDB gives, without its slash and extension.
@@ -81,41 +82,55 @@ func (p *Pipeline) TMDB(ctx context.Context, ref TMDBRef, size string, check fun
 	if e, ok := p.cache.get(key); ok {
 		return e.data, e.contentType, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tmdbImageBase+width+ref.Path, nil)
+	if data, ok := p.readKept(ref, width); ok {
+		p.cache.put(key, entry{data: data, contentType: contentTypeOf(ref.Type)})
+		return data, contentTypeOf(ref.Type), nil
+	}
+	data, err := p.fetchTMDB(ctx, ref, width)
 	if err != nil {
 		return nil, "", err
 	}
+	p.cache.put(key, entry{data: data, contentType: contentTypeOf(ref.Type)})
+	return data, contentTypeOf(ref.Type), nil
+}
+
+// contentTypeOf is what an image of type typ is encoded as: logos keep
+// their transparency.
+func contentTypeOf(typ string) string {
+	if typ == "logo" {
+		return "image/png"
+	}
+	return "image/jpeg"
+}
+
+// fetchTMDB fetches a TMDB image at width and re-encodes it.
+func (p *Pipeline) fetchTMDB(ctx context.Context, ref TMDBRef, width string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tmdbImageBase+width+ref.Path, nil)
+	if err != nil {
+		return nil, err
+	}
 	res, err := tmdbHTTP.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("images: TMDB: %w", err)
+		return nil, fmt.Errorf("images: TMDB: %w", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
-		return nil, "", ErrHidden
+		return nil, ErrHidden
 	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, jellyfin.MaxImageBytes+1))
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if len(raw) > jellyfin.MaxImageBytes {
-		return nil, "", ErrUnsafe
+		return nil, ErrUnsafe
 	}
 	select {
 	case p.slots <- struct{}{}:
 	case <-ctx.Done():
-		return nil, "", ctx.Err()
+		return nil, ctx.Err()
 	}
-	// Logos keep their transparency.
-	contentType := "image/jpeg"
-	if ref.Type == "logo" {
-		contentType = "image/png"
-	}
-	data, err := Reencode(raw, contentType)
+	data, err := Reencode(raw, contentTypeOf(ref.Type))
 	<-p.slots
-	if err != nil {
-		return nil, "", err
-	}
-	p.cache.put(key, entry{data: data, contentType: contentType})
-	return data, contentType, nil
+	return data, err
 }

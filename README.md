@@ -244,7 +244,10 @@ comes from TMDB itself, with the Overfin project's own key, shipped with
 Overfin as Jellyfin and Seerr ship theirs: you need no key of your own.
 Overfin asks TMDB by itself, by title, never saying who's asking; browsers
 never contact TMDB. It keeps TMDB's data as its terms allow (six months at
-most), and overfin-web shows TMDB's attribution. The key is TMDB's free,
+most), and overfin-web shows TMDB's attribution. The pictures of the
+titles your libraries have are kept on disk ahead of time, in `artwork/`
+next to the database, so browsing the library never waits for TMDB; the
+others are fetched when first shown. The key is TMDB's free,
 non-commercial one: a site that charges for access needs TMDB's commercial
 terms. Seerr, when connected, is a second source, and takes requests.
 

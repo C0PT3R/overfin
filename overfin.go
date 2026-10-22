@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -296,6 +297,8 @@ func run(logger *slog.Logger) error {
 	go sh.titles.Run(ctx)
 	go unrestrictKids(ctx, db, gw.Provisioner, logger)
 	// Each profile's data, brought over from Jellyfin once.
+	// The library's artwork, kept on disk next to the database.
+	go (&catalog.LibraryArtwork{Store: db, Images: sh.images, Logger: logger, Every: time.Hour}).Run(ctx)
 	go (&personal.Importer{Jellyfin: sh.jf, Store: db, Logger: logger, Every: 10 * time.Minute}).Run(ctx)
 
 	if a := cfg.Admin; a.Enabled() {
@@ -335,8 +338,10 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 	if err != nil {
 		return nil, err
 	}
+	art := images.New(jf, 64<<20)
+	art.ArtworkDir = filepath.Join(filepath.Dir(cfg.Storage.Path), "artwork")
 	sh := &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
-		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache(),
+		images: art, tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache(),
 		searches: &api.SearchLimiter{PerMinute: 30},
 		service:  &provision.Service{}}
 	if cn := cfg.Connector; cn.Enabled() {

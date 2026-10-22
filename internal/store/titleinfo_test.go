@@ -145,3 +145,26 @@ func TestTitleCertification(t *testing.T) {
 		t.Errorf("unrated: %q", c)
 	}
 }
+
+// The library's titles: films, series, the seasons and episodes it has;
+// not files no one identified.
+func TestLibraryTitleKeys(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	id := func(n int) string { return strings.Repeat("0", 31) + string(rune('a'+n)) }
+	n := func(i int) *int { return &i }
+	s.PutCatalog(ctx, []CatalogItem{
+		{ID: id(0), Kind: "series", Name: "A", SortName: "a", TMDB: "1"},
+		{ID: id(1), Kind: "episode", Name: "E", SortName: "e", SeriesID: id(0), SeasonNumber: n(2), EpisodeNumber: n(3)},
+		{ID: id(2), Kind: "movie", Name: "M", SortName: "m", TMDB: "3"},
+		{ID: id(3), Kind: "movie", Name: "Unknown", SortName: "u"},
+	}, 1)
+	if err := s.RefreshTitleKeys(ctx); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := s.LibraryTitleKeys(ctx)
+	slices.Sort(keys)
+	if want := []string{"movie/tmdb/3", "series/tmdb/1", "series/tmdb/1/s2", "series/tmdb/1/s2/e3"}; err != nil || !slices.Equal(keys, want) {
+		t.Errorf("keys: %v %v", keys, err)
+	}
+}

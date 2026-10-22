@@ -533,3 +533,24 @@ func (s *Store) certification(ctx context.Context, kind, tmdb, country string) (
 	}
 	return c, err
 }
+
+// LibraryTitleKeys lists the titles the libraries have, by key: films,
+// series, and the seasons and episodes they have of each. Files no one
+// identified aren't in it.
+func (s *Store) LibraryTitleKeys(ctx context.Context) ([]string, error) {
+	keys, err := s.ids(ctx, `SELECT DISTINCT title_key FROM catalog_items
+		WHERE title_key IS NOT NULL AND title_key NOT LIKE 'item/%'`)
+	if err != nil {
+		return nil, err
+	}
+	seasons := map[string]bool{}
+	for _, k := range keys {
+		if r, ok := ParseTitleKey(k); ok && r.Kind == "episode" {
+			seasons[r.SeasonOf().Key()] = true
+		}
+	}
+	for k := range seasons {
+		keys = append(keys, k)
+	}
+	return keys, nil
+}

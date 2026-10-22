@@ -88,8 +88,11 @@ type Viewer struct {
 // Pipeline fetches, checks, re-encodes and caches images.
 type Pipeline struct {
 	Jellyfin *jellyfin.Client
-	cache    *lru
-	access   *accessCache
+	// ArtworkDir, when set, is where library titles' artwork is kept on
+	// disk (Keep), and served from.
+	ArtworkDir string
+	cache      *lru
+	access     *accessCache
 	// slots limits how many images are decoded at once. A full-size image
 	// decodes to about 64 MB of pixels; without a limit, a burst of
 	// requests could exhaust memory.
