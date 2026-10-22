@@ -3,9 +3,8 @@
 // title in the library or in discovery, in Overfin's database, refreshed
 // in the background. Kids profiles are held to them (SECURITY.md rule 28).
 //
-// TMDB is reached through Seerr, which needs no TMDB key: Overfin never
-// asks operators for one. Without Seerr, no title is rated, and kids
-// profiles see nothing.
+// TMDB's data comes from TMDB itself, with the Overfin project's own key
+// (operators never need one of their own), or through Seerr.
 package ratings
 
 import (
@@ -15,8 +14,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // Source is where TMDB's certifications come from.
@@ -32,11 +31,12 @@ type Source interface {
 // ErrUnknown: TMDB doesn't know the title.
 var ErrUnknown = errors.New("ratings: unknown title")
 
-// Seerr is Seerr as a Source.
-type Seerr struct{ Client *seerr.Client }
+// TMDB is TMDB's data, from either source (TMDB itself or Seerr), as a
+// Source.
+type TMDB struct{ Source tmdb.Source }
 
-func (s Seerr) Scales(ctx context.Context, kind string) (map[string][]store.RatingLevel, error) {
-	raw, err := s.Client.Certifications(ctx, kind)
+func (t TMDB) Scales(ctx context.Context, kind string) (map[string][]store.RatingLevel, error) {
+	raw, err := t.Source.Certifications(ctx, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -49,9 +49,9 @@ func (s Seerr) Scales(ctx context.Context, kind string) (map[string][]store.Rati
 	return out, nil
 }
 
-func (s Seerr) Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error) {
-	r, err := s.Client.Ratings(ctx, kind, tmdbID)
-	if errors.Is(err, seerr.ErrNotFound) {
+func (t TMDB) Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error) {
+	r, err := t.Source.Ratings(ctx, kind, tmdbID)
+	if errors.Is(err, tmdb.ErrNotFound) {
 		return nil, ErrUnknown
 	}
 	return r, err
@@ -162,7 +162,7 @@ func (k *Keeper) Once(ctx context.Context) error {
 			if id, err := strconv.Atoi(t.TMDB); err == nil {
 				r, err = src.Ratings(ctx, t.Kind, id)
 				switch {
-				case errors.Is(err, seerr.ErrUnauthorized), ctx.Err() != nil:
+				case errors.Is(err, tmdb.ErrUnauthorized), ctx.Err() != nil:
 					return err
 				case err != nil && !errors.Is(err, ErrUnknown):
 					failed[t], lastErr = true, err

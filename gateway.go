@@ -33,6 +33,7 @@ import (
 	"github.com/overfin/server/internal/server"
 	"github.com/overfin/server/internal/site"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // shared is what lives for the whole run, across configuration reloads: the
@@ -57,7 +58,10 @@ type shared struct {
 	seerr    *seerr.Client
 	seerrURL string
 	seerrKey string
-	// lists keeps discovery's lists from Seerr, in the background.
+	// tmdb is TMDB itself, with the Overfin project's key: TMDB's data
+	// comes from it first, from Seerr otherwise.
+	tmdb *tmdb.Client
+	// lists keeps discovery's lists from TMDB, in the background.
 	lists *catalog.Lists
 	// ratings keeps titles' certifications, in the background.
 	ratings *ratings.Keeper
@@ -128,11 +132,11 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor,
 		Folders: sh.folders, Logger: logger}
-	// Discovery, when Seerr is connected. The library hands it the
-	// catalog's TMDB images.
+	// Discovery, when there's a source for TMDB's data. The library hands
+	// it the catalog's TMDB images.
 	var disc *api.Discovery
-	if sh.seerr != nil {
-		disc = &api.Discovery{Library: lib, Seerr: sh.seerr, Store: db}
+	if src := sh.source(); src != nil {
+		disc = &api.Discovery{Library: lib, Source: src, Store: db}
 		lib.Discovery = disc
 	}
 	pb := api.Playback{Library: lib, Tickets: sh.tickets,
@@ -403,18 +407,29 @@ func (g *gateway) SetJellyfin(ctx context.Context, url, key string) (string, err
 	return found.summary, nil
 }
 
-// currentSeerr is Seerr, when it's connected, for the lists' keeper.
-func (g *gateway) currentSeerr() *seerr.Client {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.sh.seerr
+// source is where TMDB's data comes from: TMDB itself, with the project's
+// key, or else Seerr, when it's connected; nil when there's neither.
+func (sh *shared) source() tmdb.Source {
+	if sh.tmdb != nil {
+		return sh.tmdb
+	}
+	if sh.seerr != nil {
+		return sh.seerr
+	}
+	return nil
 }
 
-// ratingSource is where certifications come from: Seerr, when it's
-// connected.
+// tmdbSource is the current source of TMDB's data, for the keepers.
+func (g *gateway) tmdbSource() tmdb.Source {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sh.source()
+}
+
+// ratingSource is where certifications come from.
 func (g *gateway) ratingSource() ratings.Source {
-	if c := g.currentSeerr(); c != nil {
-		return ratings.Seerr{Client: c}
+	if src := g.tmdbSource(); src != nil {
+		return ratings.TMDB{Source: src}
 	}
 	return nil
 }
@@ -460,8 +475,9 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 	b, err := build(g.cfg, g.sh)
 	if err == nil {
 		if client == nil {
-			// TMDB's data (through Seerr) goes with it, as its terms ask.
-			if err = g.sh.db.ForgetSeerr(ctx); err == nil {
+			// TMDB's data goes with it, as its terms ask, unless it comes
+			// from TMDB itself.
+			if err = g.sh.db.ForgetSeerr(ctx); err == nil && g.sh.tmdb == nil {
 				err = g.sh.db.ForgetTMDB(ctx)
 			}
 		} else {
@@ -475,6 +491,9 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 	g.current.Store(b)
 	if client == nil {
 		g.sh.logger.Info("Seerr disconnected in the control panel")
+		if g.sh.tmdb != nil {
+			return "Seerr is disconnected.", nil
+		}
 		return "Seerr is disconnected: discovery is off.", nil
 	}
 	g.sh.logger.Info("Seerr connected in the control panel", "seerr", url)
@@ -483,6 +502,9 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 	}
 	if g.sh.ratings != nil {
 		g.sh.ratings.Wake()
+	}
+	if g.sh.tmdb != nil {
+		return "Seerr, at " + url + ": its API key works.", nil
 	}
 	return "Seerr, at " + url + ": its API key works. Discovery is on.", nil
 }

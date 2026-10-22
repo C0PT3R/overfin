@@ -15,20 +15,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/overfin/server/internal/textclean"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // maxResponse bounds every response read from Seerr.
 const maxResponse = 4 << 20
 
 // ErrUnauthorized: Seerr refused the API key.
-var ErrUnauthorized = errors.New("seerr: the API key is refused")
+var ErrUnauthorized = tmdb.ErrUnauthorized
 
 // Client talks to one Seerr server.
 type Client struct {
@@ -88,7 +87,7 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 }
 
 // ErrNotFound: Seerr doesn't know the title.
-var ErrNotFound = errors.New("seerr: not found")
+var ErrNotFound = tmdb.ErrNotFound
 
 // Check tells whether the server is Seerr and takes the key, and which
 // version it runs.
@@ -107,50 +106,18 @@ func (c *Client) Check(ctx context.Context) (string, error) {
 	return textclean.Plain(status.Version, 32), nil
 }
 
-// Title is a title as Seerr gives it, checked and in plain text.
-type Title struct {
-	TMDBID   int
-	Kind     string // movie, series
-	Name     string
-	Year     int
-	Overview string
-	// Poster and Backdrop are TMDB image paths, such as "/abc123.jpg":
-	// checked, and fetched only from TMDB's fixed image host.
-	Poster   string
-	Backdrop string
-	// Status is Seerr's media status: 0 when it has none, 4 partly
-	// available, 5 available.
-	Status int
-}
-
-// Details is a title's page: the title, and what lists don't carry.
-type Details struct {
-	Title
-	Genres  []string
-	Cast    []Person
-	Seasons []Season
-}
-
-type Person struct {
-	Name      string
-	Character string
-}
-
-type Season struct {
-	Number       int
-	Name         string
-	EpisodeCount int
-}
-
-// Page is one page of a discovery list.
-type Page struct {
-	Titles     []Title
-	Page       int
-	TotalPages int
-}
+// TMDB's data, as Seerr passes it on: Seerr is a tmdb.Source.
+type (
+	Title         = tmdb.Title
+	Details       = tmdb.Details
+	Person        = tmdb.Person
+	Season        = tmdb.Season
+	Page          = tmdb.Page
+	Certification = tmdb.Certification
+)
 
 // Lists are the discovery lists Overfin offers.
-var Lists = []string{"trending", "popular", "upcoming"}
+var Lists = tmdb.Lists
 
 // Discover returns one page (from 1) of a list, for films ("movie") or
 // series ("series").
@@ -192,7 +159,7 @@ func (c *Client) Discover(ctx context.Context, list, kind string, page int) (*Pa
 // Details returns a title's page.
 func (c *Client) Details(ctx context.Context, kind string, tmdbID int) (*Details, error) {
 	path := map[string]string{"movie": "/movie/", "series": "/tv/"}[kind]
-	if path == "" || tmdbID <= 0 || tmdbID > 9_999_999_999 {
+	if path == "" || !tmdb.ValidID(tmdbID) {
 		return nil, ErrNotFound
 	}
 	var raw struct {
@@ -217,27 +184,19 @@ func (c *Client) Details(ctx context.Context, kind string, tmdbID int) (*Details
 	if !ok || t.TMDBID != tmdbID || t.Kind != kind {
 		return nil, ErrNotFound
 	}
-	d := &Details{Title: t}
+	var genres []string
 	for _, g := range raw.Genres {
-		if name := textclean.Plain(g.Name, 60); name != "" && len(d.Genres) < 20 {
-			d.Genres = append(d.Genres, name)
-		}
+		genres = append(genres, g.Name)
 	}
+	var cast []Person
 	for _, p := range raw.Credits.Cast {
-		if len(d.Cast) == 30 {
-			break
-		}
-		if name := textclean.Plain(p.Name, 120); name != "" {
-			d.Cast = append(d.Cast, Person{Name: name, Character: textclean.Plain(p.Character, 120)})
-		}
+		cast = append(cast, Person{Name: p.Name, Character: p.Character})
 	}
-	for _, s := range raw.Seasons {
-		if s.SeasonNumber < 0 || s.SeasonNumber > 1000 || s.EpisodeCount < 0 || s.EpisodeCount > 10_000 {
-			continue
-		}
-		d.Seasons = append(d.Seasons, Season{Number: s.SeasonNumber, Name: textclean.Plain(s.Name, 120), EpisodeCount: s.EpisodeCount})
+	var seasons []Season
+	for _, se := range raw.Seasons {
+		seasons = append(seasons, Season{Number: se.SeasonNumber, Name: se.Name, EpisodeCount: se.EpisodeCount})
 	}
-	return d, nil
+	return tmdb.MakeDetails(t, genres, cast, seasons), nil
 }
 
 // rawTitle is a title as Seerr sends it, films and series alike.
@@ -254,57 +213,17 @@ type rawTitle struct {
 	MediaInfo    *struct{ Status int }
 }
 
-// imagePath is what a TMDB image path may look like (rule 5).
-var imagePath = regexp.MustCompile(`^/[A-Za-z0-9]{8,64}\.(jpg|png)$`)
-
 func (r rawTitle) title() (Title, bool) {
 	kind := map[string]string{"movie": "movie", "tv": "series"}[r.MediaType]
-	if kind == "" || r.ID <= 0 || r.ID > 9_999_999_999 {
-		return Title{}, false
-	}
 	name, date := r.Title, r.ReleaseDate
 	if kind == "series" {
 		name, date = r.Name, r.FirstAirDate
 	}
-	t := Title{TMDBID: r.ID, Kind: kind, Name: textclean.Plain(name, 300), Overview: textclean.Plain(r.Overview, 2000)}
-	if t.Name == "" {
-		return Title{}, false
+	status := 0
+	if r.MediaInfo != nil {
+		status = r.MediaInfo.Status
 	}
-	if len(date) >= 4 {
-		if y, err := strconv.Atoi(date[:4]); err == nil && y > 1800 && y < 3000 {
-			t.Year = y
-		}
-	}
-	if imagePath.MatchString(r.PosterPath) {
-		t.Poster = r.PosterPath
-	}
-	if imagePath.MatchString(r.BackdropPath) {
-		t.Backdrop = r.BackdropPath
-	}
-	if r.MediaInfo != nil && r.MediaInfo.Status >= 0 && r.MediaInfo.Status <= 6 {
-		t.Status = r.MediaInfo.Status
-	}
-	return t, true
-}
-
-// Certification is one level of a country's scale.
-type Certification struct {
-	Certification string
-	Meaning       string
-	// Order is TMDB's: higher is more mature.
-	Order int
-}
-
-// country is what an ISO 3166-1 country code looks like.
-var country = regexp.MustCompile(`^[A-Z]{2}$`)
-
-// certification checks a certification as TMDB writes it, such as "PG-13",
-// "12" or "TV-Y7"; "" when it isn't one.
-func certification(s string) string {
-	if s = strings.TrimSpace(s); len(s) > 16 || textclean.Plain(s, 16) != s {
-		return ""
-	}
-	return s
+	return tmdb.MakeTitle(r.ID, kind, name, date, r.Overview, r.PosterPath, r.BackdropPath, status)
 }
 
 // Certifications returns the scales for films ("movie") or series
@@ -324,18 +243,13 @@ func (c *Client) Certifications(ctx context.Context, kind string) (map[string][]
 	if err := c.get(ctx, path, nil, &raw); err != nil {
 		return nil, err
 	}
-	out := map[string][]Certification{}
+	scales := map[string][]tmdb.Scale{}
 	for cc, levels := range raw.Certifications {
-		if !country.MatchString(cc) || len(levels) > 50 {
-			continue
-		}
 		for _, l := range levels {
-			if cert := certification(l.Certification); cert != "" && l.Order >= 0 && l.Order <= 100 {
-				out[cc] = append(out[cc], Certification{Certification: cert, Meaning: textclean.Plain(l.Meaning, 1000), Order: l.Order})
-			}
+			scales[cc] = append(scales[cc], tmdb.Scale{Certification: l.Certification, Meaning: l.Meaning, Order: l.Order})
 		}
 	}
-	return out, nil
+	return tmdb.MakeScales(scales), nil
 }
 
 // Ratings returns a title's certifications, by country: a film's release
@@ -343,7 +257,7 @@ func (c *Client) Certifications(ctx context.Context, kind string) (map[string][]
 // content rating.
 func (c *Client) Ratings(ctx context.Context, kind string, tmdbID int) (map[string][]string, error) {
 	path := map[string]string{"movie": "/movie/", "series": "/tv/"}[kind]
-	if path == "" || tmdbID <= 0 || tmdbID > 9_999_999_999 {
+	if path == "" || !tmdb.ValidID(tmdbID) {
 		return nil, ErrNotFound
 	}
 	var raw struct {
@@ -369,20 +283,14 @@ func (c *Client) Ratings(ctx context.Context, kind string, tmdbID int) (map[stri
 	if raw.ID != tmdbID {
 		return nil, ErrNotFound
 	}
-	out := map[string][]string{}
-	add := func(cc, cert string) {
-		if cert = certification(cert); cert != "" && country.MatchString(cc) && len(out[cc]) < 20 &&
-			!slices.Contains(out[cc], cert) {
-			out[cc] = append(out[cc], cert)
-		}
-	}
+	out := tmdb.Ratings{}
 	for _, r := range raw.Releases.Results {
 		for _, d := range r.ReleaseDates {
-			add(r.Country, d.Certification)
+			out.Add(r.Country, d.Certification)
 		}
 	}
 	for _, r := range raw.ContentRatings.Results {
-		add(r.Country, r.Rating)
+		out.Add(r.Country, r.Rating)
 	}
 	return out, nil
 }

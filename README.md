@@ -232,14 +232,17 @@ watchlist are always on; the rest is switched on in the control panel.
 | Invitations | Invitations and invite templates | Switch |
 | Migration | Bringing Jellyfin accounts over | Switch |
 | Catalog | The library's index, matched to TMDB | Always on |
-| Discovery | Trending, popular and upcoming titles, from Seerr | Once Seerr is connected; not for kids profiles yet |
-
-Discovery's data comes from TMDB, through Seerr: Overfin keeps it as
-TMDB's terms allow (six months at most, deleted when Seerr is
-disconnected), and overfin-web shows TMDB's attribution. TMDB's free
-licence covers non-commercial use; a site that charges for access needs
-TMDB's commercial terms.
+| Discovery | Trending, popular and upcoming titles, from TMDB | Always on; kids profiles see what their ceilings allow |
 | Requests | Seerr requests | Planned |
+
+TMDB's data (discovery, and the certifications kids profiles are held to)
+comes from TMDB itself, with the Overfin project's own key, shipped with
+Overfin as Jellyfin and Seerr ship theirs: you need no key of your own.
+Overfin asks TMDB by itself, by title, never saying who's asking; browsers
+never contact TMDB. It keeps TMDB's data as its terms allow (six months at
+most), and overfin-web shows TMDB's attribution. The key is TMDB's free,
+non-commercial one: a site that charges for access needs TMDB's commercial
+terms. Seerr, when connected, is a second source, and will bring requests.
 
 ## Building your own client
 

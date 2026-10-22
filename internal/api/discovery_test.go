@@ -16,6 +16,7 @@ import (
 	"github.com/overfin/server/internal/ratings"
 	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // fakeSeerr answers discovery: two films trending (949, in the library;
@@ -83,7 +84,7 @@ func TestDiscover(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The lists, read in the background as Overfin does.
-	lists := catalog.NewLists(func() *seerr.Client { return s }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 1)
+	lists := catalog.NewLists(func() tmdb.Source { return s }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 1)
 	if err := lists.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestDiscover(t *testing.T) {
 	if code := get(t, srv, "/api/v1/discover?list=trending&mediaKind=movie", &out); code != 200 || len(out.Items) != 0 {
 		t.Errorf("kids discover, nothing rated yet: %d %+v", code, out.Items)
 	}
-	keeper := ratings.NewKeeper(func() ratings.Source { return ratings.Seerr{Client: s} }, st,
+	keeper := ratings.NewKeeper(func() ratings.Source { return ratings.TMDB{Source: s} }, st,
 		slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 0)
 	if err := keeper.Once(context.Background()); err != nil {
 		t.Fatal(err)

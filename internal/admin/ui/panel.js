@@ -111,7 +111,7 @@ function seerrSection(sr) {
   const off = h('button', { type: 'button', onclick: () => send({ url: '', key: '' }, off) }, 'Disconnect');
   return h('section', {}, h('h2', {}, 'Seerr'),
     h('div', { class: 'row' }, h('div', {}, "Seerr's address",
-      h('div', { class: 'hint' }, 'As Overfin reaches it. Discovery (trending, popular, upcoming) comes from it.')), url),
+      h('div', { class: 'hint' }, 'As Overfin reaches it. Optional: TMDB\'s data comes from TMDB itself; Seerr will bring requests.')), url),
     h('div', { class: 'row' }, h('div', {}, 'API key', h('div', { class: 'hint' }, "In Seerr's settings, under General.")), key),
     h('div', { class: 'row' }, msg, h('span', {}, sr.url ? off : null, ' ', save)));
 }
@@ -127,7 +127,7 @@ function ratingsSection(rt) {
   const select = h('select', {}, countries.map((cc) => h('option', { value: cc }, `${label(cc)} (${cc})`)));
   select.value = rt.country;
   const status = (r) => {
-    if (!r.source) return 'Seerr isn\'t connected: no title can be rated, so kids profiles see nothing.';
+    if (!r.source) return 'TMDB can\'t be reached: no title can be rated, so kids profiles see nothing.';
     if (!r.countries.length) return 'Fetching the scales from TMDB… Kids profiles see nothing until titles are rated.';
     return `${r.fetched} of the library's ${r.total} films and series rated. Kids profiles see only rated titles within their limits.`;
   };

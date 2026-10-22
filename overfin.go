@@ -34,6 +34,7 @@ import (
 	"github.com/overfin/server/internal/seal"
 	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // builtinSite is the web client this build includes, if any.
@@ -248,6 +249,10 @@ func run(logger *slog.Logger) error {
 			sh.seerr, sh.seerrURL, sh.seerrKey = c, url, key
 		}
 	}
+	// TMDB itself, with the project's own key.
+	if c, err := tmdb.New(tmdb.BaseURL, tmdb.ProjectToken); err == nil {
+		sh.tmdb = c
+	}
 	gw, err := newGateway(*configPath, cfg, sh)
 	if err != nil {
 		return err
@@ -264,9 +269,9 @@ func run(logger *slog.Logger) error {
 		Service:      &provision.Service{Provisioner: gw.Provisioner},
 		ChangesEvery: 5 * time.Minute, FullEvery: 6 * time.Hour}
 	go cat.Run(ctx)
-	// Discovery's lists, from Seerr when it's connected: 10 pages (200
-	// titles) per list, every hour.
-	sh.lists = catalog.NewLists(gw.currentSeerr, db, logger, time.Hour, 10)
+	// Discovery's lists, from TMDB: 10 pages (200 titles) per list, every
+	// hour.
+	sh.lists = catalog.NewLists(gw.tmdbSource, db, logger, time.Hour, 10)
 	go sh.lists.Run(ctx)
 	// Titles' certifications, for kids profiles: looked for every 10
 	// minutes, a tenth of a second apart.
@@ -279,6 +284,7 @@ func run(logger *slog.Logger) error {
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
 		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
+			TMDB:  func() bool { return gw.tmdbSource() != nil },
 			Store: db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}

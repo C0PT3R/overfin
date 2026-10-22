@@ -124,7 +124,10 @@ type Panel struct {
 	// Catalog, when set, shows where the catalog's index stands.
 	Catalog Catalog
 	// Seerr, when set, shows and changes Seerr's connection.
-	Seerr       Seerr
+	Seerr Seerr
+	// TMDB, when set, says whether Overfin has a source for TMDB's data
+	// (TMDB itself, or Seerr).
+	TMDB        func() bool
 	Store       *store.Store
 	Provisioner *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are.
@@ -581,8 +584,8 @@ func (p *Panel) setSeerr(w http.ResponseWriter, r *http.Request, s *session) {
 
 // ratingsJSON is where Overfin's own ratings stand: the ratings country,
 // those TMDB has scales for, and how many of the library's titles have
-// their certifications fetched. Without a source (Seerr), kids profiles
-// see nothing.
+// their certifications fetched. Without a source for TMDB's data, kids
+// profiles see nothing.
 type ratingsJSON struct {
 	Country   string   `json:"country"`
 	Countries []string `json:"countries"`
@@ -592,7 +595,7 @@ type ratingsJSON struct {
 }
 
 func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
-	out := ratingsJSON{Source: p.Seerr != nil && p.Seerr.Seerr() != ""}
+	out := ratingsJSON{Source: p.TMDB != nil && p.TMDB()}
 	var err error
 	if out.Country, err = p.Store.RatingsCountry(ctx); err != nil {
 		return out, err

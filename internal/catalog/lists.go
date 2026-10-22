@@ -6,21 +6,21 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // Lists keeps discovery's lists (trending, popular and upcoming films and
-// series) and the titles in them, from Seerr, in Overfin's database, so
-// discovery is answered from there, at once, and Seerr is asked in the
-// background only.
+// series) and the titles in them, from TMDB (itself, or through Seerr), in
+// Overfin's database, so discovery is answered from there, at once, and
+// TMDB is asked in the background only.
 type Lists struct {
-	// Seerr is the current Seerr, nil when it isn't connected.
-	Seerr  func() *seerr.Client
+	// Source is where TMDB's data comes from, nil when there's none.
+	Source func() tmdb.Source
 	Store  *store.Store
 	Logger *slog.Logger
 	// Every is how often the lists are read again; Depth, how many of
-	// Seerr's pages (20 titles each) each list keeps.
+	// TMDB's pages (20 titles each) each list keeps.
 	Every time.Duration
 	Depth int
 
@@ -28,14 +28,14 @@ type Lists struct {
 	now  func() time.Time
 }
 
-// Kept is how long a title fetched from TMDB (through Seerr) stays without
+// Kept is how long a title fetched from TMDB stays without
 // being fetched again: TMDB's terms allow six months at most.
 const Kept = 150 * 24 * time.Hour
 
 // NewLists returns the lists' keeper, reading depth pages per list every
 // every.
-func NewLists(s func() *seerr.Client, st *store.Store, logger *slog.Logger, every time.Duration, depth int) *Lists {
-	return &Lists{Seerr: s, Store: st, Logger: logger, Every: every, Depth: depth, wake: make(chan struct{}, 1)}
+func NewLists(s func() tmdb.Source, st *store.Store, logger *slog.Logger, every time.Duration, depth int) *Lists {
+	return &Lists{Source: s, Store: st, Logger: logger, Every: every, Depth: depth, wake: make(chan struct{}, 1)}
 }
 
 func (l *Lists) clock() time.Time {
@@ -70,17 +70,17 @@ func (l *Lists) Run(ctx context.Context) {
 	}
 }
 
-// Refresh reads every list from Seerr, keeps their titles, and deletes
+// Refresh reads every list from TMDB, keeps their titles, and deletes
 // those too old to keep.
 func (l *Lists) Refresh(ctx context.Context) error {
 	if _, err := l.Store.PurgeTitles(ctx, l.clock().Add(-Kept)); err != nil {
 		return err
 	}
-	s := l.Seerr()
+	s := l.Source()
 	if s == nil {
 		return nil
 	}
-	for _, list := range seerr.Lists {
+	for _, list := range tmdb.Lists {
 		for _, kind := range []string{"movie", "series"} {
 			if err := l.read(ctx, s, list, kind); err != nil {
 				return err
@@ -90,7 +90,7 @@ func (l *Lists) Refresh(ctx context.Context) error {
 	return nil
 }
 
-func (l *Lists) read(ctx context.Context, s *seerr.Client, list, kind string) error {
+func (l *Lists) read(ctx context.Context, s tmdb.Source, list, kind string) error {
 	at := l.clock()
 	var ids []string
 	seen := map[string]bool{}
@@ -118,8 +118,8 @@ func (l *Lists) read(ctx context.Context, s *seerr.Client, list, kind string) er
 	return l.Store.SetList(ctx, list, kind, ids)
 }
 
-// StoreTitle is a title from Seerr as the catalog keeps it.
-func StoreTitle(t seerr.Title) store.Title {
+// StoreTitle is a title from TMDB as the catalog keeps it.
+func StoreTitle(t tmdb.Title) store.Title {
 	return store.Title{Kind: t.Kind, TMDB: strconv.Itoa(t.TMDBID), Name: t.Name, Year: t.Year, Overview: t.Overview,
 		Poster: t.Poster, Backdrop: t.Backdrop, Status: t.Status}
 }

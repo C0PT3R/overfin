@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Title is a title from TMDB (through Seerr), as the catalog keeps it.
+// Title is a title from TMDB, as the catalog keeps it.
 type Title struct {
 	Kind     string // movie, series
 	TMDB     string

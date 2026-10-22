@@ -16,24 +16,25 @@ import (
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
-	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // Discovery serves the catalog's discovery: what's trending, popular or
 // upcoming, and a title's page, each with its place in the library (from
 // Overfin's index) and, when the library has it, the library item itself,
 // read with the profile's own token. Lists and titles are answered from
-// Overfin's database, which keeps them from Seerr in the background
-// (catalog.Lists); only a title's page may ask Seerr, the first time it's
+// Overfin's database, which keeps them from TMDB in the background
+// (catalog.Lists); only a title's page may ask TMDB, the first time it's
 // opened and once a week after.
 //
 // Kids profiles see only the titles their ceilings allow (rule 28).
 type Discovery struct {
 	Library Library
-	Seerr   *seerr.Client
-	Store   *store.Store
-	now     func() time.Time
+	// Source is where TMDB's data comes from: TMDB itself, or Seerr.
+	Source tmdb.Source
+	Store  *store.Store
+	now    func() time.Time
 }
 
 func (Discovery) Name() string { return "discovery" }
@@ -57,7 +58,7 @@ func (d Discovery) clock() time.Time {
 	return time.Now()
 }
 
-// detailsFor is how long a title's page is kept before Seerr is asked for
+// detailsFor is how long a title's page is kept before TMDB is asked for
 // it again.
 const detailsFor = 7 * 24 * time.Hour
 
@@ -118,7 +119,7 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 		avail = "all"
 	}
 	limit, ok := parseLimit(q.Get("limit"))
-	if !ok || !slices.Contains(seerr.Lists, list) || (kind != "movie" && kind != "series") ||
+	if !ok || !slices.Contains(tmdb.Lists, list) || (kind != "movie" && kind != "series") ||
 		(avail != "all" && avail != "library" && avail != "missing") {
 		problem.Send(w, problem.InvalidRequest, "")
 		return
@@ -185,36 +186,36 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	tmdb := strconv.Itoa(n)
+	tmdbID := strconv.Itoa(n)
 	p := d.Library.active(w, r)
 	if p == nil {
 		return
 	}
-	if may, err := d.mayOpen(r.Context(), p, kind, tmdb); err != nil || !may {
+	if may, err := d.mayOpen(r.Context(), p, kind, tmdbID); err != nil || !may {
 		d.Library.hidden(w, err)
 		return
 	}
-	t, err := d.Store.TitleByTMDB(r.Context(), kind, tmdb)
+	t, err := d.Store.TitleByTMDB(r.Context(), kind, tmdbID)
 	if err != nil {
 		d.Library.Logger.Error("reading the catalog failed", "err", err)
 		problem.Send(w, problem.Internal, "")
 		return
 	}
-	// The page, from Seerr the first time and once a week; a kept one is
-	// served when Seerr can't answer.
+	// The page, from TMDB the first time and once a week; a kept one is
+	// served when TMDB can't answer.
 	if t == nil || t.Details == nil || d.clock().Sub(t.DetailsAt) > detailsFor {
 		fresh, err := d.fetchDetails(r.Context(), kind, n)
 		switch {
 		case err == nil:
 			t = fresh
-		case errors.Is(err, seerr.ErrNotFound):
+		case errors.Is(err, tmdb.ErrNotFound):
 			problem.Send(w, problem.NotFound, "")
 			return
 		case t == nil || t.Details == nil:
-			d.seerrError(w, err)
+			d.sourceError(w, err)
 			return
 		default:
-			d.Library.Logger.Warn("seerr call failed; the kept page is served", "err", err)
+			d.Library.Logger.Warn("TMDB call failed; the kept page is served", "err", err)
 		}
 	}
 	var det storedDetails
@@ -251,9 +252,9 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, out)
 }
 
-// fetchDetails asks Seerr for a title's page and keeps it.
+// fetchDetails asks TMDB for a title's page and keeps it.
 func (d Discovery) fetchDetails(ctx context.Context, kind string, tmdbID int) (*store.Title, error) {
-	det, err := d.Seerr.Details(ctx, kind, tmdbID)
+	det, err := d.Source.Details(ctx, kind, tmdbID)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +381,7 @@ func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profil
 		problem.Send(w, problem.NotFound, "")
 		return
 	default:
-		d.seerrError(w, err)
+		d.sourceError(w, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
@@ -398,11 +399,11 @@ func (d Discovery) mayOpen(ctx context.Context, p *store.Profile, kind, tmdb str
 	return d.Store.TitleAllowed(ctx, *c, kind, tmdb)
 }
 
-func (d Discovery) seerrError(w http.ResponseWriter, err error) {
-	if errors.Is(err, seerr.ErrNotFound) {
+func (d Discovery) sourceError(w http.ResponseWriter, err error) {
+	if errors.Is(err, tmdb.ErrNotFound) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	d.Library.Logger.Error("seerr call failed", "err", err)
+	d.Library.Logger.Error("TMDB call failed", "err", err)
 	problem.Send(w, problem.Internal, "")
 }
