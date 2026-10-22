@@ -27,6 +27,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/overfin/server/internal/upstream"
 )
 
 // Provider is one identity provider and Overfin's client registration there.
@@ -99,7 +101,7 @@ func (p *Provider) doJSON(req *http.Request, out any) error {
 	req.Header.Set("Accept", "application/json")
 	res, err := p.HTTP.Do(req)
 	if err != nil {
-		return err
+		return upstream.Plain(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusBadRequest || res.StatusCode == http.StatusUnauthorized {

@@ -17,6 +17,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/overfin/server/internal/upstream"
 )
 
 // Person is what the identity provider knows about someone.
@@ -93,7 +95,7 @@ func (a *Authentik) get(ctx context.Context, u string, out any) error {
 	req.Header.Set("Accept", "application/json")
 	res, err := a.HTTP.Do(req)
 	if err != nil {
-		return err
+		return upstream.Plain(err)
 	}
 	defer res.Body.Close()
 	switch {

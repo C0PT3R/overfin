@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/overfin/server/internal/textclean"
+	"github.com/overfin/server/internal/upstream"
 )
 
 // ProjectToken is the Overfin project's own TMDB key (a read access
@@ -95,7 +96,7 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	req.Header.Set("Accept", "application/json")
 	res, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("tmdb: %s: %w", path, err)
+		return fmt.Errorf("tmdb: %s: %w", path, upstream.Plain(err))
 	}
 	defer res.Body.Close()
 	body := io.LimitReader(res.Body, maxResponse)

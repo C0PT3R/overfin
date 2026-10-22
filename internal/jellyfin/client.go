@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/overfin/server/internal/upstream"
 )
 
 // maxResponse bounds every JSON response read from Jellyfin.
@@ -133,7 +135,7 @@ func (c *Client) doQuery(ctx context.Context, op, method, path string, query url
 
 	res, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("jellyfin: %s: %w", op, err)
+		return fmt.Errorf("jellyfin: %s: %w", op, upstream.Plain(err))
 	}
 	defer res.Body.Close()
 	limited := io.LimitReader(res.Body, maxResponse)

@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/overfin/server/internal/upstream"
 )
 
 // Requests, made in Seerr on behalf of Overfin's accounts: each has a Seerr
@@ -52,7 +54,7 @@ func (c *Client) send(ctx context.Context, method, path string, body, out any) e
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("seerr: %s %s: %w", method, path, err)
+		return fmt.Errorf("seerr: %s %s: %w", method, path, upstream.Plain(err))
 	}
 	defer res.Body.Close()
 	limited := io.LimitReader(res.Body, maxResponse)

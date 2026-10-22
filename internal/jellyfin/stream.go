@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/overfin/server/internal/upstream"
 )
 
 // streamClient fetches media. Unlike the API client, it has no overall
@@ -41,7 +43,7 @@ func (c *Client) Open(ctx context.Context, a Auth, path string, query url.Values
 	}
 	res, err := streamClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("jellyfin: stream: %w", err)
+		return nil, fmt.Errorf("jellyfin: stream: %w", upstream.Plain(err))
 	}
 	switch res.StatusCode {
 	case http.StatusOK, http.StatusPartialContent, http.StatusRequestedRangeNotSatisfiable:

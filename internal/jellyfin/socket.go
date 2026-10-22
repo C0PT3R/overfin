@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/overfin/server/internal/upstream"
 )
 
 // Jellyfin's socket (/socket): Jellyfin tells the sessions connected to it
@@ -78,7 +80,7 @@ func (c *Client) Watch(ctx context.Context, a Auth, connected func(), changed fu
 	req.Header.Set("Sec-WebSocket-Key", nonce)
 	res, err := socketHTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("jellyfin: socket: %w", err)
+		return fmt.Errorf("jellyfin: socket: %w", upstream.Plain(err))
 	}
 	if res.StatusCode != http.StatusSwitchingProtocols {
 		res.Body.Close()

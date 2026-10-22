@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/upstream"
 )
 
 // TMDB's image server: the only host Overfin fetches TMDB images from
@@ -112,7 +113,7 @@ func (p *Pipeline) fetchTMDB(ctx context.Context, ref TMDBRef, width string, slo
 	}
 	res, err := tmdbHTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("images: TMDB: %w", err)
+		return nil, fmt.Errorf("images: TMDB: %w", upstream.Plain(err))
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {

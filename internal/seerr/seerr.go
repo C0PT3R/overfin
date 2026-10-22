@@ -21,6 +21,7 @@ import (
 
 	"github.com/overfin/server/internal/textclean"
 	"github.com/overfin/server/internal/tmdb"
+	"github.com/overfin/server/internal/upstream"
 )
 
 // maxResponse bounds every response read from Seerr.
@@ -65,7 +66,7 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	req.Header.Set("Accept", "application/json")
 	res, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("seerr: %s: %w", path, err)
+		return fmt.Errorf("seerr: %s: %w", path, upstream.Plain(err))
 	}
 	defer res.Body.Close()
 	body := io.LimitReader(res.Body, maxResponse)
