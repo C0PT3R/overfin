@@ -63,7 +63,11 @@ func checkSetup(configPath string, getenv func(string) string, w io.Writer) erro
 		}
 		return errCheckFailed
 	}
-	c.ok("configuration: %s", configPath)
+	if configPath == "" {
+		c.ok("configuration: none, the defaults")
+	} else {
+		c.ok("configuration: %s", configPath)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

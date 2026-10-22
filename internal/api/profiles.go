@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/library"
@@ -728,7 +729,7 @@ func (p Profiles) endSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if target.ID == c.Session.ID {
-		clearCookie(w)
+		clearCookie(w, r)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -772,12 +773,12 @@ func (p Profiles) endOtherSessions(w http.ResponseWriter, r *http.Request) {
 // login too. It works even before an account exists.
 func (p Profiles) logout(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if c, err := r.Cookie(CookieName); err == nil && len(c.Value) <= 64 {
+	if c, err := cookie.Get(r, CookieName); err == nil && len(c.Value) <= 64 {
 		if s, err := p.Store.SessionByToken(ctx, c.Value); err == nil {
 			_ = p.Store.DeleteSession(ctx, s.AccountID, s.ID)
 		}
 	}
-	clearCookie(w)
+	clearCookie(w, r)
 	logoutURL := p.LogoutURL
 	if in := p.Sessions.SignIn; in != nil {
 		if leave := in.Logout(w, r); logoutURL == "" {

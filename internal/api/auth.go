@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/plugin"
@@ -29,11 +30,11 @@ const (
 	callbackPath = "/api/v1/auth/callback"
 	finishPath   = "/api/v1/auth/finish"
 
-	// LoginCookie holds a login made through Overfin (identity mode
-	// "oidc"); pendingCookie ties a login in progress to the browser that
-	// started it.
-	LoginCookie   = "__Host-overfin-login"
-	pendingCookie = "__Host-overfin-auth"
+	// LoginCookie holds a login made through Overfin (identity modes
+	// "oidc" and "managed"); pendingCookie ties a login in progress to the
+	// browser that started it. Both are base names (package cookie).
+	LoginCookie   = "overfin-login"
+	pendingCookie = "overfin-auth"
 )
 
 // Auth talks to the identity provider over OpenID Connect. It always offers
@@ -128,7 +129,7 @@ func (a *Auth) Register(r *plugin.Registrar) error {
 // "oidc"). Identity headers play no part.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if c, err := r.Cookie(LoginCookie); err == nil && len(c.Value) <= 64 {
+		if c, err := cookie.Get(r, LoginCookie); err == nil && len(c.Value) <= 64 {
 			if l := a.current(r.Context(), c.Value); l != nil {
 				r = r.WithContext(identity.With(r.Context(), identity.Identity{Subject: l.Subject, Groups: l.Groups}))
 			}
@@ -243,23 +244,19 @@ func (a *Auth) startLogin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: pendingCookie, Value: binding, Path: "/", MaxAge: int(pendingFor.Seconds()),
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
+	cookie.Set(w, r, &http.Cookie{Name: pendingCookie, Value: binding, MaxAge: int(pendingFor.Seconds())})
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // Logout ends this browser's login, if any, and returns the provider's
 // end-session address.
 func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(LoginCookie); err == nil && len(c.Value) <= 64 {
+	if c, err := cookie.Get(r, LoginCookie); err == nil && len(c.Value) <= 64 {
 		if l, err := a.Store.LoginByToken(r.Context(), c.Value); err == nil {
 			_ = a.Store.DeleteLogin(r.Context(), l.ID)
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: LoginCookie, Value: "", Path: "/", MaxAge: -1,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Clear(w, r, LoginCookie)
 	return a.Provider.LogoutURL(r.Context())
 }
 
@@ -367,13 +364,12 @@ func (a *Auth) finish(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) finishLogin(w http.ResponseWriter, r *http.Request, p pendingAuth) {
 	// The answer must come back to the browser that started the login:
 	// otherwise someone could log a victim into the attacker's account.
-	c, err := r.Cookie(pendingCookie)
+	c, err := cookie.Get(r, pendingCookie)
 	if err != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(p.Binding)) != 1 {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: pendingCookie, Value: "", Path: "/", MaxAge: -1,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Clear(w, r, pendingCookie)
 	q := r.URL.Query()
 	if code, refused := oidc.Refused(q); refused {
 		a.Logger.Warn("login refused by the identity provider", "error", code)
@@ -416,10 +412,7 @@ func (a *Auth) finishLogin(w http.ResponseWriter, r *http.Request, p pendingAuth
 		problem.Send(w, problem.Internal, "")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: LoginCookie, Value: token, Path: "/", MaxAge: int(lifetime.Seconds()),
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
+	cookie.Set(w, r, &http.Cookie{Name: LoginCookie, Value: token, MaxAge: int(lifetime.Seconds())})
 	http.Redirect(w, r, p.Return, http.StatusSeeOther)
 }
 

@@ -484,3 +484,31 @@ username = "media@example.org"
 		}
 	}
 }
+
+func TestNoFileAndHTTPS(t *testing.T) {
+	// No file at all: the defaults, and the domain from the environment.
+	vars := goodEnv()
+	delete(vars, "OVERFIN_JELLYFIN_ADMIN_KEY")
+	vars["OVERFIN_DOMAIN"] = "Media.Example.org."
+	cfg, err := Load("", env(vars))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Identity.Mode != "managed" || cfg.HTTPS.Domain != "media.example.org" || cfg.HTTPS.Listen != ":8443" ||
+		cfg.Site.URL != "https://media.example.org" {
+		t.Errorf("no file: %+v %+v %q", cfg.Identity, cfg.HTTPS, cfg.Site.URL)
+	}
+	delete(vars, "OVERFIN_DOMAIN")
+	for file, want := range map[string]string{
+		"[https]\ndomain = \"192.0.2.10\"\n":                                                     "https.domain",
+		"[https]\ndomain = \"localhost\"\n":                                                      "https.domain",
+		"listen = \":8443\"\n[https]\ndomain = \"media.example.org\"\n":                          "must differ",
+		"[https]\ndomain = \"media.example.org\"\nemail = \"x\"\n":                               "https.email",
+		"[site]\nurl = \"https://other.example.org\"\n[https]\ndomain = \"media.example.org\"\n": "site.url must be https://media.example.org",
+	} {
+		_, err := Load(writeFile(t, file), env(vars))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: error %v, want %q", file, err, want)
+		}
+	}
+}

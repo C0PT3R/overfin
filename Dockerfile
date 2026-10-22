@@ -24,5 +24,8 @@ COPY --from=build --chown=65532:65532 /data /data
 # a volume of its own, so a copy of the data never carries its key.
 COPY --from=build --chown=65532:65532 /secrets /secrets
 VOLUME /data /secrets
-EXPOSE 8080 8081
+# 8080: the site (plain http, or Let's Encrypt's checks with https.domain);
+# 8443: the site over HTTPS, with https.domain; 8081: the control panel's own
+# listener, with an identity provider.
+EXPOSE 8080 8443 8081
 ENTRYPOINT ["/overfin"]

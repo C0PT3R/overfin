@@ -323,8 +323,9 @@ node --test sdk/js/overfin.test.js
 go run ./cmd/overfin -config overfin.toml
 ```
 
-Go with the standard library and two dependencies (a TOML parser and a
-pure-Go SQLite). CI runs formatting, vet, staticcheck, govulncheck, the tests
+Go with the standard library and three dependencies (a TOML parser, a
+pure-Go SQLite, and the Go team's golang.org/x/crypto for getting
+certificates from Let's Encrypt). CI runs formatting, vet, staticcheck, govulncheck, the tests
 with the race detector, and a check that the API specification matches the
 routes.
 

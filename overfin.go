@@ -4,7 +4,9 @@
 package overfin
 
 import (
+	"cmp"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -17,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -26,6 +29,7 @@ import (
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/keys"
@@ -38,6 +42,7 @@ import (
 	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
 	"github.com/overfin/server/internal/tmdb"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // builtinSite is the web client this build includes, if any.
@@ -98,6 +103,11 @@ func run(logger *slog.Logger) error {
 		"test the configuration, the secret key, Jellyfin and the identity provider, say what's wrong, then exit; changes nothing")
 	flag.Parse()
 
+	// Without a file at the default place, the defaults: a start needs no
+	// configuration at all. A file named on purpose must exist.
+	if *configPath == defaultPath && !fileExists(defaultPath) {
+		*configPath = ""
+	}
 	if *check {
 		return checkSetup(*configPath, os.Getenv, os.Stdout)
 	}
@@ -154,16 +164,41 @@ func run(logger *slog.Logger) error {
 	// The listeners start now, before Overfin is ready, so the setup page can
 	// come first: until then, the site says it's being set up.
 	site, panel := newSwap(settingUp), newSwap(http.NotFoundHandler())
+	var siteHandler http.Handler = site
+	if strings.HasPrefix(cfg.Site.URL, "https://") {
+		// Its public address says HTTPS: cookies are HTTPS ones, whatever
+		// the proxy in front says.
+		siteHandler = cookie.AlwaysSecure(site)
+	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           site,
+		Handler:           siteHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		// No WriteTimeout: video streams can legitimately run for hours.
 	}
-	errc := make(chan error, 2)
+	errc := make(chan error, 3)
+	// HTTPS by Overfin itself: the site on its own listener, with a
+	// certificate from Let's Encrypt; the main one answers Let's Encrypt's
+	// checks and sends everyone else to HTTPS.
+	var tlsSrv *http.Server
+	if h := cfg.HTTPS; h.Enabled() {
+		certs := &autocert.Manager{Prompt: autocert.AcceptTOS, HostPolicy: autocert.HostWhitelist(h.Domain),
+			Cache: autocert.DirCache(filepath.Join(filepath.Dir(cfg.Storage.Path), "certificates")), Email: h.Email}
+		tlsSrv = &http.Server{Addr: h.Listen, Handler: hsts(siteHandler), TLSConfig: certs.TLSConfig(),
+			ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+		tlsSrv.TLSConfig.MinVersion = tls.VersionTLS12
+		// Failed handshakes, Let's Encrypt's refusals among them, in the
+		// log like everything else.
+		tlsSrv.ErrorLog = slog.NewLogLogger(logger.Handler(), slog.LevelWarn)
+		srv.Handler = certs.HTTPHandler(nil)
+		go func() {
+			logger.Info("listening, HTTPS", "addr", h.Listen, "domain", h.Domain)
+			errc <- tlsSrv.ListenAndServeTLS("", "")
+		}()
+	}
 	go func() {
-		logger.Info("listening", "addr", addr)
+		logger.Info("listening", "addr", addr, "https", tlsSrv != nil)
 		errc <- srv.ListenAndServe()
 	}()
 	// The control panel, on its own listener (rule 58).
@@ -186,6 +221,9 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		if adminSrv != nil {
 			_ = adminSrv.Shutdown(shutdownCtx)
+		}
+		if tlsSrv != nil {
+			_ = tlsSrv.Shutdown(shutdownCtx)
 		}
 		if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
@@ -252,7 +290,7 @@ func run(logger *slog.Logger) error {
 		}
 		if managed {
 			site.set(setup.PublicHandler())
-			where = append(where, "site", addr)
+			where = append(where, "site", cmp.Or(cfg.Site.URL, addr))
 		}
 		logger.Warn("Overfin isn't set up yet: open its address (/admin/) and finish setting it up with this one-time code", where...)
 		select {
@@ -447,6 +485,16 @@ func runRecovery(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.
 		return err
 	}
 	return recoverTokensWith(ctx, logger, db, newProvisioner(cfg, sh), k.Check)
+}
+
+// hsts tells browsers to come back over HTTPS only, for a year: on the
+// site Overfin serves HTTPS for itself. Its other subdomains are the
+// operator's business.
+func hsts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // withPanel serves the control panel at /admin/ (and what apps read, at

@@ -48,6 +48,7 @@ type Config struct {
 	Connector Connector `toml:"connector"`
 	Site      Site      `toml:"site"`
 	Mail      Mail      `toml:"mail"`
+	HTTPS     HTTPS     `toml:"https"`
 
 	// FeaturesInFile reports whether the file held feature settings
 	// (limits, privacy, plugins, accounts, modules). Those live in the
@@ -322,6 +323,28 @@ type Connector struct {
 // digits, dots, hyphens and underscores, 50 characters at most.
 var emailPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$`)
 
+// HTTPS is Overfin serving HTTPS itself, with a certificate it gets from
+// Let's Encrypt and renews. Off unless Domain is set; then the main listen
+// address only answers Let's Encrypt's checks and sends everyone else to
+// https://Domain.
+type HTTPS struct {
+	// Domain is the site's name, e.g. "media.example.org": it must point to
+	// this server, reachable from the internet on ports 80 and 443.
+	Domain string `toml:"domain"`
+	// Listen is where HTTPS is served, ":8443" by default: publish it as
+	// port 443 (and the main listen address as port 80).
+	Listen string `toml:"listen"`
+	// Email, optional, is Let's Encrypt's contact for this server.
+	Email string `toml:"email"`
+}
+
+// Enabled reports whether Overfin serves HTTPS itself.
+func (h HTTPS) Enabled() bool { return h.Domain != "" }
+
+// domainPattern is a DNS name with at least two labels: letters, digits and
+// hyphens.
+var domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
+
 // Mail is the SMTP server Overfin sends its emails through (sign-in
 // codes). Off unless Host is set: people then sign in with a password.
 type Mail struct {
@@ -466,18 +489,35 @@ func defaults() Config {
 		OIDC:     OIDC{FreshForMinutes: 5, RecheckMinutes: 10, GroupsClaim: "groups"},
 		Accounts: Accounts{OnDelete: "delete"},
 		Site:     Site{Serve: "builtin", CSP: DefaultCSP},
+		HTTPS:    HTTPS{Listen: ":8443"},
 	}
 }
 
 // Load reads the file at path, applies defaults, loads secrets from the
-// environment and validates everything. getenv is usually os.Getenv; tests
-// pass their own.
+// environment and validates everything. An empty path means no file: the
+// defaults alone. getenv is usually os.Getenv; tests pass their own.
+//
+// One setting may also come from the environment, for a start without a
+// file: OVERFIN_DOMAIN, the domain Overfin serves HTTPS for (the file's
+// https.domain wins).
 func Load(path string, getenv func(string) string) (*Config, error) {
 	cfg := defaults()
 
-	meta, err := toml.DecodeFile(path, &cfg)
-	if err != nil {
-		return nil, fmt.Errorf("config: %w", err)
+	var meta toml.MetaData
+	if path != "" {
+		var err error
+		if meta, err = toml.DecodeFile(path, &cfg); err != nil {
+			return nil, fmt.Errorf("config: %w", err)
+		}
+	}
+	if cfg.HTTPS.Domain == "" {
+		cfg.HTTPS.Domain = strings.TrimSpace(getenv("OVERFIN_DOMAIN"))
+	}
+	if cfg.HTTPS.Enabled() {
+		cfg.HTTPS.Domain = strings.ToLower(strings.TrimSuffix(cfg.HTTPS.Domain, "."))
+		if cfg.Site.URL == "" {
+			cfg.Site.URL = "https://" + cfg.HTTPS.Domain
+		}
 	}
 	// A misspelled key would otherwise be silently ignored.
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
@@ -804,6 +844,24 @@ func (c *Config) validate() error {
 		}
 	}
 
+	if h := c.HTTPS; h.Enabled() {
+		if !domainPattern.MatchString(h.Domain) || len(h.Domain) > 253 {
+			add("https.domain must be a domain name, e.g. \"media.example.org\", got %q", h.Domain)
+		}
+		if _, _, err := net.SplitHostPort(h.Listen); err != nil {
+			add("https.listen must be host:port, e.g. \":8443\"")
+		} else if h.Listen == c.Listen {
+			add("https.listen must differ from listen, which answers Let's Encrypt's checks")
+		}
+		if h.Email != "" {
+			if a, err := mail.ParseAddress(h.Email); err != nil || a.Address != h.Email {
+				add("https.email must be an email address")
+			}
+		}
+		if u, err := url.Parse(c.Site.URL); err == nil && u.Host != h.Domain {
+			add("site.url must be https://%s, the domain Overfin serves HTTPS for", h.Domain)
+		}
+	}
 	if m := c.Mail; m.Enabled() {
 		if err := m.Check(); err != nil {
 			add("%v", err)

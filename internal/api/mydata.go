@@ -41,7 +41,7 @@ func (a Account) deleteAccount(w http.ResponseWriter, r *http.Request) {
 			a.Images.Forget(p.ID)
 		}
 	}
-	clearCookie(w)
+	clearCookie(w, r)
 	out := map[string]string{"history": "deleted"}
 	if a.KeepOnDelete {
 		out["history"] = "kept"

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -14,10 +15,11 @@ import (
 	"github.com/overfin/server/internal/store"
 )
 
-// CookieName is Overfin's session cookie. The __Host- prefix makes browsers
-// require Secure, Path=/ and no Domain: no other subdomain can set it
-// (SECURITY.md rule 17).
-const CookieName = "__Host-overfin"
+// CookieName is Overfin's session cookie, by its base name: over HTTPS,
+// package cookie gives it the __Host- prefix, so browsers require Secure,
+// Path=/ and no Domain, and no other subdomain can set it (SECURITY.md rule
+// 17).
+const CookieName = "overfin"
 
 // Sessions ties each browser or device to an account, its active profile and
 // its own session. The identity provider says who the visitor is; the
@@ -134,7 +136,7 @@ func (s *Sessions) CurrentAccount(w http.ResponseWriter, r *http.Request) *Calle
 	// A session only counts for the account it was created for: a cookie
 	// carried to another person's browser is simply ignored there.
 	var sess *store.Session
-	if c, err := r.Cookie(CookieName); err == nil && len(c.Value) <= 64 {
+	if c, err := cookie.Get(r, CookieName); err == nil && len(c.Value) <= 64 {
 		if found, err := s.Store.SessionByToken(ctx, c.Value); err == nil && found.AccountID == acct.ID {
 			sess = found
 		}
@@ -151,7 +153,7 @@ func (s *Sessions) CurrentAccount(w http.ResponseWriter, r *http.Request) *Calle
 			return nil
 		}
 		sess = created
-		s.setCookie(w, token)
+		s.setCookie(w, r, token)
 	} else if time.Since(sess.LastActive) > touchEvery {
 		_ = s.Store.TouchSession(ctx, sess.ID, s.Lifetime)
 	}
@@ -179,19 +181,11 @@ func (s *Sessions) setupRequired(w http.ResponseWriter) {
 	problem.Write(w, p)
 }
 
-func (s *Sessions) setCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
-		Name: CookieName, Value: token, Path: "/",
-		MaxAge: int(s.Lifetime.Seconds()), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
+func (s *Sessions) setCookie(w http.ResponseWriter, r *http.Request, token string) {
+	cookie.Set(w, r, &http.Cookie{Name: CookieName, Value: token, MaxAge: int(s.Lifetime.Seconds())})
 }
 
-func clearCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name: CookieName, Value: "", Path: "/", MaxAge: -1,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
-}
+func clearCookie(w http.ResponseWriter, r *http.Request) { cookie.Clear(w, r, CookieName) }
 
 // deviceName summarizes a User-Agent as "Browser on System". Only this
 // summary is stored, never the User-Agent itself (rule 40).

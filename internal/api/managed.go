@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/password"
 	"github.com/overfin/server/internal/plugin"
@@ -35,8 +36,9 @@ const (
 	signinJS       = "/api/v1/signin/page.js"
 	signinCSS      = "/api/v1/signin/page.css"
 
-	// bindingCookie ties a code to the browser that asked for it.
-	bindingCookie = "__Host-overfin-signin"
+	// bindingCookie ties a code to the browser that asked for it (a base
+	// name, as package cookie takes it).
+	bindingCookie = "overfin-signin"
 
 	// ManagedAdminGroup is the group managed sign-in gives admins: the
 	// provisioner's admin group in managed mode.
@@ -150,7 +152,7 @@ func (m *Managed) Middleware(next http.Handler) http.Handler {
 // current returns the signed-in person and their login, sliding its
 // lifetime now and then; nils when nobody is.
 func (m *Managed) current(r *http.Request) (*store.Login, *store.User) {
-	c, err := r.Cookie(LoginCookie)
+	c, err := cookie.Get(r, LoginCookie)
 	if err != nil || len(c.Value) > 64 {
 		return nil, nil
 	}
@@ -197,13 +199,12 @@ func (m *Managed) gate(w http.ResponseWriter, r *http.Request) {
 
 // Logout ends this browser's login, if any.
 func (m *Managed) Logout(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(LoginCookie); err == nil && len(c.Value) <= 64 {
+	if c, err := cookie.Get(r, LoginCookie); err == nil && len(c.Value) <= 64 {
 		if l, err := m.Store.LoginByToken(r.Context(), c.Value); err == nil {
 			_ = m.Store.DeleteLogin(r.Context(), l.ID)
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: LoginCookie, Value: "", Path: "/", MaxAge: -1,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Clear(w, r, LoginCookie)
 	return ""
 }
 
@@ -260,17 +261,16 @@ func (m *Managed) page(w http.ResponseWriter, r *http.Request) {
 
 // ensureBinding gives the browser its binding cookie, once.
 func (m *Managed) ensureBinding(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(bindingCookie); err == nil && len(c.Value) == 43 {
+	if c, err := cookie.Get(r, bindingCookie); err == nil && len(c.Value) == 43 {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: bindingCookie, Value: randomToken(), Path: "/", MaxAge: 30 * 24 * 60 * 60,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Set(w, r, &http.Cookie{Name: bindingCookie, Value: randomToken(), MaxAge: 30 * 24 * 60 * 60})
 }
 
 // binding is the keyed hash of this browser's binding cookie; nil without
 // one.
 func (m *Managed) binding(r *http.Request) []byte {
-	c, err := r.Cookie(bindingCookie)
+	c, err := cookie.Get(r, bindingCookie)
 	if err != nil || len(c.Value) != 43 {
 		return nil
 	}
@@ -541,8 +541,7 @@ func (m *Managed) finish(w http.ResponseWriter, r *http.Request, u *store.User, 
 		m.fail(w, r, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: LoginCookie, Value: token, Path: "/", MaxAge: int(m.LoginLifetime.Seconds()),
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Set(w, r, &http.Cookie{Name: LoginCookie, Value: token, MaxAge: int(m.LoginLifetime.Seconds())})
 	writeOK(w, map[string]string{"next": req.Return})
 }
 

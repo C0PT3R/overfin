@@ -665,6 +665,9 @@ func restartOnly(old, new *config.Config) []string {
 	if old.Admin != new.Admin {
 		changed = append(changed, "admin")
 	}
+	if old.HTTPS != new.HTTPS || old.Site.URL != new.Site.URL {
+		changed = append(changed, "https, site.url")
+	}
 	if old.Connector != new.Connector || old.Secrets.ConnectorToken != new.Secrets.ConnectorToken {
 		changed = append(changed, "connector")
 	}

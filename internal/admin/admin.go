@@ -30,6 +30,7 @@ import (
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/provision"
@@ -153,8 +154,9 @@ type pending struct {
 }
 
 const (
-	cookieName    = "__Host-overfin-admin"
-	pendingCookie = "__Host-overfin-admin-auth"
+	// Base names, as package cookie takes them.
+	cookieName    = "overfin-admin"
+	pendingCookie = "overfin-admin-auth"
 	// sessionFor is how long an admin stays signed in at most; idleFor,
 	// without any activity.
 	sessionFor = 12 * time.Hour
@@ -340,7 +342,7 @@ func hashToken(t string) string {
 }
 
 func (p *Panel) current(r *http.Request) *session {
-	c, err := r.Cookie(cookieName)
+	c, err := cookie.Get(r, cookieName)
 	if err != nil || len(c.Value) > 64 {
 		return nil
 	}
@@ -365,7 +367,7 @@ func (p *Panel) signedIn(h func(http.ResponseWriter, *http.Request, *session)) h
 			// Still the same admin on the site: signing out there, or
 			// losing the admin flag, ends the panel's session too.
 			if email, isAdmin, _ := p.SiteAdmin(r); email != s.name || !isAdmin {
-				c, _ := r.Cookie(cookieName)
+				c, _ := cookie.Get(r, cookieName)
 				p.mu.Lock()
 				delete(p.sessions, hashToken(c.Value))
 				p.mu.Unlock()
@@ -418,8 +420,7 @@ func (p *Panel) login(w http.ResponseWriter, r *http.Request) {
 		p.pending[state] = pd
 	}
 	p.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{Name: pendingCookie, Value: pd.binding, Path: "/", MaxAge: int(pendingFor.Seconds()),
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Set(w, r, &http.Cookie{Name: pendingCookie, Value: pd.binding, MaxAge: int(pendingFor.Seconds())})
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
@@ -445,14 +446,13 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 	pd, ok := p.pending[q.Get("state")]
 	delete(p.pending, q.Get("state"))
 	p.mu.Unlock()
-	c, err := r.Cookie(pendingCookie)
+	c, err := cookie.Get(r, pendingCookie)
 	if !ok || err != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(pd.binding)) != 1 ||
 		p.clock().Sub(pd.started) > pendingFor {
 		http.Error(w, "This sign-in has expired; start again", http.StatusNotFound)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: pendingCookie, Value: "", Path: "/", MaxAge: -1,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Set(w, r, &http.Cookie{Name: pendingCookie, Value: "", MaxAge: -1})
 	// Shown, not retried: starting over would loop on a provider that
 	// refuses every time.
 	if code, refused := oidc.Refused(q); refused {
@@ -483,7 +483,7 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "The identity provider didn't ask for a new login", http.StatusForbidden)
 		return
 	}
-	p.startSession(w, login.Name)
+	p.startSession(w, r, login.Name)
 	http.Redirect(w, r, pd.ret, http.StatusSeeOther)
 }
 
@@ -503,13 +503,13 @@ func (p *Panel) siteLogin(w http.ResponseWriter, r *http.Request) {
 	case !fresh:
 		http.Redirect(w, r, "/api/v1/signin?"+url.Values{"fresh": {"1"}, "return": {back}}.Encode(), http.StatusSeeOther)
 	default:
-		p.startSession(w, email)
+		p.startSession(w, r, email)
 		http.Redirect(w, r, ret, http.StatusSeeOther)
 	}
 }
 
 // startSession signs an admin in to the panel.
-func (p *Panel) startSession(w http.ResponseWriter, name string) {
+func (p *Panel) startSession(w http.ResponseWriter, r *http.Request, name string) {
 	token := oidc.Random(32)
 	now := p.clock()
 	p.mu.Lock()
@@ -523,19 +523,17 @@ func (p *Panel) startSession(w http.ResponseWriter, name string) {
 	}
 	p.sessions[hashToken(token)] = &session{name: name, lastSeen: now, expires: now.Add(sessionFor)}
 	p.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", MaxAge: int(sessionFor.Seconds()),
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Set(w, r, &http.Cookie{Name: cookieName, Value: token, MaxAge: int(sessionFor.Seconds())})
 	p.Logger.Info("admin signed in")
 }
 
 func (p *Panel) logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(cookieName); err == nil {
+	if c, err := cookie.Get(r, cookieName); err == nil {
 		p.mu.Lock()
 		delete(p.sessions, hashToken(c.Value))
 		p.mu.Unlock()
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1,
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	cookie.Set(w, r, &http.Cookie{Name: cookieName, Value: "", MaxAge: -1})
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -28,6 +28,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/feature"
 )
 
@@ -35,7 +36,7 @@ import (
 var files embed.FS
 
 // cookieName carries an opened invitation's code to the account's creation.
-const cookieName = "__Host-overfin-invite"
+const cookieName = "overfin-invite" // a base name (package cookie)
 
 // codePattern is a code's form: 16 random bytes, base64url.
 var codePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
@@ -100,10 +101,10 @@ func (a admin) open(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("This invitation has expired or has already been used. Ask the person who sent it for a new one.\n"))
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Value: code, Path: "/", MaxAge: 24 * 60 * 60,
+	cookie.Set(w, r, &http.Cookie{
+		Name: cookieName, Value: code, MaxAge: 24 * 60 * 60,
 		// Lax: it must survive the trip through the identity provider.
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 	// Where the identity provider makes sign-up links, the person goes
 	// there to make their account first.
@@ -146,7 +147,7 @@ func (a admin) signUpLink(ctx context.Context, inv *invite) (string, error) {
 // it when invitations are required and there's none.
 func (Feature) NewAccount(ctx context.Context, h feature.Host, r *http.Request) (*feature.AccountPlan, error) {
 	var inv *invite
-	if c, err := r.Cookie(cookieName); err == nil {
+	if c, err := cookie.Get(r, cookieName); err == nil {
 		if inv, err = usable(ctx, h.DB(), c.Value); err != nil {
 			return nil, err
 		}

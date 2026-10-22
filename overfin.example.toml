@@ -1,8 +1,10 @@
 # Overfin configuration example.
 #
-# Copy to overfin.toml and adjust. Changes apply on restart, or live on
-# SIGHUP (docker kill -s HUP overfin) except listen, storage.path,
-# jellyfin.url and the secret key. Secrets never go in this file; set them as
+# Overfin runs without any file: everything has a default, and the setup page
+# in the browser asks for the rest. Copy to /etc/overfin/overfin.toml only to
+# change them. Changes apply on restart, or live on SIGHUP (docker kill -s
+# HUP overfin) except listen, storage.path, jellyfin.url, [https], [admin]
+# and the secret key. Secrets never go in this file; set them as
 # environment variables (or NAME_FILE pointing to a file, for Docker secrets):
 #
 #   OVERFIN_JELLYFIN_ADMIN_KEY   Jellyfin API key, used only to create users
@@ -16,8 +18,19 @@
 #                                token
 #   OVERFIN_MAIL_PASSWORD        with mail.username: the SMTP password
 
-# Address Overfin listens on.
+# Address Overfin listens on: the site, over plain http. With [https], only
+# Let's Encrypt's checks, and a redirect to HTTPS for everyone else.
 listen = ":8080"
+
+[https]
+# Overfin serves HTTPS itself, with a certificate it gets from Let's Encrypt
+# and renews: set the site's domain, pointed at this server, with ports 80
+# and 443 reachable from the internet (in Docker: -p 80:8080 -p 443:8443).
+# Or set OVERFIN_DOMAIN in the environment instead. Leave it empty behind
+# your own reverse proxy, or for plain http on a LAN.
+domain = ""                     # e.g. "media.example.org"
+listen = ":8443"
+email = ""                      # optional: Let's Encrypt's contact
 
 [jellyfin]
 # Where Overfin reaches Jellyfin. Keeping Jellyfin off the internet is
