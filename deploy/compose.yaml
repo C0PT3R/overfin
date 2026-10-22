@@ -1,9 +1,9 @@
-# Overfin with everything it needs, on one machine: Caddy (HTTPS), Authentik
-# (logins) and Authentik's database. Run ./setup.sh first: it writes .env
+# Overfin with everything it needs, on one machine: Caddy (HTTPS) and
+# Pocket ID (logins, with passkeys). Run ./setup.sh first: it writes .env
 # and overfin.toml. See README.md.
 #
-# Each container gets only the secrets it uses, Authentik's database is on
-# a network only Authentik reaches, and nothing gets the Docker socket.
+# Each container gets only the secrets it uses, and nothing gets the Docker
+# socket.
 name: overfin
 
 services:
@@ -55,69 +55,46 @@ services:
       # tunnel. Never publish it on another address.
       - "127.0.0.1:8081:8081"
     networks: [edge]
-    depends_on: [caddy]
+    depends_on: [caddy, pocket-id]
 
-  authentik-server:
-    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:?run ./setup.sh first}
-    command: server
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:${POCKET_ID_TAG:?run ./setup.sh first}
     restart: unless-stopped
-    shm_size: 512mb
-    environment: &authentik
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?run ./setup.sh first}
-      AUTHENTIK_POSTGRESQL__HOST: postgresql
-      AUTHENTIK_POSTGRESQL__USER: authentik
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?run ./setup.sh first}
-      # Only read on the very first start, to create the admin (akadmin).
-      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:-}
-      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL:-}
-      # For the Overfin blueprint (authentik/overfin.yaml).
-      OVERFIN_DOMAIN: ${OVERFIN_DOMAIN}
-      OVERFIN_SITE_NAME: ${OVERFIN_SITE_NAME:-}
-      OVERFIN_ADMIN_GROUP: ${OVERFIN_ADMIN_GROUP:-overfin-admins}
-      OVERFIN_OIDC_CLIENT_SECRET: ${OVERFIN_OIDC_CLIENT_SECRET}
-      OVERFIN_CONNECTOR_TOKEN: ${OVERFIN_CONNECTOR_TOKEN}
-    volumes:
-      - authentik-data:/data
-      - ./authentik:/blueprints/custom:ro,z
-    networks: [edge, authentik]
-    depends_on:
-      postgresql:
-        condition: service_healthy
-
-  authentik-worker:
-    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG}
-    command: worker
-    restart: unless-stopped
-    shm_size: 512mb
-    environment: *authentik
-    volumes:
-      - authentik-data:/data
-      - ./authentik:/blueprints/custom:ro,z
-    networks: [authentik]
-    depends_on:
-      postgresql:
-        condition: service_healthy
-
-  postgresql:
-    image: docker.io/library/postgres:16-alpine
-    restart: unless-stopped
+    # It starts as root only to own its data folder, then runs as UID 1000.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
     environment:
-      POSTGRES_USER: authentik
-      POSTGRES_DB: authentik
-      POSTGRES_PASSWORD: ${PG_PASS}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      APP_URL: https://${AUTH_DOMAIN}
+      TRUST_PROXY: "true"
+      ENCRYPTION_KEY: ${POCKET_ID_ENCRYPTION_KEY:?run ./setup.sh first}
+      # Overfin's key to Pocket ID's API: it sets up its login client and
+      # groups there, reads people's names, and makes sign-up links for
+      # invitations.
+      STATIC_API_KEY: ${OVERFIN_CONNECTOR_TOKEN:?run ./setup.sh first}
+      # Every setting comes from here, not from Pocket ID's admin pages.
+      UI_CONFIG_DISABLED: "true"
+      APP_NAME: ${OVERFIN_SITE_NAME:-Overfin}
+      HOME_PAGE_URL: /settings/apps
+      # Accounts only through Overfin's invitations.
+      ALLOW_USER_SIGNUPS: withToken
+      ANALYTICS_DISABLED: "true"
+      # Emails (sign-in codes for people who lost their passkey, new sign-in
+      # alerts), when an SMTP server is set.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_TLS: ${SMTP_TLS:-none}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_ONE_TIME_ACCESS_AS_UNAUTHENTICATED_ENABLED: ${EMAIL_LOGIN:-false}
+      EMAIL_ONE_TIME_ACCESS_AS_ADMIN_ENABLED: ${EMAIL_LOGIN:-false}
     volumes:
-      - database:/var/lib/postgresql/data
-    networks: [authentik]
+      - pocket-id-data:/app/data
+    networks: [edge]
 
 networks:
-  # Caddy, Overfin and Authentik's server. Automatic addresses come from
+  # Caddy, Overfin and Pocket ID. Automatic addresses come from
   # EDGE_RANGE only, so Caddy's fixed one (CADDY_IP, outside it) is never
   # handed to another container while Caddy restarts.
   edge:
@@ -125,13 +102,10 @@ networks:
       config:
         - subnet: ${EDGE_SUBNET:?run ./setup.sh first}
           ip_range: ${EDGE_RANGE:?run ./setup.sh first}
-  # Authentik and its database only.
-  authentik: {}
 
 volumes:
   caddy-data:
   caddy-config:
   overfin-data:
   overfin-secrets:
-  authentik-data:
-  database:
+  pocket-id-data:

@@ -8,5 +8,5 @@
 }
 
 {$AUTH_DOMAIN} {
-	reverse_proxy authentik-server:9000
+	reverse_proxy pocket-id:1411
 }

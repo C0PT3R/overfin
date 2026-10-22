@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prepares this folder to run Overfin with Caddy and Authentik: asks a few
+# Prepares this folder to run Overfin with Caddy and Pocket ID: asks a few
 # questions, generates every secret, and writes .env (secrets, readable by
 # you only) and overfin.toml. Then: docker compose up -d, and Overfin's
 # setup page connects Jellyfin.
@@ -16,7 +16,7 @@ secret() { openssl rand -hex "$1"; }
 # without one. .env is only read, never run.
 current() {
 	[ -e .env ] || return 0
-	sed -n "s/^$1=//p" .env | head -n 1 | sed 's/^"\(.*\)"$/\1/'
+	sed -n "s/^$1=//p" .env | head -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/"
 }
 
 # ask PROMPT PATTERN [DEFAULT]: reads an answer until it matches PATTERN.
@@ -45,6 +45,10 @@ address() {
 
 again=false
 [ -e .env ] && again=true
+if [ -n "$(current AUTHENTIK_SECRET_KEY)" ]; then
+	echo "This folder runs Authentik, which this version replaces with Pocket ID: see \"From Authentik\" in README.md." >&2
+	exit 1
+fi
 if $again; then
 	echo "This folder is already set up: Enter keeps each current answer, and every secret is kept." >&2
 fi
@@ -55,8 +59,13 @@ domain='[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+'
 site=$(current OVERFIN_DOMAIN)
 auth=$(current AUTH_DOMAIN)
 name=$(current OVERFIN_SITE_NAME)
-old_email=$(current AUTHENTIK_BOOTSTRAP_EMAIL)
-email=$old_email
+email=""
+[ -e overfin.toml ] && email=$(sed -n 's/^first_admin = "\(.*\)"$/\1/p' overfin.toml | head -n 1)
+old_email=$email
+smtp_host=$(current SMTP_HOST)
+smtp_port=$(current SMTP_PORT)
+smtp_from=$(current SMTP_FROM)
+smtp_user=$(current SMTP_USER)
 # Jellyfin is connected in Overfin's setup page. Installs made before that
 # have it here, and keep it.
 jellyfin=""
@@ -72,7 +81,15 @@ while :; do
 	fi
 	auth=$(ask "The sign-in's domain" "$domain" "$auth")
 	name=$(ask "Your site's name, as people will see it" "[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}" "${name:-Movies}")
-	email=$(ask "Your email, for the sign-in's admin account" "[A-Za-z0-9._%+-]+@$domain" "$email")
+	# Pocket ID also takes it as the admin's username: no "+".
+	email=$(ask "Your email, for your admin account" "[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?@$domain" "$email")
+	echo "Emails let people who lost their passkey sign in with a code. Without an SMTP server, there are none." >&2
+	smtp_host=$(ask "SMTP server (e.g. smtp.example.org; - for none)" "-|$domain" "${smtp_host:--}")
+	if [ "$smtp_host" != "-" ]; then
+		smtp_port=$(ask "SMTP port (587: STARTTLS, 465: TLS)" "[0-9]{1,5}" "${smtp_port:-587}")
+		smtp_from=$(ask "Emails come from" "[A-Za-z0-9._%+-]+@$domain" "${smtp_from:-noreply@$site}")
+		smtp_user=$(ask "SMTP username" "[^ ]+" "${smtp_user:-$smtp_from}")
+	fi
 
 	# Where the names point, so a typo or a missing DNS record shows now,
 	# before Caddy asks for certificates.
@@ -84,6 +101,7 @@ while :; do
   Sign-in:        https://$auth (points to ${auth_ip:-nothing})
   Site's name:    $name
   Admin's email:  $email
+  Emails:         $( [ "$smtp_host" = "-" ] && echo none || echo "from $smtp_from, by $smtp_host:$smtp_port")
 EOF
 	if [ -z "$site_ip" ] || [ -z "$auth_ip" ]; then
 		echo "  A name doesn't point anywhere yet: check its spelling and its DNS record." >&2
@@ -98,8 +116,32 @@ EOF
 	echo >&2
 done
 
+# The SMTP password, typed unseen; Enter keeps the current one.
+smtp_password=$(current SMTP_PASSWORD)
+if [ "$smtp_host" != "-" ]; then
+	if [ -n "$smtp_password" ]; then printf 'SMTP password [Enter keeps it]: ' >&2; else printf 'SMTP password: ' >&2; fi
+	while :; do
+		stty -echo 2>/dev/null || true
+		typed=""
+		read -r typed || true
+		stty echo 2>/dev/null || true
+		echo >&2
+		case "$typed" in
+		*"'"*) printf "  It can't contain a ' (single quote). SMTP password: " >&2 ;;
+		*) break ;;
+		esac
+	done
+	[ -n "$typed" ] && smtp_password=$typed
+fi
+smtp_tls=starttls
+[ "$smtp_port" = "465" ] && smtp_tls=tls
+email_login=true
+if [ "$smtp_host" = "-" ]; then
+	smtp_host="" smtp_port="" smtp_from="" smtp_user="" smtp_password="" smtp_tls=none email_login=false
+fi
+
 # Edge network: Caddy's fixed address on the network it shares with
-# Overfin and Authentik; Overfin trusts it to say who's connecting. Other
+# Overfin and Pocket ID; Overfin trusts it to say who's connecting. Other
 # containers get addresses from the range, which leaves Caddy's alone.
 edge_subnet=$(current EDGE_SUBNET)
 edge_range=$(current EDGE_RANGE)
@@ -112,7 +154,6 @@ keep() {
 	printf '%s' "${v:-$2}"
 }
 
-admin_password=$(keep AUTHENTIK_BOOTSTRAP_PASSWORD "$(secret 12)")
 umask 077
 cat > .env.new <<EOF
 # Written by setup.sh. Every secret of this install: keep it private, and
@@ -123,7 +164,7 @@ AUTH_DOMAIN=$auth
 OVERFIN_SITE_NAME="$name"
 
 OVERFIN_IMAGE=$(keep OVERFIN_IMAGE ghcr.io/overfin/overfin:0.2.0)
-AUTHENTIK_TAG=$(keep AUTHENTIK_TAG 2026.8.4)
+POCKET_ID_TAG=$(keep POCKET_ID_TAG v2.19.1)
 CADDY_TAG=$(keep CADDY_TAG 2)
 
 # Caddy's fixed address on the internal network, which Overfin trusts.
@@ -134,11 +175,15 @@ CADDY_IP=${caddy_ip:-172.29.250.2}
 OVERFIN_OIDC_CLIENT_SECRET=$(keep OVERFIN_OIDC_CLIENT_SECRET "$(secret 32)")
 OVERFIN_CONNECTOR_TOKEN=$(keep OVERFIN_CONNECTOR_TOKEN "$(secret 32)")
 
-AUTHENTIK_SECRET_KEY=$(keep AUTHENTIK_SECRET_KEY "$(secret 40)")
-PG_PASS=$(keep PG_PASS "$(secret 24)")
-# Only used on the first start, to create the sign-in's admin (akadmin).
-AUTHENTIK_BOOTSTRAP_PASSWORD=$admin_password
-AUTHENTIK_BOOTSTRAP_EMAIL=$email
+POCKET_ID_ENCRYPTION_KEY=$(keep POCKET_ID_ENCRYPTION_KEY "$(secret 32)")
+
+SMTP_HOST=$smtp_host
+SMTP_PORT=$smtp_port
+SMTP_TLS=$smtp_tls
+SMTP_FROM=$smtp_from
+SMTP_USER=$smtp_user
+SMTP_PASSWORD='$smtp_password'
+EMAIL_LOGIN=$email_login
 EOF
 # An older install's own secret key and Jellyfin key, set in .env, stay.
 for v in OVERFIN_SECRET_KEY OVERFIN_JELLYFIN_ADMIN_KEY; do
@@ -167,7 +212,7 @@ mode = "oidc"
 trusted_proxies = ["$caddy_ip"]
 
 [oidc]
-issuer = "https://$auth/application/o/overfin/"
+issuer = "https://$auth"
 client_id = "overfin"
 redirect_url = "https://$site/api/v1/auth/callback"
 
@@ -177,8 +222,13 @@ group = "overfin-admins"
 redirect_url = "http://localhost:8081/admin/auth/callback"
 
 [connector]
-kind = "authentik"
+kind = "pocketid"
 url = "https://$auth"
+first_admin = "$email"
+
+# On the first start only; then, the control panel's Features.
+[plugins]
+enable = ["invites"]
 EOF
 } > overfin.toml
 
@@ -189,7 +239,7 @@ Updated (the previous overfin.toml is in overfin.toml.bak). To apply:
   docker compose up -d
 EOF
 	if [ "$email" != "$old_email" ]; then
-		echo "The admin's email only counts on the sign-in's first start: change it in Authentik itself (akadmin's profile)." >&2
+		echo "The admin's email only counts while Pocket ID has nobody: change it in Pocket ID itself (your account's page)." >&2
 	fi
 	exit 0
 fi
@@ -202,10 +252,11 @@ Then, after a minute or two:
   - connect Jellyfin, in Overfin's setup page: ssh -L 8081:localhost:8081
     <this machine>, then http://localhost:8081, with the setup code from
     docker compose logs overfin;
-  - https://$auth : sign in as akadmin, password $admin_password
-    (change it), and create the people who'll use the site;
+  - your sign-in link (it works once, for an hour):
+      docker compose exec pocket-id /app/pocket-id one-time-access-token $email
+    open it and add a passkey;
   - https://$site : the site;
-  - the control panel, later: same address as the setup page, signed in as
-    akadmin.
+  - the control panel, later: same address as the setup page. Invite people
+    from its Invites tab.
 If something's off: docker compose exec overfin /overfin -check
 EOF

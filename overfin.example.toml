@@ -101,13 +101,20 @@ tls_key = ""
 
 [connector]
 # Optional: the identity provider's own API, so the control panel shows who's
-# behind each account (live, never stored), and later sends invitations.
-# Set OVERFIN_CONNECTOR_TOKEN. With Authentik: a service account with the
-# global permission "Can view User", and a token for it made in Tokens and
-# App passwords with intent "API Token" (not an app password).
-kind = ""                       # "authentik"
+# behind each account (live, never stored). Set OVERFIN_CONNECTOR_TOKEN.
+# With Pocket ID: its STATIC_API_KEY. Overfin then also sets up, at each
+# start, its login client there ([oidc]'s client ID and secret, the site's
+# and the panel's return addresses) and the groups named in [admin] and
+# [identity]; invitation links lead to a one-person sign-up link (set
+# ALLOW_USER_SIGNUPS=withToken in Pocket ID).
+# With Authentik: a service account with the global permission "Can view
+# User", and a token for it made in Tokens and App passwords with intent
+# "API Token" (not an app password).
+kind = ""                       # "pocketid" or "authentik"
 url = ""                        # e.g. "https://auth.example.org"
 dial = ""                       # optional "host:port", as in [oidc]
+first_admin = ""                # Pocket ID: while it has nobody, this email
+                                # becomes its admin, in the admin group
 
 [site]
 # What Overfin serves at the site's root, to logged-in visitors only:

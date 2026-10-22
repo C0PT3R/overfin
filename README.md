@@ -36,8 +36,10 @@ practice:
 - **Releases are pre-releases.** Each comes as a signed image for x86 and
   ARM (`ghcr.io/overfin/overfin`). The API, the settings and the database
   can still change between versions; the database migrates itself.
-- **Only Authentik has been tried** as the identity provider. Any OpenID
-  Connect provider should work, but none other has been tested.
+- **Two identity providers so far.** Authentik has been used for real;
+  Pocket ID, the one [deploy/](deploy) runs, has been tested against its
+  API, not yet for real. Any OpenID Connect provider should work, but none
+  other has been tested.
 - **Browser only.** There's no login for native apps yet, and Jellyfin's own
   apps don't go through Overfin, so people who move to it watch in a
   browser.
@@ -85,8 +87,9 @@ yet.
   invitation".
 - Migration: people bring their existing Jellyfin account and its history,
   once, with its username and password.
-- Real names in the panel, read live from Authentik through an optional
-  connector.
+- Real names in the panel, read live from Authentik or Pocket ID through
+  an optional connector. With Pocket ID, Overfin also sets up its own login
+  client there, and invitations come with a sign-up link.
 - Stream limits per account, a server-wide transcode cap, a bitrate cap.
 
 ## What's missing
@@ -107,9 +110,9 @@ are marked `x-status: planned`.
 
 ## Trying it
 
-**The quickest way** is [deploy/](deploy): Overfin, Caddy and Authentik in
-one compose file, with Authentik set up for Overfin by a blueprint. A script
-asks a few questions and generates every secret.
+**The quickest way** is [deploy/](deploy): Overfin, Caddy and Pocket ID
+(passkey logins) in one compose file, with Pocket ID set up by Overfin
+itself. A script asks a few questions and generates every secret.
 
 **By hand**, with your own reverse proxy and identity provider, you need a **Jellyfin 12** server, ideally not reachable from the internet
 (see [SECURITY.md](SECURITY.md), Deployment, for what exposing both means), an
@@ -204,10 +207,13 @@ group = "overfin-admins"   # who may sign in, at your identity provider
 redirect_url = "http://localhost:8081/admin/auth/callback"
 ```
 
-For real names with Authentik, add a `[connector]` (`kind = "authentik"`,
-`url = "https://auth.example.org"`) and set `OVERFIN_CONNECTOR_TOKEN` to an
-Authentik token of intent **API Token** (not an app password), for a user
-allowed only to **view users**.
+For real names, add a `[connector]`. With Pocket ID (`kind = "pocketid"`,
+`url = "https://auth.example.org"`), set `OVERFIN_CONNECTOR_TOKEN` to its
+`STATIC_API_KEY`: Overfin then also sets up its own login client and the
+admin group there, and invitation links lead to a one-person sign-up link
+(Pocket ID needs `ALLOW_USER_SIGNUPS=withToken`). With Authentik
+(`kind = "authentik"`), set it to an Authentik token of intent **API Token**
+(not an app password), for a user allowed only to **view users**.
 
 ### Moving people over from Jellyfin
 
