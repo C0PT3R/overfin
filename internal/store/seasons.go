@@ -21,6 +21,8 @@ type TitleDetails struct {
 
 // CastMember is someone in a title's cast.
 type CastMember struct {
+	// TMDB is the person's TMDB ID; "" when unknown.
+	TMDB      string `json:"tmdb,omitempty"`
 	Name      string `json:"name"`
 	Character string `json:"character"`
 	Profile   string `json:"profile,omitempty"` // TMDB's path of their photo

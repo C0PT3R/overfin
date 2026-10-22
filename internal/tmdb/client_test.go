@@ -48,10 +48,17 @@ func fakeTMDB(t *testing.T) *Client {
 			}
 			io.WriteString(w, `{"id":550,"title":"Fight Club","release_date":"1999-10-15","runtime":139,"tagline":"Mischief.","vote_average":8.4,
 				"overview":"An insomniac.","genres":[{"name":"Drame"}],
-				"credits":{"cast":[{"name":"Edward Norton","character":"Narrator","profile_path":"/norton1234.jpg"}]},
+				"credits":{"cast":[{"id":819,"name":"Edward Norton","character":"Narrator","profile_path":"/norton1234.jpg"}]},
 				"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
 				"images":{"logos":[{"file_path":"/logoen1234.png","iso_639_1":"en"},{"file_path":"/logofr1234.png","iso_639_1":"fr"},
 					{"file_path":"/logo.svg","iso_639_1":"fr"}]}}`)
+		case "/3/person/1245":
+			io.WriteString(w, `{"id":1245,"name":"Scarlett <b>Johansson</b>","biography":"Actrice.","birthday":"1984-11-22",
+				"place_of_birth":"New York","profile_path":"/scarlett123.jpg","known_for_department":"Acting",
+				"combined_credits":{"cast":[{"id":1726,"media_type":"movie","title":"Iron Man 2","release_date":"2010-04-28","character":"Natasha"},
+					{"id":9,"media_type":"tv","name":"SNL","first_air_date":"1975-10-11","character":"Host"},
+					{"id":3,"media_type":"person","name":"?"}],
+					"crew":[{"id":5,"media_type":"movie","title":"North Star","release_date":"2025-01-01","job":"Director"}]}}`)
 		case "/3/find/tt0944947":
 			if r.URL.Query().Get("external_source") != "imdb_id" {
 				w.WriteHeader(http.StatusBadRequest)
@@ -142,13 +149,19 @@ func TestClient(t *testing.T) {
 	}
 	if full.Name != "Fight Club" || full.Year != 1999 || full.Runtime != 139 || full.Tagline != "Mischief." ||
 		full.ReleaseDate != "1999-10-15" || full.Rating != 8.4 ||
-		full.Overview != "An insomniac." || len(full.Cast) != 1 || full.Cast[0].Profile != "/norton1234.jpg" {
+		full.Overview != "An insomniac." || len(full.Cast) != 1 || full.Cast[0].Profile != "/norton1234.jpg" || full.Cast[0].ID != 819 {
 		t.Errorf("title: %+v", full)
 	}
 	// A series' cast is the one over all its seasons.
 	if s, err := c.Title(ctx, "series", 1400); err != nil || len(s.Cast) != 2 || s.Cast[0].Character != "Jerry" ||
 		s.Cast[0].Profile != "/jerry12345.jpg" || s.Cast[1].Character != "" {
 		t.Errorf("series cast: %+v %v", s, err)
+	}
+	person, err := c.Person(ctx, 1245)
+	if err != nil || person.Name != "Scarlett Johansson" || person.Birthday != "1984-11-22" || person.Profile != "/scarlett123.jpg" ||
+		len(person.Credits) != 3 || person.Credits[0].Title.Kind != "movie" || person.Credits[0].Role != "Natasha" ||
+		person.Credits[1].Title.Kind != "series" || !person.Credits[2].Crew || person.Credits[2].Role != "Director" {
+		t.Errorf("person: %+v %v", person, err)
 	}
 	if id, err := c.Find(ctx, "series", "imdb", "tt0944947"); err != nil || id != 1399 {
 		t.Errorf("find a series: %d %v", id, err)

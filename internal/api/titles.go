@@ -34,6 +34,8 @@ func titleRef(id string) (store.TitleRef, bool) {
 }
 
 type titleCast struct {
+	// ID is the person's, for their page; absent when unknown.
+	ID        string            `json:"id,omitempty"`
 	Name      string            `json:"name"`
 	Character string            `json:"character,omitempty"`
 	Image     *library.ImageRef `json:"image,omitempty"`
@@ -337,6 +339,9 @@ func (l Library) title(w http.ResponseWriter, r *http.Request) {
 	out := titleDetail{TitleSummary: sums[0], Overview: t.Overview, Tagline: t.Details.Tagline, Genres: t.Details.Genres}
 	for _, c := range t.Details.Cast {
 		tc := titleCast{Name: c.Name, Character: c.Character}
+		if c.TMDB != "" {
+			tc.ID = personID(c.TMDB)
+		}
 		if id := images.ArtworkID("profile", c.Profile); id != "" {
 			tc.Image = &library.ImageRef{URL: "/api/v1/images/" + id}
 		}

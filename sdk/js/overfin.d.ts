@@ -190,9 +190,22 @@ export interface Title extends TitleSummary {
   overview?: string;
   tagline?: string;
   genres?: string[];
-  cast?: { name: string; character?: string; image?: ImageRef }[];
+  cast?: { id?: string; name: string; character?: string; image?: ImageRef }[];
   seasons?: TitleSummary[];
   episodes?: TitleSummary[];
+}
+
+/** A person, from TMDB, and the titles they're in. */
+export interface Person {
+  id: string;
+  name: string;
+  biography?: string;
+  birthday?: string;
+  deathday?: string;
+  birthplace?: string;
+  department?: string;
+  image?: ImageRef;
+  credits: { title: TitleSummary; roles?: string[] }[];
 }
 
 export interface TitlePage {
@@ -303,6 +316,7 @@ export class Overfin {
   libraries(): Promise<Library[]>;
   /** A title's page, in a library or not. */
   title(id: string): Promise<Title>;
+  person(id: string): Promise<Person>;
   /** A library's titles; kind is required. */
   titles(query?: TitleQuery): Promise<TitlePage>;
   pages(query?: TitleQuery): AsyncGenerator<TitlePage>;

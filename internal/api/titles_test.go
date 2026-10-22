@@ -12,15 +12,15 @@ import (
 
 type testTitle struct {
 	ID, Kind, Name, Availability, Certification string
-	Year                         int
-	Playable                     bool
-	Series                       *struct{ ID, Name string }
-	EpisodeCount                 *struct{ InLibrary, Aired int }
-	Images                       *struct{ Primary *struct{ URL string } }
-	UserState                    *struct{ Played, Favorite bool }
-	Overview                     string
-	Genres                       []string
-	Cast                         []struct {
+	Year                                        int
+	Playable                                    bool
+	Series                                      *struct{ ID, Name string }
+	EpisodeCount                                *struct{ InLibrary, Aired int }
+	Images                                      *struct{ Primary *struct{ URL string } }
+	UserState                                   *struct{ Played, Favorite bool }
+	Overview                                    string
+	Genres                                      []string
+	Cast                                        []struct {
 		Name  string
 		Image *struct{ URL string }
 	}

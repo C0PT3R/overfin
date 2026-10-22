@@ -19,6 +19,7 @@ type TitleSource interface {
 	Season(ctx context.Context, seriesID, season int) (*tmdb.SeasonFull, error)
 	// Find is the TMDB ID an IMDb or TVDB ID names.
 	Find(ctx context.Context, kind, source, id string) (int, error)
+	Person(ctx context.Context, id int) (*tmdb.PersonFull, error)
 }
 
 // Titles keeps what TMDB says about every film and series the library has,
@@ -87,6 +88,9 @@ func (a *Titles) Once(ctx context.Context) error {
 		return err
 	}
 	if err := a.Store.PurgeSeasons(ctx, a.clock().Add(-Kept)); err != nil {
+		return err
+	}
+	if err := a.Store.PurgePeople(ctx, a.clock().Add(-Kept)); err != nil {
 		return err
 	}
 	src := a.Source()
@@ -188,7 +192,11 @@ func (a *Titles) page(ctx context.Context, src TitleSource, kind string, id int,
 	}
 	det := store.TitleDetails{Genres: full.Genres, Runtime: full.Runtime, Tagline: full.Tagline}
 	for _, c := range full.Cast {
-		det.Cast = append(det.Cast, store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile})
+		cm := store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile}
+		if c.ID > 0 {
+			cm.TMDB = strconv.Itoa(c.ID)
+		}
+		det.Cast = append(det.Cast, cm)
 	}
 	var seasons []int
 	for _, se := range full.Seasons {
@@ -297,4 +305,29 @@ func (a *Titles) pause(ctx context.Context) error {
 	case <-time.After(a.Pause):
 		return nil
 	}
+}
+
+// FetchPerson reads and keeps, now, a person and their credits' titles:
+// for a person someone opens.
+func (a *Titles) FetchPerson(ctx context.Context, tmdbID string) error {
+	src := a.Source()
+	id, err := strconv.Atoi(tmdbID)
+	if src == nil || err != nil {
+		return tmdb.ErrNotFound
+	}
+	full, err := src.Person(ctx, id)
+	if err != nil {
+		return err
+	}
+	p := store.Person{TMDB: tmdbID, Name: full.Name, Biography: full.Biography, Birthday: full.Birthday,
+		Deathday: full.Deathday, Birthplace: full.Birthplace, Department: full.Department, Profile: full.Profile}
+	var titles []store.Title
+	for _, c := range full.Credits {
+		t := c.Title
+		key := store.Title{Kind: t.Kind, TMDB: strconv.Itoa(t.TMDBID), Name: t.Name, Year: t.Year, Overview: t.Overview,
+			Poster: t.Poster, Backdrop: t.Backdrop}
+		titles = append(titles, key)
+		p.Credits = append(p.Credits, store.PersonCredit{Kind: t.Kind, TMDB: key.TMDB, Role: c.Role, Crew: c.Crew})
+	}
+	return a.Store.SetPerson(ctx, p, titles, a.clock())
 }

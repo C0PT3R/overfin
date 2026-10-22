@@ -179,7 +179,7 @@ func (s *Store) ForgetTMDB(ctx context.Context) error {
 	defer tx.Rollback()
 	for _, q := range []string{`DELETE FROM catalog_lists`, `DELETE FROM catalog_titles`,
 		`DELETE FROM rating_scales`, `DELETE FROM title_ratings`, `DELETE FROM title_ratings_fetched`,
-		`DELETE FROM artwork`, `DELETE FROM artwork_fetched`, `DELETE FROM catalog_episodes`, `DELETE FROM catalog_seasons`} {
+		`DELETE FROM artwork`, `DELETE FROM artwork_fetched`, `DELETE FROM catalog_episodes`, `DELETE FROM catalog_seasons`, `DELETE FROM tmdb_people`} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}

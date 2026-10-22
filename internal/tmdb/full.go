@@ -52,6 +52,7 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 		// season's only).
 		AggregateCredits struct {
 			Cast []struct {
+				ID          int    `json:"id"`
 				Name        string `json:"name"`
 				ProfilePath string `json:"profile_path"`
 				Roles       []struct {
@@ -85,10 +86,10 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 	}
 	var cast []Person
 	for _, p := range raw.Credits.Cast {
-		cast = append(cast, Person{Name: p.Name, Character: p.Character, Profile: p.ProfilePath})
+		cast = append(cast, Person{ID: p.ID, Name: p.Name, Character: p.Character, Profile: p.ProfilePath})
 	}
 	for _, p := range raw.AggregateCredits.Cast {
-		person := Person{Name: p.Name, Profile: p.ProfilePath}
+		person := Person{ID: p.ID, Name: p.Name, Profile: p.ProfilePath}
 		if len(p.Roles) > 0 {
 			person.Character = p.Roles[0].Character // the role they played most
 		}
@@ -231,3 +232,95 @@ func (c *Client) Find(ctx context.Context, kind, source, id string) (int, error)
 
 // externalID is what an IMDb or a TVDB ID looks like.
 var externalID = regexp.MustCompile(`^(tt)?[0-9]{1,12}$`)
+
+// PersonFull is a person, as TMDB has them: who they are, and the films
+// and series they're credited in.
+type PersonFull struct {
+	ID         int
+	Name       string
+	Biography  string
+	Birthday   string // YYYY-MM-DD, or ""
+	Deathday   string
+	Birthplace string
+	Profile    string // a TMDB image path, or ""
+	// Department is what they're known for: Acting, Directing…
+	Department string
+	Credits    []Credit
+}
+
+// Credit is one of a person's films or series, and what they did in it.
+type Credit struct {
+	Title Title
+	// Role is their character, or their job behind the camera.
+	Role string
+	// Crew: a job behind the camera, not a part.
+	Crew bool
+}
+
+// Person returns a person, with their films' and series' credits, in the
+// client's language.
+func (c *Client) Person(ctx context.Context, id int) (*PersonFull, error) {
+	if !ValidID(id) {
+		return nil, ErrNotFound
+	}
+	type credit struct {
+		rawTitle
+		Character string `json:"character"`
+		Job       string `json:"job"`
+	}
+	var raw struct {
+		ID                 int    `json:"id"`
+		Name               string `json:"name"`
+		Biography          string `json:"biography"`
+		Birthday           string `json:"birthday"`
+		Deathday           string `json:"deathday"`
+		PlaceOfBirth       string `json:"place_of_birth"`
+		ProfilePath        string `json:"profile_path"`
+		KnownForDepartment string `json:"known_for_department"`
+		CombinedCredits    struct {
+			Cast []credit `json:"cast"`
+			Crew []credit `json:"crew"`
+		} `json:"combined_credits"`
+	}
+	q := c.withLanguage(url.Values{"append_to_response": {"combined_credits"}})
+	if err := c.get(ctx, "/person/"+strconv.Itoa(id), q, &raw); err != nil {
+		return nil, err
+	}
+	if raw.ID != id {
+		return nil, ErrNotFound
+	}
+	out := &PersonFull{ID: id, Name: textclean.Plain(raw.Name, 300), Biography: textclean.Plain(raw.Biography, 5000),
+		Birthday: date(raw.Birthday), Deathday: date(raw.Deathday), Birthplace: textclean.Plain(raw.PlaceOfBirth, 200),
+		Department: textclean.Plain(raw.KnownForDepartment, 60)}
+	if out.Name == "" {
+		return nil, ErrNotFound
+	}
+	if imagePath.MatchString(raw.ProfilePath) {
+		out.Profile = raw.ProfilePath
+	}
+	add := func(cr credit, crew bool) {
+		kind := map[string]string{"movie": "movie", "tv": "series"}[cr.MediaType]
+		if kind == "" || len(out.Credits) == maxCredits {
+			return
+		}
+		t, ok := cr.title(kind)
+		if !ok {
+			return
+		}
+		role := cr.Character
+		if crew {
+			role = cr.Job
+		}
+		out.Credits = append(out.Credits, Credit{Title: t, Role: textclean.Plain(role, 120), Crew: crew})
+	}
+	for _, cr := range raw.CombinedCredits.Cast {
+		add(cr, false)
+	}
+	for _, cr := range raw.CombinedCredits.Crew {
+		add(cr, true)
+	}
+	return out, nil
+}
+
+// maxCredits bounds a person's credits.
+const maxCredits = 500

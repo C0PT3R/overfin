@@ -124,6 +124,8 @@ export class Overfin {
   async libraries() { return (await this.request('GET', '/libraries')).items; }
   /** A title's page, in a library or not: a series with its seasons, a season with its episodes. */
   title(id) { return this.request('GET', `/titles/${enc(id)}`); }
+  /** A person's page, from TMDB, with the titles they're in. */
+  person(id) { return this.request('GET', `/people/${enc(id)}`); }
 
   /**
    * One page of a library's titles. query: library, kind ('movie',

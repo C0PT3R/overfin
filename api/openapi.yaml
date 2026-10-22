@@ -1086,6 +1086,68 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /people/{personId}:
+    parameters:
+      - name: personId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^person_tmdb_[1-9][0-9]{0,11}$"
+          examples: [person_tmdb_1245]
+    get:
+      operationId: getPerson
+      summary: A person, from TMDB, and their films and series
+      description: >-
+        Asked of TMDB when it's opened (and again after a week). Their
+        titles follow the same rules as everywhere: those the profile may
+        see, and those out as the operator sets. Those a library has come
+        first, then the latest first; each once, with every role.
+      tags: [titles]
+      responses:
+        "200":
+          description: The person.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name, credits]
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  biography:
+                    type: string
+                  birthday:
+                    type: string
+                    format: date
+                  deathday:
+                    type: string
+                    format: date
+                  birthplace:
+                    type: string
+                  department:
+                    type: string
+                    description: What they're known for (Acting, Directing…).
+                  image:
+                    $ref: "#/components/schemas/ImageRef"
+                  credits:
+                    type: array
+                    items:
+                      type: object
+                      required: [title]
+                      properties:
+                        title:
+                          $ref: "#/components/schemas/TitleSummary"
+                        roles:
+                          type: array
+                          description: Their characters, or their jobs behind the camera.
+                          items:
+                            type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /titles/{titleId}/played:
     parameters:
       - $ref: "#/components/parameters/TitleId"
@@ -2582,6 +2644,9 @@ components:
                 type: object
                 required: [name]
                 properties:
+                  id:
+                    type: string
+                    description: The person's, for their page (`/people/{personId}`).
                   name:
                     type: string
                   character:

@@ -60,6 +60,7 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/titles/latest":   l.latestTitles,
 		"GET /api/v1/titles/continue": l.continueTitles,
 		"GET /api/v1/titles/{id}":     l.title,
+		"GET /api/v1/people/{id}":     l.person,
 		// What the profile does with titles (rule 40).
 		"PUT /api/v1/titles/{id}/played":      l.markTitlePlayed,
 		"DELETE /api/v1/titles/{id}/played":   l.unmarkTitlePlayed,

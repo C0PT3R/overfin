@@ -39,6 +39,12 @@ func (l Library) artworkImage(w http.ResponseWriter, r *http.Request, p *store.P
 		if err != nil {
 			return err
 		}
+		// A person's own photo: people carry no rating, library or tag.
+		if ref.Type == "profile" {
+			if ok, err := st.IsPersonPhoto(ctx, ref.Path); err != nil || ok {
+				return err
+			}
+		}
 		if len(ids) > 0 {
 			if a == nil {
 				return nil

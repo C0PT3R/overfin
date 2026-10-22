@@ -67,6 +67,8 @@ type Details struct {
 }
 
 type Person struct {
+	// ID is the person's TMDB ID; 0 when unknown.
+	ID        int
 	Name      string
 	Character string
 	// Profile is the person's photo, as TMDB gives its path; "" without
@@ -146,6 +148,9 @@ func MakeDetails(t Title, genres []string, cast []Person, seasons []Season) *Det
 		}
 		if name := textclean.Plain(p.Name, 120); name != "" {
 			c := Person{Name: name, Character: textclean.Plain(p.Character, 120)}
+			if ValidID(p.ID) {
+				c.ID = p.ID
+			}
 			if imagePath.MatchString(p.Profile) {
 				c.Profile = p.Profile
 			}

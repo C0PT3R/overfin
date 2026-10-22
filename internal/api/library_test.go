@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/overfin/server/internal/api"
+	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
@@ -265,6 +266,8 @@ type options struct {
 	// seerr, when set, connects discovery to it; store receives the store.
 	seerr *seerr.Client
 	store **store.Store
+	// tmdb, when set, is TMDB for the pages fetched when opened.
+	tmdb catalog.TitleSource
 }
 
 func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
@@ -340,6 +343,10 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		}
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Service: service, Logger: logger}
+	if o.tmdb != nil {
+		src := o.tmdb
+		lib.Titles = catalog.NewTitles(func() catalog.TitleSource { return src }, st, logger, time.Hour, 0)
+	}
 	if o.seerr != nil {
 		lib.Images = images.New(jf, 1<<20)
 		disc := &api.Discovery{Library: lib, Store: st}
