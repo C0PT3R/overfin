@@ -58,23 +58,40 @@ func Reasons(t store.LibraryTitle) []Reason {
 		out = append(out, r)
 	}
 	if t.Kind == "movie" && t.RuntimeMs > 0 && t.Details.Runtime > 0 {
+		// Half again as long, or less than two thirds: not another cut of
+		// it (an extended edition runs about a third longer).
 		here, there := int(t.RuntimeMs/60_000), t.Details.Runtime
-		if d := abs(here - there); d > 20 && d*4 > there {
+		if abs(here-there) > 15 && (2*here > 3*there || 3*here < 2*there) {
 			out = append(out, Reason{"runtime", fmt.Sprintf("%d minutes here; TMDB says %d.", here, there)})
 		}
 	}
 	return out
 }
 
-// seasons compares a series' episodes with TMDB's seasons: seasons TMDB
-// doesn't list, or more episodes than it lists. Specials aside.
+// seasons compares a series' episodes with TMDB's: far more here than TMDB
+// lists in all (half again, and a few), then says where: seasons TMDB
+// doesn't list, or with more episodes than it lists. A few more (double
+// episodes split in two) or seasons numbered otherwise (anime TMDB lists
+// as one season) aren't signs. Specials aside.
 func seasons(t store.LibraryTitle) (Reason, bool) {
 	if t.Kind != "series" || len(t.Details.Seasons) == 0 {
 		return Reason{}, false
 	}
 	listed := map[int]int{}
+	total, have := 0, 0
 	for _, s := range t.Details.Seasons {
 		listed[s.Number] = s.EpisodeCount
+		if s.Number > 0 {
+			total += s.EpisodeCount
+		}
+	}
+	for n, c := range t.Episodes {
+		if n > 0 {
+			have += c
+		}
+	}
+	if 2*have <= 3*total+4 {
+		return Reason{}, false
 	}
 	var numbers []int
 	for n := range t.Episodes {

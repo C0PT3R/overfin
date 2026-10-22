@@ -59,6 +59,14 @@ func TestReasons(t *testing.T) {
 			TMDBName: "19-2", TMDBYear: 2014,
 			Details:  store.TitleDetails{Seasons: []store.SeasonInfo{{Number: 1, EpisodeCount: 10}, {Number: 2, EpisodeCount: 10}}},
 			Episodes: map[int]int{0: 2, 1: 10, 2: 10, 3: 10, 4: 10}}, []string{"seasons"}},
+		{"an extended cut", store.LibraryTitle{Kind: "movie", FolderName: "Watchmen (2009)", TMDB: "1", TMDBName: "Watchmen",
+			TMDBYear: 2009, RuntimeMs: 215 * 60_000, Details: store.TitleDetails{Runtime: 162}}, nil},
+		{"a double episode split in two", store.LibraryTitle{Kind: "series", FolderName: "Friends", TMDB: "1", TMDBName: "Friends",
+			Details:  store.TitleDetails{Seasons: []store.SeasonInfo{{Number: 1, EpisodeCount: 24}, {Number: 2, EpisodeCount: 23}}},
+			Episodes: map[int]int{1: 24, 2: 24}}, nil},
+		{"an anime TMDB lists as one season", store.LibraryTitle{Kind: "series", FolderName: "Bleach", TMDB: "1", TMDBName: "Bleach",
+			Details:  store.TitleDetails{Seasons: []store.SeasonInfo{{Number: 1, EpisodeCount: 366}}},
+			Episodes: map[int]int{1: 20, 2: 21, 3: 22, 4: 300}}, nil},
 	}
 	for _, c := range cases {
 		if got := codes(Reasons(c.t)); !slices.Equal(got, c.want) {
