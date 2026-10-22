@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/provision"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/provision"
+	"github.com/overfin/server/internal/store"
 )
 
 // Importer brings profiles' data over, each once, as profiles appear

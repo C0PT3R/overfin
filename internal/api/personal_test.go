@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/store"
 )
 
 // What a profile does with titles is Overfin's: playbacks record it, marks

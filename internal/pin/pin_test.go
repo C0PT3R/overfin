@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/seal"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/seal"
+	"github.com/overfin/server/internal/store"
 )
 
 func setup(t *testing.T) (*Checker, *time.Time, string, string) {

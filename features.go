@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/C0PT3R/overfin-server/internal/config"
-	"github.com/C0PT3R/overfin-server/internal/feature"
-	"github.com/C0PT3R/overfin-server/internal/invites"
-	"github.com/C0PT3R/overfin-server/internal/migration"
-	"github.com/C0PT3R/overfin-server/internal/store"
-	"github.com/C0PT3R/overfin-server/internal/watchlist"
+	"github.com/overfin/server/internal/config"
+	"github.com/overfin/server/internal/feature"
+	"github.com/overfin/server/internal/invites"
+	"github.com/overfin/server/internal/migration"
+	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/watchlist"
 )
 
 // modules are Overfin's features built on the internal feature contract,

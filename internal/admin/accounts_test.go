@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/connector"
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/provision"
-	"github.com/C0PT3R/overfin-server/internal/seal"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/provision"
+	"github.com/overfin/server/internal/seal"
+	"github.com/overfin/server/internal/store"
 )
 
 // signedInPanel is a panel with a database and a fake Jellyfin, and a

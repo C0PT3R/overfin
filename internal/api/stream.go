@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/playback"
-	"github.com/C0PT3R/overfin-server/internal/plugin"
-	"github.com/C0PT3R/overfin-server/internal/problem"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/playback"
+	"github.com/overfin/server/internal/plugin"
+	"github.com/overfin/server/internal/problem"
 )
 
 // Stream serves what a playback session plays: the media file, rewritten

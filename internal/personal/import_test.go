@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/seal"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/seal"
+	"github.com/overfin/server/internal/store"
 )
 
 func id(n int) string { return fmt.Sprintf("%032x", n) }

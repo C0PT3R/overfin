@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/ids"
-	"github.com/C0PT3R/overfin-server/internal/seal"
+	"github.com/overfin/server/internal/ids"
+	"github.com/overfin/server/internal/seal"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
 )

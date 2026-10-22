@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	web "github.com/C0PT3R/overfin-web"
+	web "github.com/overfin/web"
 )
 
 // overfin-web ships its own copy of the SDK. The version the official build

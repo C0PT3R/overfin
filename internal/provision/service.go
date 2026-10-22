@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/store"
 )
 
 // serviceDevice is the service account's one device ID: it signs in once,

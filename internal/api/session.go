@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/identity"
-	"github.com/C0PT3R/overfin-server/internal/problem"
-	"github.com/C0PT3R/overfin-server/internal/provision"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/identity"
+	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/provision"
+	"github.com/overfin/server/internal/store"
 )
 
 // CookieName is Overfin's session cookie. The __Host- prefix makes browsers

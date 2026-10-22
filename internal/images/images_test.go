@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
+	"github.com/overfin/server/internal/jellyfin"
 )
 
 const (

@@ -45,7 +45,7 @@ try {
 ```
 
 Copy `overfin.js` (and `overfin.d.ts` for TypeScript) into your site. The
-[overfin-web](https://github.com/C0PT3R/overfin-web) is built on it and shows every part in
+[overfin-web](https://github.com/overfin/web) is built on it and shows every part in
 use. The API itself is specified in [api/openapi.yaml](../../api/openapi.yaml).
 
 Tests: `node --test sdk/js/overfin.test.js`.

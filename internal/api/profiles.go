@@ -10,13 +10,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/C0PT3R/overfin-server/internal/images"
-	"github.com/C0PT3R/overfin-server/internal/pin"
-	"github.com/C0PT3R/overfin-server/internal/plugin"
-	"github.com/C0PT3R/overfin-server/internal/problem"
-	"github.com/C0PT3R/overfin-server/internal/provision"
-	"github.com/C0PT3R/overfin-server/internal/store"
-	"github.com/C0PT3R/overfin-server/internal/textclean"
+	"github.com/overfin/server/internal/images"
+	"github.com/overfin/server/internal/pin"
+	"github.com/overfin/server/internal/plugin"
+	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/provision"
+	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/textclean"
 )
 
 // Profiles serves profiles ("Who's watching?") and sessions.

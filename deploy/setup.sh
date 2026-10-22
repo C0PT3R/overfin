@@ -122,7 +122,7 @@ OVERFIN_DOMAIN=$site
 AUTH_DOMAIN=$auth
 OVERFIN_SITE_NAME="$name"
 
-OVERFIN_IMAGE=$(keep OVERFIN_IMAGE ghcr.io/c0pt3r/overfin:0.1.0)
+OVERFIN_IMAGE=$(keep OVERFIN_IMAGE ghcr.io/overfin/overfin:0.2.0)
 AUTHENTIK_TAG=$(keep AUTHENTIK_TAG 2026.8.4)
 CADDY_TAG=$(keep CADDY_TAG 2)
 

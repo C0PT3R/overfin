@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/oidc"
+	"github.com/overfin/server/internal/oidc"
 )
 
 // fakeIdP plays the identity provider: each code it hands out maps to the

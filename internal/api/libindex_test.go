@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/store"
 )
 
 func TestListingsFromTheIndex(t *testing.T) {

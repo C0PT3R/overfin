@@ -2,7 +2,7 @@
 
 Overfin is your own streaming service on top of a Jellyfin server: a
 server and its own apps, with your brand on all of it. The web app,
-[overfin-web](https://github.com/C0PT3R/overfin-web), comes first; mobile
+[overfin-web](https://github.com/overfin/web), comes first; mobile
 and TV apps will follow. This repository is the server.
 
 The server sits in front of Jellyfin, which browsers never reach through
@@ -34,7 +34,7 @@ practice:
 - **It runs one real server**, every day, with its own web client
   (overfin-web), against Jellyfin 12. That is the extent of its real-world use.
 - **Releases are pre-releases.** Each comes as a signed image for x86 and
-  ARM (`ghcr.io/c0pt3r/overfin`). The API, the settings and the database
+  ARM (`ghcr.io/overfin/overfin`). The API, the settings and the database
   can still change between versions; the database migrates itself.
 - **Only Authentik has been tried** as the identity provider. Any OpenID
   Connect provider should work, but none other has been tested.
@@ -154,7 +154,7 @@ control panel.
 | `OVERFIN_OIDC_CLIENT_SECRET` | The client secret from step 2 |
 
 **5. Run it** (the version from the
-[releases](https://github.com/C0PT3R/overfin-server/releases); `docker
+[releases](https://github.com/overfin/server/releases); `docker
 build -t overfin .` builds it from source instead):
 
 ```sh
@@ -162,7 +162,7 @@ docker run -d --name overfin --network proxy \
   -v "$PWD/overfin.toml:/etc/overfin/overfin.toml:ro" \
   -v overfin-data:/data -v overfin-secrets:/secrets \
   -e OVERFIN_JELLYFIN_ADMIN_KEY -e OVERFIN_OIDC_CLIENT_SECRET \
-  ghcr.io/c0pt3r/overfin:0.1.0
+  ghcr.io/overfin/overfin:0.2.0
 ```
 
 **6. The reverse proxy** handles HTTPS and passes everything to Overfin,
@@ -174,7 +174,7 @@ example.org {
 }
 ```
 
-Open your domain and log in: you're on [overfin-web](https://github.com/C0PT3R/overfin-web), Overfin's own
+Open your domain and log in: you're on [overfin-web](https://github.com/overfin/web), Overfin's own
 web client, served to logged-in visitors only.
 
 **Your own client instead?** Set `[site] serve` to its folder: Overfin
@@ -248,7 +248,7 @@ TMDB's commercial terms.
   TypeScript types, and a player that handles progress, recovery and
   takeovers.
 - **overfin-web**, in
-  [its own repository](https://github.com/C0PT3R/overfin-web): Overfin's own
+  [its own repository](https://github.com/overfin/web): Overfin's own
   web app, in Svelte and TypeScript on the SDK, bundled by the official
   build and served by default. It's what the real server runs, and it uses
   nothing but the public API, like any client.

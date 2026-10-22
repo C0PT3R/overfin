@@ -9,15 +9,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/catalog"
-	"github.com/C0PT3R/overfin-server/internal/cursor"
-	"github.com/C0PT3R/overfin-server/internal/images"
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/library"
-	"github.com/C0PT3R/overfin-server/internal/plugin"
-	"github.com/C0PT3R/overfin-server/internal/problem"
-	"github.com/C0PT3R/overfin-server/internal/seerr"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/catalog"
+	"github.com/overfin/server/internal/cursor"
+	"github.com/overfin/server/internal/images"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/library"
+	"github.com/overfin/server/internal/plugin"
+	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/seerr"
+	"github.com/overfin/server/internal/store"
 )
 
 // Discovery serves the catalog's discovery: what's trending, popular or

@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/config"
-	"github.com/C0PT3R/overfin-server/internal/connector"
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/keys"
-	"github.com/C0PT3R/overfin-server/internal/oidc"
-	"github.com/C0PT3R/overfin-server/internal/seal"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/config"
+	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/keys"
+	"github.com/overfin/server/internal/oidc"
+	"github.com/overfin/server/internal/seal"
+	"github.com/overfin/server/internal/store"
 )
 
 // problem is what's wrong, as a sentence for people to read: the setup

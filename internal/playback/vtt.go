@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/C0PT3R/overfin-server/internal/textclean"
+	"github.com/overfin/server/internal/textclean"
 )
 
 // Subtitles reach clients only as sanitized WebVTT (SECURITY.md rule 11).

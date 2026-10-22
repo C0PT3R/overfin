@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
+	"github.com/overfin/server/internal/jellyfin"
 )
 
 const jfID = "0123456789abcdef0123456789abcdef"

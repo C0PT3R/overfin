@@ -17,8 +17,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/textclean"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/textclean"
 )
 
 // ---- Capabilities -------------------------------------------------------------

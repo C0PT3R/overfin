@@ -18,8 +18,8 @@ up for Overfin by a blueprint, so there's nothing to click through there.
 Get this folder from the release you want, then run the setup:
 
 ```sh
-git clone --depth 1 --branch v0.1.0 https://github.com/C0PT3R/overfin-server
-cd overfin-server/deploy
+git clone --depth 1 --branch v0.2.0 https://github.com/overfin/server overfin
+cd overfin/deploy
 ./setup.sh
 docker compose up -d
 ```

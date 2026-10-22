@@ -7,11 +7,11 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/C0PT3R/overfin-server/internal/cursor"
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/library"
-	"github.com/C0PT3R/overfin-server/internal/problem"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/cursor"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/library"
+	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/store"
 )
 
 // Library listings answered from the catalog's index, which is faster than

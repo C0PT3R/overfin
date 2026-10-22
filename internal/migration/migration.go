@@ -14,7 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/C0PT3R/overfin-server/internal/feature"
+	"github.com/overfin/server/internal/feature"
 )
 
 //go:embed ui/panel.js

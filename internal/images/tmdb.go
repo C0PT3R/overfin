@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
+	"github.com/overfin/server/internal/jellyfin"
 )
 
 // TMDB's image server: the only host Overfin fetches TMDB images from

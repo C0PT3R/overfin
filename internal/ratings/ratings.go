@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/seerr"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/seerr"
+	"github.com/overfin/server/internal/store"
 )
 
 // Source is where TMDB's certifications come from.

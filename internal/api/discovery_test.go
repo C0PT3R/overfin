@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/catalog"
-	"github.com/C0PT3R/overfin-server/internal/ratings"
-	"github.com/C0PT3R/overfin-server/internal/seerr"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/catalog"
+	"github.com/overfin/server/internal/ratings"
+	"github.com/overfin/server/internal/seerr"
+	"github.com/overfin/server/internal/store"
 )
 
 // fakeSeerr answers discovery: two films trending (949, in the library;

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0PT3R/overfin-server/internal/identity"
-	"github.com/C0PT3R/overfin-server/internal/plugin"
+	"github.com/overfin/server/internal/identity"
+	"github.com/overfin/server/internal/plugin"
 )
 
 // The test server's client connects from 127.0.0.1, which these tests treat

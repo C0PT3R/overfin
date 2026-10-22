@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/store"
-	"github.com/C0PT3R/overfin-server/internal/textclean"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/textclean"
 )
 
 // Service is the Jellyfin service account the catalog reads with.

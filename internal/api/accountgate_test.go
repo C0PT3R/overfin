@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/C0PT3R/overfin-server/internal/feature"
+	"github.com/overfin/server/internal/feature"
 )
 
 // gate is a module with a say in creating accounts: it wants an

@@ -25,9 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/identity"
-	"github.com/C0PT3R/overfin-server/internal/jellyfin"
-	"github.com/C0PT3R/overfin-server/internal/store"
+	"github.com/overfin/server/internal/identity"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/store"
 )
 
 var (

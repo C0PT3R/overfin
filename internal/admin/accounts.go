@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0PT3R/overfin-server/internal/connector"
-	"github.com/C0PT3R/overfin-server/internal/store"
-	"github.com/C0PT3R/overfin-server/internal/textclean"
+	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/textclean"
 )
 
 // Users: every account with its profiles and devices, and what the operator
