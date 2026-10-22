@@ -282,8 +282,9 @@ func (c *Config) WithFeatures(f Features) (*Config, error) {
 	return &n, nil
 }
 
-// Admin is Overfin's control panel: its own listener, never on the internet
-// (SECURITY.md rule 58). Off unless Listen is set.
+// Admin is Overfin's control panel. With managed sign-in, it's at /admin/
+// on the site's address, for admins; otherwise on its own listener, never
+// on the internet (SECURITY.md rule 58), off unless Listen is set.
 type Admin struct {
 	// Listen is the panel's address, e.g. ":8081" in a container whose port
 	// is published on a private address only.
@@ -297,6 +298,9 @@ type Admin struct {
 	// TLSCert and TLSKey, when set, serve the panel over HTTPS.
 	TLSCert string `toml:"tls_cert"`
 	TLSKey  string `toml:"tls_key"`
+	// Private, with managed sign-in (where the panel is at /admin/ on the
+	// site's address), keeps the panel to private addresses: LAN, VPN.
+	Private bool `toml:"private"`
 }
 
 // Connector reads people from the identity provider's own API, for the
@@ -721,7 +725,15 @@ func (c *Config) validate() error {
 	}
 	c.settleModules(add)
 
-	if a := c.Admin; a.Enabled() {
+	if a := c.Admin; c.Identity.Mode == "managed" {
+		if a.Listen != "" || a.Group != "" || a.RedirectURL != "" || a.TLSCert != "" || a.TLSKey != "" {
+			add("with managed sign-in, the control panel is at /admin/ on the site's address, for admins: " +
+				"[admin] takes only private = true, to keep it to private addresses")
+		}
+	} else if a.Private {
+		add("admin.private is for managed sign-in; the panel's own listener is always private")
+	}
+	if a := c.Admin; a.Enabled() && c.Identity.Mode != "managed" {
 		if !c.OIDC.Enabled() {
 			add("the admin panel needs the [oidc] section, for its sign-in")
 		}

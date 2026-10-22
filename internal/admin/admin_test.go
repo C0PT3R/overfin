@@ -290,3 +290,74 @@ func TestProviderRefusalIsShown(t *testing.T) {
 		t.Errorf("refused sign-in: %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body)
 	}
 }
+
+// With managed sign-in, the panel is on the site's address: admins come in
+// through the site's sign-in, after confirming it's them, and stay in only
+// while they're still that admin there.
+func TestPanelOnSite(t *testing.T) {
+	p := &Panel{Features: &memFeatures{f: config.DefaultFeatures()}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	who := struct {
+		email        string
+		admin, fresh bool
+	}{}
+	p.SiteAdmin = func(*http.Request) (string, bool, bool) { return who.email, who.admin, who.fresh }
+	h := p.SiteHandler(false)
+	var cookie *http.Cookie
+	do := func(path, peer string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", path, nil)
+		req.RemoteAddr = peer
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	const internet = "203.0.113.5:4000"
+
+	steps := []struct {
+		email        string
+		admin, fresh bool
+		code         int
+		location     string
+	}{
+		{"", false, false, 303, "/api/v1/signin?return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
+		{"ann@example.org", false, true, 403, ""},
+		{"bob@example.org", true, false, 303, "/api/v1/signin?fresh=1&return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
+		{"bob@example.org", true, true, 303, "/admin/"},
+	}
+	for _, s := range steps {
+		who.email, who.admin, who.fresh = s.email, s.admin, s.fresh
+		rec := do("/admin/login?return=/admin/", internet)
+		if rec.Code != s.code || rec.Header().Get("Location") != s.location {
+			t.Errorf("%+v: %d %s", s, rec.Code, rec.Header().Get("Location"))
+		}
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == cookieName {
+				cookie = c
+			}
+		}
+	}
+	if rec := do("/admin/api/session", internet); rec.Code != 200 || !strings.Contains(rec.Body.String(), "bob@example.org") {
+		t.Fatalf("signed in: %d %s", rec.Code, rec.Body)
+	}
+	// Signed out on the site, or no longer an admin: out of the panel too.
+	who.admin = false
+	if rec := do("/admin/api/session", internet); rec.Code != 401 {
+		t.Errorf("no longer an admin: %d", rec.Code)
+	}
+	who.admin = true
+	if rec := do("/admin/api/session", internet); rec.Code != 401 {
+		t.Errorf("an ended session came back: %d", rec.Code)
+	}
+
+	// Kept to private addresses, when the operator says so.
+	if rec := httptest.NewRecorder(); true {
+		req := httptest.NewRequest("GET", "/admin/", nil)
+		req.RemoteAddr = internet
+		p.SiteHandler(true).ServeHTTP(rec, req)
+		if rec.Code != 404 {
+			t.Errorf("private panel, from the internet: %d", rec.Code)
+		}
+	}
+}

@@ -116,6 +116,11 @@ type Panel struct {
 	// Provider signs admins in; its redirect URL is the panel's callback and
 	// its groups claim is set.
 	Provider *oidc.Provider
+	// SiteAdmin, with managed sign-in, says who's signed in on the site
+	// (their email; "" for nobody), whether they're an admin, and whether
+	// they confirmed it's them in the last few minutes. Admins then sign in
+	// to the panel through the site's own sign-in, not Provider.
+	SiteAdmin func(r *http.Request) (email string, admin, fresh bool)
 	// Group is the identity provider group whose members are admins.
 	Group  string
 	Logger *slog.Logger
@@ -159,8 +164,20 @@ func (p *Panel) clock() time.Time {
 	return time.Now()
 }
 
-// Handler returns the panel's handler, with its guards.
-func (p *Panel) Handler() http.Handler {
+// Handler returns the panel's handler, with its guards, for its own
+// listener: private addresses only.
+func (p *Panel) Handler() http.Handler { return privateOnly(p.handler()) }
+
+// SiteHandler returns the panel's handler for /admin/ (and /apps/) on the
+// site's own address; with private, it answers private addresses only.
+func (p *Panel) SiteHandler(private bool) http.Handler {
+	if private {
+		return privateOnly(p.handler())
+	}
+	return p.handler()
+}
+
+func (p *Panel) handler() http.Handler {
 	mux := http.NewServeMux()
 	ui, _ := fs.Sub(uiFiles, "ui")
 	mux.Handle("GET /admin/", http.StripPrefix("/admin/", http.FileServerFS(ui)))
@@ -213,7 +230,7 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/api/templates", p.signedIn(p.createTemplate))
 	mux.HandleFunc("PUT /admin/api/templates/{id}", p.signedIn(p.updateTemplate))
 	mux.HandleFunc("DELETE /admin/api/templates/{id}", p.signedIn(p.deleteTemplate))
-	return privateOnly(sameOrigin(headers(mux)))
+	return sameOrigin(headers(mux))
 }
 
 // ---- Guards -----------------------------------------------------------------
@@ -328,6 +345,17 @@ func (p *Panel) current(r *http.Request) *session {
 func (p *Panel) signedIn(h func(http.ResponseWriter, *http.Request, *session)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s := p.current(r)
+		if s != nil && p.SiteAdmin != nil {
+			// Still the same admin on the site: signing out there, or
+			// losing the admin flag, ends the panel's session too.
+			if email, isAdmin, _ := p.SiteAdmin(r); email != s.name || !isAdmin {
+				c, _ := r.Cookie(cookieName)
+				p.mu.Lock()
+				delete(p.sessions, hashToken(c.Value))
+				p.mu.Unlock()
+				s = nil
+			}
+		}
 		if s == nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"type": "not-authenticated", "loginUrl": "/admin/login"})
 			return
@@ -347,6 +375,10 @@ func safeReturn(s string) string {
 // login sends the browser to the identity provider for a new login, every
 // time: signing in to the panel is always a fresh login.
 func (p *Panel) login(w http.ResponseWriter, r *http.Request) {
+	if p.SiteAdmin != nil {
+		p.siteLogin(w, r)
+		return
+	}
 	pd := pending{binding: oidc.Random(32), nonce: oidc.Random(32), verifier: oidc.Random(32),
 		ret: safeReturn(r.URL.Query().Get("return")), started: p.clock()}
 	state := oidc.Random(32)
@@ -435,6 +467,33 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "The identity provider didn't ask for a new login", http.StatusForbidden)
 		return
 	}
+	p.startSession(w, login.Name)
+	http.Redirect(w, r, pd.ret, http.StatusSeeOther)
+}
+
+// siteLogin lets in an admin signed in on the site, once they confirmed
+// it's them: whoever isn't signed in goes to the site's sign-in, and an
+// admin who hasn't confirmed lately, to confirm. Both come back here.
+func (p *Panel) siteLogin(w http.ResponseWriter, r *http.Request) {
+	ret := safeReturn(r.URL.Query().Get("return"))
+	back := "/admin/login?" + url.Values{"return": {ret}}.Encode()
+	email, isAdmin, fresh := p.SiteAdmin(r)
+	switch {
+	case email == "":
+		http.Redirect(w, r, "/api/v1/signin?"+url.Values{"return": {back}}.Encode(), http.StatusSeeOther)
+	case !isAdmin:
+		p.Logger.Warn("admin sign-in refused: not an admin")
+		http.Error(w, "This account is not an administrator of this server", http.StatusForbidden)
+	case !fresh:
+		http.Redirect(w, r, "/api/v1/signin?"+url.Values{"fresh": {"1"}, "return": {back}}.Encode(), http.StatusSeeOther)
+	default:
+		p.startSession(w, email)
+		http.Redirect(w, r, ret, http.StatusSeeOther)
+	}
+}
+
+// startSession signs an admin in to the panel.
+func (p *Panel) startSession(w http.ResponseWriter, name string) {
 	token := oidc.Random(32)
 	now := p.clock()
 	p.mu.Lock()
@@ -446,12 +505,11 @@ func (p *Panel) finish(w http.ResponseWriter, r *http.Request) {
 			delete(p.sessions, k)
 		}
 	}
-	p.sessions[hashToken(token)] = &session{name: login.Name, lastSeen: now, expires: now.Add(sessionFor)}
+	p.sessions[hashToken(token)] = &session{name: name, lastSeen: now, expires: now.Add(sessionFor)}
 	p.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", MaxAge: int(sessionFor.Seconds()),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	p.Logger.Info("admin signed in")
-	http.Redirect(w, r, pd.ret, http.StatusSeeOther)
 }
 
 func (p *Panel) logout(w http.ResponseWriter, r *http.Request) {

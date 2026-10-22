@@ -799,6 +799,8 @@ type Login struct {
 	Checked      time.Time
 	LastActive   time.Time
 	Expires      time.Time
+	// Fresh is when the login was last confirmed; zero if never.
+	Fresh time.Time
 }
 
 // groupSep separates stored group names; it can't appear in one.
@@ -826,14 +828,14 @@ func (s *Store) CreateLogin(ctx context.Context, subject string, groups []string
 // LoginByToken finds a live login by its cookie value.
 func (s *Store) LoginByToken(ctx context.Context, token string) (*Login, error) {
 	return s.scanLogin(s.db.QueryRowContext(ctx, `
-		SELECT id, subject, groups, refresh_token, checked_at, last_active_at, expires_at
+		SELECT id, subject, groups, refresh_token, checked_at, last_active_at, expires_at, coalesce(fresh_at, 0)
 		FROM logins WHERE token_hash = ? AND expires_at > ?`, hashToken(token), s.now().Unix()))
 }
 
 // LoginByID finds a live login by its ID.
 func (s *Store) LoginByID(ctx context.Context, id string) (*Login, error) {
 	return s.scanLogin(s.db.QueryRowContext(ctx, `
-		SELECT id, subject, groups, refresh_token, checked_at, last_active_at, expires_at
+		SELECT id, subject, groups, refresh_token, checked_at, last_active_at, expires_at, coalesce(fresh_at, 0)
 		FROM logins WHERE id = ? AND expires_at > ?`, id, s.now().Unix()))
 }
 
@@ -841,8 +843,8 @@ func (s *Store) scanLogin(row *sql.Row) (*Login, error) {
 	var l Login
 	var groups string
 	var sealed []byte
-	var checked, active, expires int64
-	err := row.Scan(&l.ID, &l.Subject, &groups, &sealed, &checked, &active, &expires)
+	var checked, active, expires, fresh int64
+	err := row.Scan(&l.ID, &l.Subject, &groups, &sealed, &checked, &active, &expires, &fresh)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -860,7 +862,16 @@ func (s *Store) scanLogin(row *sql.Row) (*Login, error) {
 	l.Checked = time.Unix(checked, 0).UTC()
 	l.LastActive = time.Unix(active, 0).UTC()
 	l.Expires = time.Unix(expires, 0).UTC()
+	if fresh > 0 {
+		l.Fresh = time.Unix(fresh, 0).UTC()
+	}
 	return &l, nil
+}
+
+// SetLoginFresh records that a login was just confirmed.
+func (s *Store) SetLoginFresh(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE logins SET fresh_at = ? WHERE id = ?`, s.now().Unix(), id)
+	return oneRow(res, err)
 }
 
 // LoginChecked records a successful re-check: new groups and refresh token,

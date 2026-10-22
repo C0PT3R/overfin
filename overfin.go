@@ -336,7 +336,7 @@ func run(logger *slog.Logger) error {
 	go (&catalog.LibraryArtwork{Store: db, Images: sh.images, Logger: logger, Every: time.Hour}).Run(ctx)
 	go (&personal.Importer{Jellyfin: sh.jf, Store: db, Logger: logger, Every: 10 * time.Minute}).Run(ctx)
 
-	if a := cfg.Admin; a.Enabled() {
+	if a := cfg.Admin; a.Enabled() || managed {
 		o := cfg.OIDC
 		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
 			TMDB: func() bool { return gw.tmdbSource() != nil },
@@ -360,7 +360,13 @@ func run(logger *slog.Logger) error {
 		}
 		p.Images = sh.images
 		p.OnRetitled = sh.titles.Wake
-		panel.set(p.Handler())
+		if managed {
+			// At /admin/ on the site, for its admins.
+			p.Provider, p.SiteAdmin, p.Directory = nil, gw.SiteAdmin, admin.Users{Store: db}
+			site.set(withPanel(gw, p.SiteHandler(a.Private)))
+		} else {
+			panel.set(p.Handler())
+		}
 	}
 
 	for {
@@ -427,6 +433,16 @@ func runRecovery(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.
 		return err
 	}
 	return recoverTokensWith(ctx, logger, db, newProvisioner(cfg, sh), k.Check)
+}
+
+// withPanel serves the control panel at /admin/ (and what apps read, at
+// /apps/) beside the site.
+func withPanel(site, panel http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/admin/", panel)
+	mux.Handle("/apps/", panel)
+	mux.Handle("/", site)
+	return mux
 }
 
 // settingUp is what the site answers until Overfin is set up.

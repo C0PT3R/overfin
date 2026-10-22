@@ -106,6 +106,8 @@ type built struct {
 	handler http.Handler
 	admin   *http.ServeMux
 	tabs    []admin.Tab
+	// managed is the managed sign-in, when that's the identity mode.
+	managed *api.Managed
 }
 
 func build(cfg *config.Config, sh *shared) (*built, error) {
@@ -200,6 +202,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	sessions.SetupOffers = offers
 	if managed != nil {
 		managed.Mounts = mounts // newcomers' invitations
+		b.managed = managed
 	}
 	// Accounts and profiles are always on; everything else is a plugin the
 	// operator enables.
@@ -361,6 +364,16 @@ func newGateway(path string, cfg *config.Config, sh *shared) (*gateway, error) {
 
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.current.Load().handler.ServeHTTP(w, r)
+}
+
+// SiteAdmin is who's signed in with managed sign-in, for the control
+// panel on the site's address (api.Managed.SiteAdmin); nobody in other
+// modes.
+func (g *gateway) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
+	if m := g.current.Load().managed; m != nil {
+		return m.SiteAdmin(r)
+	}
+	return "", false, false
 }
 
 // AdminRoutes serves the switched-on modules' control panel routes.

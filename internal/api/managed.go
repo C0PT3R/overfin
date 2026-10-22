@@ -136,7 +136,7 @@ func (m *Managed) Register(r *plugin.Registrar) error {
 // has an account here and isn't disabled.
 func (m *Managed) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if u := m.current(r); u != nil {
+		if _, u := m.current(r); u != nil {
 			id := identity.Identity{Subject: u.Subject}
 			if u.Admin {
 				id.Groups = []string{ManagedAdminGroup}
@@ -147,28 +147,39 @@ func (m *Managed) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// current returns the signed-in person, sliding their login's lifetime now
-// and then; nil when nobody is.
-func (m *Managed) current(r *http.Request) *store.User {
+// current returns the signed-in person and their login, sliding its
+// lifetime now and then; nils when nobody is.
+func (m *Managed) current(r *http.Request) (*store.Login, *store.User) {
 	c, err := r.Cookie(LoginCookie)
 	if err != nil || len(c.Value) > 64 {
-		return nil
+		return nil, nil
 	}
 	ctx := r.Context()
 	l, err := m.Store.LoginByToken(ctx, c.Value)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	u, err := m.Store.UserBySubject(ctx, l.Subject)
 	if err != nil || u.Disabled {
-		return nil
+		return nil, nil
 	}
 	if time.Since(l.Checked) > slideEvery {
 		if err := m.Store.LoginChecked(ctx, l.ID, nil, "", m.LoginLifetime); err != nil {
 			m.Logger.Error("sliding a login failed", "err", err)
 		}
 	}
-	return u
+	return l, u
+}
+
+// SiteAdmin reports who is signed in (their email, "" for nobody), whether
+// they're an admin, and whether they confirmed it's them in the last few
+// minutes: what the control panel on the site's address lets in.
+func (m *Managed) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
+	l, u := m.current(r)
+	if u == nil {
+		return "", false, false
+	}
+	return u.Email, u.Admin, !l.Fresh.IsZero() && time.Since(l.Fresh) < m.FreshFor
 }
 
 // Admit lets a request for the site's pages through when the visitor is
@@ -220,7 +231,7 @@ func (m *Managed) page(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	ret := safeReturn(q.Get("return"))
 	fresh := q.Get("fresh") == "1"
-	u := m.current(r)
+	_, u := m.current(r)
 	switch {
 	case !fresh && u != nil:
 		http.Redirect(w, r, ret, http.StatusSeeOther) // already signed in
@@ -493,27 +504,39 @@ func (m *Managed) codeTaken(w http.ResponseWriter, r *http.Request, req signinRe
 func (m *Managed) finish(w http.ResponseWriter, r *http.Request, u *store.User, req signinRequest) {
 	ctx := r.Context()
 	if req.Fresh {
-		signedIn := m.current(r)
+		l, signedIn := m.current(r)
 		if signedIn == nil || signedIn.Subject != u.Subject {
 			m.refuse(w, r, problem.SigninFailed, "otherPerson")
 			return
 		}
-		c := m.Sessions.CurrentAccount(w, r)
-		if c == nil {
-			return
-		}
-		if err := m.Store.SetFreshLogin(ctx, c.Account.ID, c.Session.ID, time.Now()); err != nil {
+		if err := m.Store.SetLoginFresh(ctx, l.ID); err != nil {
 			m.fail(w, r, err)
 			return
 		}
-		// The account holder is back: PIN locks lift (rule 22).
-		if err := m.Store.UnlockPINs(ctx, c.Account.ID); err != nil {
-			m.Logger.Error("step-up: unlocking PINs failed", "err", err)
+		// With an account, its session is confirmed too, and PIN locks
+		// lift: the account holder is back (rule 22). An admin may have
+		// no account.
+		id, _ := identity.FromContext(ctx)
+		if _, _, err := m.Provisioner.Find(ctx, id); err == nil {
+			c := m.Sessions.CurrentAccount(w, r)
+			if c == nil {
+				return
+			}
+			if err := m.Store.SetFreshLogin(ctx, c.Account.ID, c.Session.ID, time.Now()); err != nil {
+				m.fail(w, r, err)
+				return
+			}
+			if err := m.Store.UnlockPINs(ctx, c.Account.ID); err != nil {
+				m.Logger.Error("step-up: unlocking PINs failed", "err", err)
+			}
 		}
 		writeOK(w, map[string]string{"next": req.Return})
 		return
 	}
-	_, token, err := m.Store.CreateLogin(ctx, u.Subject, nil, "", m.LoginLifetime)
+	l, token, err := m.Store.CreateLogin(ctx, u.Subject, nil, "", m.LoginLifetime)
+	if err == nil {
+		err = m.Store.SetLoginFresh(ctx, l.ID) // just typed: confirmed
+	}
 	if err != nil {
 		m.fail(w, r, err)
 		return
@@ -537,7 +560,7 @@ func (m *Managed) read(w http.ResponseWriter, r *http.Request) (signinRequest, b
 	}
 	req.Return = safeReturn(req.Return)
 	if req.Fresh {
-		u := m.current(r)
+		_, u := m.current(r)
 		if u == nil {
 			problem.Send(w, problem.NotAuthenticated, "")
 			return req, false

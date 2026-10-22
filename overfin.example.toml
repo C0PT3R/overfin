@@ -99,6 +99,12 @@ from = ""                       # e.g. "Media <media@example.org>"
 username = ""                   # with OVERFIN_MAIL_PASSWORD
 
 [admin]
+# With managed sign-in, the control panel is at /admin/ on the site's own
+# address, for admins, who confirm it's them before going in; nothing to set
+# here, except, to keep it to private addresses (LAN, VPN):
+# private = true
+#
+# With an identity provider (oidc or forwardauth mode):
 # Overfin's control panel, on its own listener: never on the internet. It
 # answers only private addresses (LAN, VPN, an SSH tunnel), and only members
 # of `group` may sign in, through the [oidc] provider. Register
