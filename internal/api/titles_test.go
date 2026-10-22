@@ -55,7 +55,7 @@ func TestTitles(t *testing.T) {
 		{Number: 1, Name: "L'hiver vient", AirDate: "2011-04-17"}, {Number: 2, Name: "La route", AirDate: "2011-04-24"},
 		{Number: 3, Name: "Lord Snow", AirDate: "2011-05-01"}}}, now)
 	st.SetSeason(ctx, "1399", store.Season{Number: 2, Name: "Saison 2", AirDate: "2012-04-01", Episodes: []store.Episode{
-		{Number: 1, Name: "Le Nord", AirDate: "2012-04-01"}, {Number: 2, Name: "Plus tard", AirDate: "2099-01-01"}}}, now)
+		{Number: 1, Name: "Le Nord", Overview: "Robb marche vers le sud.", AirDate: "2012-04-01"}, {Number: 2, Name: "Plus tard", AirDate: "2099-01-01"}}}, now)
 	// Specials no library has, and a season TMDB lists without episodes:
 	// never shown.
 	st.SetSeason(ctx, "1399", store.Season{Number: 0, Name: "Épisodes spéciaux", Episodes: []store.Episode{{Number: 1, AirDate: "2011-01-01"}}}, now)
@@ -83,7 +83,7 @@ func TestTitles(t *testing.T) {
 	if code := get(t, srv, "/api/v1/titles/title_series_tmdb_1399_s2", &s2); code != 200 || len(s2.Episodes) != 1 { // the one to come isn't shown
 		t.Fatalf("season 2: %d %+v", code, s2)
 	}
-	if e := s2.Episodes[0]; e.Name != "Le Nord" || e.Availability != "missing" || e.Playable || e.Kind != "episode" ||
+	if e := s2.Episodes[0]; e.Name != "Le Nord" || e.Overview != "Robb marche vers le sud." || e.Availability != "missing" || e.Playable || e.Kind != "episode" ||
 		e.Season == nil || e.Season.ID != "title_series_tmdb_1399_s2" || e.Season.Name != "Saison 2" {
 		t.Errorf("missing episode: %+v", e)
 	}

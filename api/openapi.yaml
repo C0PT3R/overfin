@@ -2717,9 +2717,14 @@ components:
                 $ref: "#/components/schemas/TitleSummary"
             episodes:
               type: array
-              description: A season's episodes.
+              description: A season's episodes, each with what it's about.
               items:
-                $ref: "#/components/schemas/TitleSummary"
+                allOf:
+                  - $ref: "#/components/schemas/TitleSummary"
+                  - type: object
+                    properties:
+                      overview:
+                        type: string
 
     TitlePage:
       allOf:

@@ -50,7 +50,13 @@ type titleDetail struct {
 	Genres   []string               `json:"genres,omitempty"`
 	Cast     []titleCast            `json:"cast,omitempty"`
 	Seasons  []library.TitleSummary `json:"seasons,omitempty"`
-	Episodes []library.TitleSummary `json:"episodes,omitempty"`
+	Episodes []episodeJSON          `json:"episodes,omitempty"`
+}
+
+// episodeJSON is an episode in its season's list: with what it's about.
+type episodeJSON struct {
+	library.TitleSummary
+	Overview string `json:"overview,omitempty"`
 }
 
 func today() string { return time.Now().UTC().Format("2006-01-02") }
@@ -379,9 +385,22 @@ func (l Library) title(w http.ResponseWriter, r *http.Request) {
 		for _, n := range numbers {
 			keys = append(keys, store.TitleRef{Kind: "episode", Source: ref.Source, ID: ref.ID, Season: ref.Season, Episode: n}.Key())
 		}
-		if out.Episodes, err = l.titleSummaries(ctx, p, keys); err != nil {
+		episodes, err := l.titleSummaries(ctx, p, keys)
+		if err != nil {
 			l.storeError(w, err)
 			return
+		}
+		infos, err := st.TitleInfos(ctx, keys, today())
+		if err != nil {
+			l.storeError(w, err)
+			return
+		}
+		for _, e := range episodes {
+			ej := episodeJSON{TitleSummary: e}
+			if ref, ok := titleRef(e.ID); ok && infos[ref.Key()] != nil {
+				ej.Overview = infos[ref.Key()].Overview
+			}
+			out.Episodes = append(out.Episodes, ej)
 		}
 	}
 	writeOK(w, out)

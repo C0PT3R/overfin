@@ -195,7 +195,8 @@ export interface Title extends TitleSummary {
   genres?: string[];
   cast?: { id?: string; name: string; character?: string; image?: ImageRef }[];
   seasons?: TitleSummary[];
-  episodes?: TitleSummary[];
+  /** A season's episodes, each with what it's about. */
+  episodes?: (TitleSummary & { overview?: string })[];
 }
 
 /** A person, from TMDB, and the titles they're in. */
