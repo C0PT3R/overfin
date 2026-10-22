@@ -19,6 +19,7 @@ import (
 	"github.com/overfin/server/internal/api"
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
+	"github.com/overfin/server/internal/connector"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
@@ -72,6 +73,9 @@ type shared struct {
 	titles *catalog.Titles
 	// searches limits searches per account, across reloads.
 	searches *api.SearchLimiter
+	// directory is the identity provider's connector, when configured:
+	// who the people behind accounts are, kept briefly in memory.
+	directory *connector.Cache
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -199,7 +203,11 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	// found".
 	if cfg.Plugins.Enabled("library") {
 		client := sh.seerr
-		plugins = append(plugins, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }})
+		rq := api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }}
+		if sh.directory != nil {
+			rq.Directory = sh.directory
+		}
+		plugins = append(plugins, rq)
 	}
 	// Modules go behind the same guards as the core's own routes.
 	for _, m := range mounts {

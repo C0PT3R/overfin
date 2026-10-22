@@ -110,7 +110,10 @@ func (p *Panel) accounts(w http.ResponseWriter, r *http.Request, _ *session) {
 	// Who's who, from the connector. Without it, or if it fails, the list
 	// still works, and says why names are missing.
 	directory := "none"
-	people, err := p.directory(r.Context())
+	var people map[string]connector.Person
+	if p.Directory != nil {
+		people, err = p.Directory.People(r.Context())
+	}
 	switch {
 	case p.Directory == nil:
 	case err != nil:

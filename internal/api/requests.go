@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/overfin/server/internal/connector"
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -20,15 +22,18 @@ import (
 )
 
 // Requests asks Seerr for titles no library has (milestone 5, step 5), on
-// behalf of the account: each has a Seerr user of its own, anonymous (an
-// opaque name, a placeholder address on .invalid, a password no one
-// keeps), which Seerr's own settings give its permissions, auto-approval
-// and quotas. Requests belong to the profile that made them; the owner
+// behalf of the account: each has a Seerr user of its own, under the name
+// the control panel shows for the account (a placeholder address on
+// .invalid, a password no one keeps), which Seerr's own settings give its
+// permissions, auto-approval and quotas. Requests belong to the profile that made them; the owner
 // also sees the kids profiles'. Offered while Seerr is connected.
 type Requests struct {
 	Library Library
 	// Seerr is the connected Seerr, nil when there's none.
 	Seerr func() *seerr.Client
+	// Directory, when set, is the identity provider's connector: people's
+	// names come from it first.
+	Directory connector.Directory
 }
 
 func (Requests) Name() string { return "requests" }
@@ -94,24 +99,80 @@ func (q Requests) client(w http.ResponseWriter) *seerr.Client {
 }
 
 // seerrUser is the account's Seerr user, made now if it has none or Seerr
-// lost it.
-func (q Requests) seerrUser(ctx context.Context, c *seerr.Client, accountID string) (int, error) {
+// lost it, and renamed when the account's name changed.
+func (q Requests) seerrUser(ctx context.Context, c *seerr.Client, a *store.Account) (int, error) {
 	st := q.Library.Provisioner.Store
-	id, ok, err := st.SeerrUser(ctx, accountID)
+	name, sure, err := q.nameOf(ctx, a)
+	if err != nil {
+		return 0, err
+	}
+	id, ok, err := st.SeerrUser(ctx, a.ID)
 	if err != nil {
 		return 0, err
 	}
 	if ok {
-		if exists, err := c.UserExists(ctx, id); err != nil || exists {
-			return id, err
+		had, exists, err := c.Username(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		if exists {
+			// Not renamed on a guess: while the identity provider can't
+			// be asked, the name stays what it was.
+			// A failed rename doesn't hold the request up: it's tried
+			// again at the next one.
+			if sure && had != name {
+				if err := c.Rename(ctx, id, name); err != nil {
+					q.Library.Logger.Warn("requests: renaming the Seerr user failed", "err", err)
+				}
+			}
+			return id, nil
 		}
 	}
-	name := "overfin-" + random(9)
+	// The address is a placeholder no one can write to, and differs for
+	// each user, as Seerr wants.
 	password := random(24) // thrown away: no one signs in to Seerr as them
-	if id, err = c.CreateUser(ctx, name, name+"@overfin.invalid", password); err != nil {
+	if id, err = c.CreateUser(ctx, name, "overfin-"+random(9)+"@overfin.invalid", password); err != nil {
 		return 0, err
 	}
-	return id, st.SetSeerrUser(ctx, accountID, id, time.Now())
+	return id, st.SetSeerrUser(ctx, a.ID, id, time.Now())
+}
+
+// maxName caps a name given to Seerr, in characters.
+const maxName = 64
+
+// nameOf is the account's name as the control panel shows it: the
+// identity provider's (its name, else its username), else the label the
+// operator gave it, else its owner profile's. sure is false when the
+// identity provider couldn't be asked: the name is then a fallback.
+func (q Requests) nameOf(ctx context.Context, a *store.Account) (name string, sure bool, err error) {
+	sure = true
+	if q.Directory != nil {
+		people, err := q.Directory.People(ctx)
+		if err != nil {
+			sure = false
+		}
+		if p, ok := people[a.Subject]; ok {
+			name = cmp.Or(strings.TrimSpace(p.Name), strings.TrimSpace(p.Username))
+		}
+	}
+	if name == "" {
+		name = strings.TrimSpace(a.Label)
+	}
+	if name == "" {
+		profiles, err := q.Library.Provisioner.Store.Profiles(ctx, a.ID)
+		if err != nil {
+			return "", false, err
+		}
+		for _, p := range profiles {
+			if p.Owner {
+				name = strings.TrimSpace(p.Name)
+			}
+		}
+	}
+	if r := []rune(name); len(r) > maxName {
+		name = string(r[:maxName])
+	}
+	return cmp.Or(name, "Overfin"), sure, nil
 }
 
 // random is n random bytes, as lowercase letters and digits.
@@ -178,7 +239,7 @@ func (q Requests) create(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.AlreadyRequested, "")
 		return
 	}
-	userID, err := q.seerrUser(ctx, c, caller.Account.ID)
+	userID, err := q.seerrUser(ctx, c, caller.Account)
 	if err != nil {
 		q.seerrError(w, err)
 		return

@@ -127,11 +127,9 @@ func TestAccountsNeedSignIn(t *testing.T) {
 type fakeDirectory struct {
 	people map[string]connector.Person
 	err    error
-	calls  int
 }
 
 func (f *fakeDirectory) People(context.Context) (map[string]connector.Person, error) {
-	f.calls++
 	return f.people, f.err
 }
 
@@ -146,15 +144,9 @@ func TestAccountsWithNames(t *testing.T) {
 	if !strings.Contains(body, `"username":"alice"`) || !strings.Contains(body, `"directory":"ok"`) {
 		t.Errorf("with a connector: %s", body)
 	}
-	// Kept briefly in memory: a second look doesn't ask again.
-	b.do("GET", "/admin/api/accounts", "", nil)
-	if dir.calls != 1 {
-		t.Errorf("asked the directory %d times", dir.calls)
-	}
 
 	// A failing connector doesn't break the list.
 	p.Directory = &fakeDirectory{err: io.ErrUnexpectedEOF}
-	p.people = nil
 	rec := b.do("GET", "/admin/api/accounts", "", nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"directory":"unreachable"`) || strings.Contains(rec.Body.String(), "alice") {
 		t.Errorf("failing connector: %d %s", rec.Code, rec.Body)

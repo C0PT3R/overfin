@@ -23,6 +23,7 @@ import (
 	"github.com/overfin/server/internal/api"
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
+	"github.com/overfin/server/internal/connector"
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/images"
@@ -266,6 +267,8 @@ type options struct {
 	// seerr, when set, connects discovery to it; store receives the store.
 	seerr *seerr.Client
 	store **store.Store
+	// directory, when set, is the identity provider's connector.
+	directory connector.Directory
 	// tmdb, when set, is TMDB for the pages fetched when opened.
 	tmdb catalog.TitleSource
 }
@@ -351,7 +354,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		lib.Images = images.New(jf, 1<<20)
 		disc := &api.Discovery{Library: lib, Store: st}
 		client := o.seerr
-		extra = append(extra, disc, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }})
+		extra = append(extra, disc, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }, Directory: o.directory})
 	}
 	if o.store != nil {
 		*o.store = st

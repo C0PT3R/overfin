@@ -235,7 +235,7 @@ watchlist are always on; the rest is switched on in the control panel.
 | Migration | Bringing Jellyfin accounts over | Switch |
 | Catalog | The library's index, matched to TMDB | Always on |
 | Discovery | Trending, popular and upcoming titles, from TMDB | Always on; kids profiles see what their ceilings allow |
-| Requests | Seerr requests | Planned |
+| Requests | Asking for titles no library has, through Seerr | When Seerr is connected |
 
 Everything people see about a title, its text and its images, comes from
 TMDB, in the language set in the panel; Jellyfin's own metadata and images
@@ -246,7 +246,14 @@ Overfin asks TMDB by itself, by title, never saying who's asking; browsers
 never contact TMDB. It keeps TMDB's data as its terms allow (six months at
 most), and overfin-web shows TMDB's attribution. The key is TMDB's free,
 non-commercial one: a site that charges for access needs TMDB's commercial
-terms. Seerr, when connected, is a second source, and will bring requests.
+terms. Seerr, when connected, is a second source, and takes requests.
+
+Each account asks Seerr through a Seerr user of its own, which Overfin makes
+and names after the account (the name the control panel shows), so Seerr's
+pages say who asked for what. Seerr's own settings give those users their
+permissions, auto-approval and quotas. No one signs in to Seerr as them, and
+people never need Seerr itself: keep it private on your network, reachable
+by Overfin and you only.
 
 ## Building your own client
 

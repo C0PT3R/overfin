@@ -14,9 +14,9 @@ import (
 )
 
 // Requests, made in Seerr on behalf of Overfin's accounts: each has a Seerr
-// user of its own, anonymous (an opaque name and a placeholder address no
-// one can write to), which Seerr's own settings give its permissions,
-// auto-approval and quotas.
+// user of its own, under the account's name (a placeholder address no one
+// can write to, a password no one keeps), which Seerr's own settings give
+// its permissions, auto-approval and quotas.
 
 var (
 	// ErrQuota: the user's request quota is used up.
@@ -103,14 +103,40 @@ func (c *Client) CreateUser(ctx context.Context, username, email, password strin
 	return user.ID, nil
 }
 
-// UserExists says whether Seerr still has a user.
-func (c *Client) UserExists(ctx context.Context, id int) (bool, error) {
-	var user struct{ ID int }
-	err := c.get(ctx, "/user/"+strconv.Itoa(id), nil, &user)
-	if errors.Is(err, ErrNotFound) {
-		return false, nil
+// Username is a user's name in Seerr; ok is false when Seerr has no such
+// user.
+func (c *Client) Username(ctx context.Context, id int) (name string, ok bool, err error) {
+	var user struct {
+		ID       int
+		Username *string
 	}
-	return err == nil && user.ID == id, err
+	err = c.get(ctx, "/user/"+strconv.Itoa(id), nil, &user)
+	if errors.Is(err, ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil || user.ID != id {
+		return "", false, err
+	}
+	if user.Username != nil {
+		name = *user.Username
+	}
+	return name, true, nil
+}
+
+// Rename changes a user's name in Seerr. Seerr takes the user's main
+// settings whole, so they're read first and sent back with only the name
+// changed.
+func (c *Client) Rename(ctx context.Context, id int, name string) error {
+	path := "/user/" + strconv.Itoa(id) + "/settings/main"
+	var settings map[string]any
+	if err := c.get(ctx, path, nil, &settings); err != nil {
+		return err
+	}
+	if settings == nil {
+		return errors.New("seerr: the user has no settings")
+	}
+	settings["username"] = name
+	return c.send(ctx, http.MethodPost, path, settings, nil)
 }
 
 // Request is a request as Seerr has it.

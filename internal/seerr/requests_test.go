@@ -26,7 +26,11 @@ func TestRequests(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 			io.WriteString(w, `{"id":42}`)
 		case "GET /api/v1/user/42":
-			io.WriteString(w, `{"id":42}`)
+			io.WriteString(w, `{"id":42,"username":"overfin-abc"}`)
+		case "GET /api/v1/user/42/settings/main":
+			io.WriteString(w, `{"username":"overfin-abc","email":"abc@overfin.invalid","locale":"fr","movieQuotaLimit":3}`)
+		case "POST /api/v1/user/42/settings/main":
+			w.WriteHeader(http.StatusOK)
 		case "POST /api/v1/request":
 			switch body["mediaId"].(float64) {
 			case 1:
@@ -59,11 +63,19 @@ func TestRequests(t *testing.T) {
 	if err != nil || id != 42 || bodies[0]["password"] != "secret" || bodies[0]["email"] != "abc@overfin.invalid" {
 		t.Fatalf("create user: %d %v %v", id, err, bodies[0])
 	}
-	if ok, err := c.UserExists(ctx, 42); !ok || err != nil {
-		t.Errorf("user 42: %v %v", ok, err)
+	if name, ok, err := c.Username(ctx, 42); !ok || err != nil || name != "overfin-abc" {
+		t.Errorf("user 42: %q %v %v", name, ok, err)
 	}
-	if ok, err := c.UserExists(ctx, 43); ok || err != nil {
+	if _, ok, err := c.Username(ctx, 43); ok || err != nil {
 		t.Errorf("user 43: %v %v", ok, err)
+	}
+	// Renamed: the settings sent back whole, only the name changed.
+	if err := c.Rename(ctx, 42, "Alice Tremblay"); err != nil {
+		t.Fatal(err)
+	}
+	if last := bodies[len(bodies)-1]; last["username"] != "Alice Tremblay" || last["email"] != "abc@overfin.invalid" ||
+		last["locale"] != "fr" || last["movieQuotaLimit"] != float64(3) {
+		t.Errorf("rename: %v", last)
 	}
 
 	r, err := c.RequestTitle(ctx, 42, "series", 1399, []int{2})

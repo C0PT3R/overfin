@@ -187,7 +187,8 @@ comes from the internet, and media files can be written by anyone.
     being viewed, and never stores it: at most it keeps it in memory, never on
     disk, for a few minutes and within a size limit, so a restart forgets
     it. Names and emails from the identity provider are shown live through
-    its connector, the same way, never stored.
+    its connector, the same way, never stored; only the name is handed on,
+    to the account's Seerr user (rule 47).
 41. No analytics, no telemetry, no calls home. Metrics are aggregate counts
     with no user labels.
 42. Client IPs are used in memory (rate limiting) and never stored by Overfin.
@@ -203,9 +204,13 @@ comes from the internet, and media files can be written by anyone.
     scope: it stores no relations between users, comments, likes, messages
     or anything of the kind. Operators who want them build them in their own
     backend, logging users in with the same identity provider.
-47. Jellyfin and Seerr users created by Overfin get opaque names (e.g.
-    `of-7f3k2q`), never real names or emails. Only Overfin links them to an
-    identity.
+47. Jellyfin users created by Overfin get opaque names (e.g. `of-7f3k2q`),
+    never real names or emails. Seerr users get the account's name as the
+    control panel shows it (the identity provider's, else the operator's
+    label, else the owner profile's), so Seerr's own pages say who asked
+    for what; never an email (theirs is a placeholder on `.invalid`), and
+    no one can sign in to Seerr as them. Seerr therefore holds names: keep
+    it private, reachable by Overfin and the operator only.
 48. Search terms and other personal input travel in request bodies, never in
     URLs, so they stay out of access logs and browser history.
 49. Users never learn who else requested a title, only that it was requested.

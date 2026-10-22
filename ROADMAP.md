@@ -461,12 +461,13 @@ peer's copy is one more source.
    request. *Done*, but the request button (step 5).
 5. **Requests**, through Seerr, as designed below: the request button on a
    title, a season or an episode with no copy. *Done, with Seerr managing
-   them:* each account's anonymous Seerr user (made on its first request,
-   remade if Seerr loses it, deleted with the account), `/requests` (each
+   them:* each account's Seerr user (made on its first request, under the
+   name the panel shows for the account, renamed when that changes, remade
+   if Seerr loses it, deleted with the account), `/requests` (each
    profile's, the owner seeing the kids profiles' too, statuses read again
    from Seerr), cancelling while pending, titles saying when they're
-   requested, requests in the data download. Next: "Manage requests from
-   here" and "Use real user names in Seerr".
+   requested, requests in the data download. "Manage requests from here"
+   is dropped: Seerr's own pages do that well.
 6. **Which titles show.** A setting in the panel: of the titles no library
    has, show all of them, those released (theatres included; the
    default), or those that can be watched at home (a film's digital, disc
@@ -628,18 +629,14 @@ nothing beyond what that needs.
   operator's country, is read from its details and kept; without one it
   stays hidden (rule 28).
 - **Requests**, through Seerr. Each Overfin **account** (not profile) has
-  its own Seerr user, stable and anonymous: an opaque name, a unique
-  placeholder address on `.invalid`, a random password thrown away (so
-  Seerr never emails one, and nobody signs in to Seerr as them), no avatar,
-  permissions set by Overfin; Overfin keeps the link and remakes the user
-  if it's gone. Two settings in the panel: **Manage requests from here**
-  (Overfin keeps requests for approval, applies quotas from the account
-  templates, and sends Seerr only what's approved); unchecked, Seerr
-  approves and counts them as it does on its own, and **Use real user
-  names in Seerr** shows the panel's name for each account there instead
-  of an opaque one (the link stays the same either way). Both off by
-  default. "Ignore quota" is never set for people. Problem reports come
-  with it.
+  its own Seerr user, under the name the panel shows for the account (kept
+  up to date), with a unique placeholder address on `.invalid` and a
+  random password thrown away (so Seerr never emails one, and nobody signs
+  in to Seerr as them), no avatar; Overfin keeps the link and remakes the
+  user if it's gone. Seerr approves and counts requests as it does on its
+  own, and is kept private on the network (rule 47). "Ignore quota" is
+  never set for people. Problem reports may come later, through Seerr's
+  issues.
 - Profile avatars, profile transfers.
 - Trickplay, lyrics, bitrate test.
 

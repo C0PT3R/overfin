@@ -69,39 +69,6 @@ type Catalog interface {
 	Status(ctx context.Context) (catalog.Status, error)
 }
 
-// Directory is an identity provider connector's view of people, by the
-// user ID logins carry.
-type Directory interface {
-	People(ctx context.Context) (map[string]connector.Person, error)
-}
-
-// peopleFor is how long the panel keeps what the directory said, in memory
-// only (rule 40).
-const peopleFor = 2 * time.Minute
-
-// directory returns the people the connector knows, fetched again when
-// what's kept is older than peopleFor.
-func (p *Panel) directory(ctx context.Context) (map[string]connector.Person, error) {
-	if p.Directory == nil {
-		return nil, nil
-	}
-	p.mu.Lock()
-	if p.people != nil && p.clock().Sub(p.peopleAt) < peopleFor {
-		people := p.people
-		p.mu.Unlock()
-		return people, nil
-	}
-	p.mu.Unlock()
-	people, err := p.Directory.People(ctx)
-	if err != nil {
-		return nil, err
-	}
-	p.mu.Lock()
-	p.people, p.peopleAt = people, p.clock()
-	p.mu.Unlock()
-	return people, nil
-}
-
 // Tab is a switched-on module, as the control panel shows it.
 type Tab struct {
 	Name        string
@@ -133,8 +100,9 @@ type Panel struct {
 	OnLanguage  func()
 	Store       *store.Store
 	Provisioner *provision.Provisioner
-	// Directory, when set, tells who the people behind accounts are.
-	Directory Directory
+	// Directory, when set, tells who the people behind accounts are. It
+	// keeps what it read briefly (connector.Cache).
+	Directory connector.Directory
 	// Modules, when set, lists the switched-on modules for their tabs.
 	Modules Modules
 	// Provider signs admins in; its redirect URL is the panel's callback and
@@ -146,9 +114,7 @@ type Panel struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session // by token hash
-	people   map[string]connector.Person
-	peopleAt time.Time
-	pending  map[string]pending // by state
+	pending  map[string]pending  // by state
 	now      func() time.Time
 }
 
