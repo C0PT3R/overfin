@@ -19,7 +19,7 @@ func (u Users) People(ctx context.Context) (map[string]connector.Person, error) 
 	}
 	out := make(map[string]connector.Person, len(all))
 	for _, p := range all {
-		out[p.Subject] = connector.Person{Username: p.Email, Email: p.Email, Active: !p.Disabled}
+		out[p.Subject] = connector.Person{Name: p.Email, Active: !p.Disabled}
 	}
 	return out, nil
 }

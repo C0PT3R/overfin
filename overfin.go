@@ -362,7 +362,7 @@ func run(logger *slog.Logger) error {
 		p.OnRetitled = sh.titles.Wake
 		if managed {
 			// At /admin/ on the site, for its admins.
-			p.Provider, p.SiteAdmin, p.Directory = nil, gw.SiteAdmin, admin.Users{Store: db}
+			p.Provider, p.SiteAdmin, p.Directory, p.People = nil, gw.SiteAdmin, admin.Users{Store: db}, gw
 			site.set(withPanel(gw, p.SiteHandler(a.Private)))
 		} else {
 			panel.set(p.Handler())

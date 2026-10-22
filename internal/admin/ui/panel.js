@@ -341,8 +341,10 @@ const subline = (a) => [a.person?.username && a.person.name ? a.person.username 
 
 // The users view: a table of accounts, and the selected one's details.
 async function users(selected = '') {
-  const [{ items, directory }, { items: templates }] = await Promise.all([
-    api('GET', '/admin/api/accounts'), api('GET', '/admin/api/templates')]);
+  const [{ items, directory }, { items: templates }, people] = await Promise.all([
+    api('GET', '/admin/api/accounts'), api('GET', '/admin/api/templates'),
+    // Only with managed sign-in: who may sign in, by email.
+    api('GET', '/admin/api/people').then((r) => r.items).catch(() => null)]);
   $('#main').classList.add('wide');
   const search = h('input', { type: 'search', placeholder: 'Search', class: 'search' });
   const filter = h('select', {}, h('option', { value: '' }, 'All'),
@@ -353,7 +355,7 @@ async function users(selected = '') {
   const select = (a) => {
     selected = a.id;
     for (const tr of tbody.children) tr.classList.toggle('selected', tr.dataset.id === a.id);
-    detail.replaceChildren(...accountDetail(a, templates, () => users(a.id)));
+    detail.replaceChildren(...accountDetail(a, templates, () => users(a.id), people));
   };
   const draw = () => {
     const q = search.value.trim().toLowerCase();
@@ -382,20 +384,88 @@ async function users(selected = '') {
   const table = h('table', {},
     h('thead', {}, h('tr', {}, ...['Account', 'Status', 'Template', 'Profiles', 'Devices', 'Last active', 'Since'].map((t) => h('th', {}, t)))),
     tbody);
-  const notice = {
+  const notice = people ? null : {
     none: "Names come from the identity provider through a connector (see [connector] in the configuration); until then, labels tell accounts apart.",
     unreachable: "The identity provider's connector didn't answer, so names are missing for now. The log says why.",
   }[directory];
+  const waiting = people ? people.filter((x) => !x.accountId) : [];
   show(h('div', { class: 'users' },
-    h('div', {}, h('div', { class: 'toolbar' }, h('h2', {}, `Accounts (${items.length})`), search, filter),
-      notice && h('p', { class: 'notice' }, notice), table),
+    h('div', {},
+      people && addPerson(() => users(selected)),
+      h('div', { class: 'toolbar' }, h('h2', {}, `Accounts (${items.length})`), search, filter),
+      notice && h('p', { class: 'notice' }, notice), table,
+      waiting.length > 0 && h('h2', { class: 'spaced' }, `No account yet (${waiting.length})`),
+      waiting.length > 0 && h('p', { class: 'hint' }, 'They can sign in; their account is made when they first open the site.'),
+      waiting.length > 0 && h('ul', { class: 'people' }, ...waiting.map((x) => h('li', {}, ...personControls(x, () => users(selected)))))),
     detail));
   draw();
 }
 
+// addPerson is the form to let someone new sign in, by email.
+function addPerson(reload) {
+  const email = h('input', { type: 'email', placeholder: 'their email', autocomplete: 'off' });
+  const admin = h('input', { type: 'checkbox' });
+  const msg = h('span', {});
+  const add = async () => {
+    msg.className = '';
+    msg.textContent = '';
+    try {
+      await api('POST', '/admin/api/people', { email: email.value, admin: admin.checked });
+      reload();
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    }
+  };
+  email.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+  return h('div', { class: 'add-person' },
+    h('h2', {}, 'Add a person'),
+    h('p', { class: 'hint' }, 'They sign in with their email: with a code sent there, or with a sign-in link you hand them.'),
+    h('div', { class: 'toolbar' }, email, h('label', {}, admin, ' admin'), h('button', { class: 'primary', onclick: add }, 'Add'), msg));
+}
+
+// personControls are what an admin can do about someone who signs in by
+// email: make a sign-in link to hand over, make them an admin or not, and,
+// before they have an account, remove them.
+function personControls(x, reload) {
+  const msg = h('div', {});
+  const linkBox = h('div', {});
+  const run = async (action) => {
+    msg.className = '';
+    msg.textContent = '';
+    try {
+      await action();
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    }
+  };
+  const makeLink = () => run(async () => {
+    const { link } = await api('POST', `/admin/api/people/${x.id}/link`, {});
+    const input = h('input', { readonly: true, value: location.origin + link, class: 'search' });
+    linkBox.replaceChildren(h('p', { class: 'hint' }, 'Works once, for a week, in any browser. Hand it over privately.'), input);
+    input.select();
+  });
+  return [
+    h('div', {}, h('strong', {}, x.email), x.admin ? h('span', { class: 'pill' }, ' admin') : null,
+      x.disabled ? h('span', { class: 'pill disabled' }, ' disabled') : null),
+    h('div', { class: 'hint' }, x.hasPassword ? 'Has a password' : 'No password: signs in with codes or links'),
+    h('div', { class: 'toolbar' },
+      h('button', { onclick: makeLink }, 'Sign-in link'),
+      !x.you && h('button', { onclick: () => run(async () => { await api('PATCH', `/admin/api/people/${x.id}`, { admin: !x.admin }); reload(); }) },
+        x.admin ? 'Not an admin' : 'Make admin'),
+      !x.accountId && !x.you && h('button', { class: 'danger', onclick: () => {
+        if (!confirm(`Remove ${x.email}? They can't sign in any more.`)) return;
+        run(async () => { await api('DELETE', `/admin/api/people/${x.id}`); reload(); });
+      } }, 'Remove')),
+    linkBox, msg,
+  ];
+}
+
 // accountDetail is the selected account's panel: access, profiles, devices,
 // and the destructive actions, set apart.
-function accountDetail(a, templates, reload) {
+function accountDetail(a, templates, reload, people) {
+  const signsIn = people?.find((x) => x.accountId === a.id);
   const msg = h('p', {});
   const run = async (action) => {
     msg.className = '';
@@ -436,6 +506,8 @@ function accountDetail(a, templates, reload) {
       h('div', { class: 'hint' }, [a.person.username, a.person.email].filter(Boolean).join(' · ')),
       !a.person.active && h('div', { class: 'error' }, 'Turned off in the identity provider')),
     h('p', { class: 'hint' }, `Since ${when(a.createdAt)}`, h('br'), `Identity provider ID: ${a.subject}`),
+    signsIn && h('h3', {}, 'Signing in'),
+    signsIn && h('div', { class: 'person' }, ...personControls(signsIn, reload)),
     h('h3', {}, 'Access'),
     !a.person && field('Label', '(a name for it, until the identity provider gives one)', label),
     field('Access ends', '(empty: never)', expires),

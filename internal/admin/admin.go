@@ -121,6 +121,9 @@ type Panel struct {
 	// they confirmed it's them in the last few minutes. Admins then sign in
 	// to the panel through the site's own sign-in, not Provider.
 	SiteAdmin func(r *http.Request) (email string, admin, fresh bool)
+	// People, with managed sign-in, makes sign-in links; the People view
+	// lists who may sign in.
+	People People
 	// Group is the identity provider group whose members are admins.
 	Group  string
 	Logger *slog.Logger
@@ -214,6 +217,13 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("DELETE /admin/api/identification/{id}", p.signedIn(p.unidentify))
 	mux.HandleFunc("GET /admin/api/posters/{id}", p.signedIn(p.poster))
 	mux.HandleFunc("GET /admin/api/modules", p.signedIn(p.moduleTabs))
+	if p.People != nil {
+		mux.HandleFunc("GET /admin/api/people", p.signedIn(p.people))
+		mux.HandleFunc("POST /admin/api/people", p.signedIn(p.addPerson))
+		mux.HandleFunc("PATCH /admin/api/people/{id}", p.signedIn(p.changePerson))
+		mux.HandleFunc("POST /admin/api/people/{id}/link", p.signedIn(p.personLink))
+		mux.HandleFunc("DELETE /admin/api/people/{id}", p.signedIn(p.removePerson))
+	}
 	// Modules' own control panel routes, as currently switched on.
 	modulesAPI := p.signedIn(func(w http.ResponseWriter, r *http.Request, _ *session) {
 		if p.Modules == nil {

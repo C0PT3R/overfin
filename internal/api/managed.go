@@ -645,6 +645,19 @@ func (m *Managed) codeEmail(lang, purpose, code, link string) (subject, body str
 	return subject, body
 }
 
+// SigninLink makes a sign-in link for someone an admin hands it to: it
+// works once, in any browser, within validFor. It returns its path on the
+// site.
+func (m *Managed) SigninLink(ctx context.Context, email string, validFor time.Duration) (string, error) {
+	link := randomToken()
+	c := store.SigninCode{Email: email, CodeHash: m.hash("none", randomToken()), LinkHash: m.hash("link", link),
+		Binding: m.hash("none", randomToken()), Purpose: "signin", Expires: time.Now().Add(validFor)}
+	if err := m.Store.AddSigninCode(ctx, c); err != nil {
+		return "", err
+	}
+	return signinPath + "#link=" + link, nil
+}
+
 // Wait waits for emails being sent; for tests.
 func (m *Managed) Wait() { m.sendings.Wait() }
 

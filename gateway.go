@@ -376,6 +376,16 @@ func (g *gateway) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
 	return "", false, false
 }
 
+// SigninLink makes a one-time sign-in link, valid a week, that an admin
+// hands to someone (managed sign-in only).
+func (g *gateway) SigninLink(ctx context.Context, email string) (string, error) {
+	m := g.current.Load().managed
+	if m == nil {
+		return "", errors.New("sign-in links need managed sign-in")
+	}
+	return m.SigninLink(ctx, email, 7*24*time.Hour)
+}
+
 // AdminRoutes serves the switched-on modules' control panel routes.
 func (g *gateway) AdminRoutes() http.Handler { return g.current.Load().admin }
 
