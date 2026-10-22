@@ -236,35 +236,6 @@ func pageValues(userID string, startIndex, limit int) url.Values {
 	}
 }
 
-// Resume lists items started but not finished. It doesn't ask for a total:
-// on a large library, counting makes Jellyfin's resume query about 40%
-// slower, and a "continue watching" row never shows the number.
-func (c *Client) Resume(ctx context.Context, a Auth, userID string, types []string, startIndex, limit int) (*ItemPage, error) {
-	v := pageValues(userID, startIndex, limit)
-	v.Set("enableTotalRecordCount", "false")
-	if len(types) > 0 {
-		v.Set("includeItemTypes", strings.Join(types, ","))
-	}
-	out := ItemPage{NoCount: true}
-	if err := c.get(ctx, "resume", "/UserItems/Resume", a, v, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// NextUp lists the next episode of each series in progress.
-func (c *Client) NextUp(ctx context.Context, a Auth, userID, seriesID string, startIndex, limit int) (*ItemPage, error) {
-	v := pageValues(userID, startIndex, limit)
-	if seriesID != "" {
-		v.Set("seriesId", seriesID)
-	}
-	var out ItemPage
-	if err := c.get(ctx, "next up", "/Shows/NextUp", a, v, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 // Latest lists recently added items, grouping new episodes by series.
 func (c *Client) Latest(ctx context.Context, a Auth, userID, parentID string, limit int) ([]RawItem, error) {
 	v := pageValues(userID, 0, limit)

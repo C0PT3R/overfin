@@ -28,9 +28,9 @@ import (
 )
 
 // Library serves browsing: libraries, item queries, details and the home
-// rows. Every call runs with the active profile's own Jellyfin token, so
-// Jellyfin itself enforces library access; Overfin holds kids profiles to
-// its own ratings (ratings.go).
+// rows. Every call to Jellyfin runs as Overfin's one Jellyfin account
+// (milestone 4, step 4); what each profile may see is Overfin's to decide
+// (access.go), and what it did with titles is Overfin's to keep.
 type Library struct {
 	Sessions    *Sessions
 	Provisioner *provision.Provisioner
@@ -43,6 +43,8 @@ type Library struct {
 	// Folders remembers which library items the index doesn't have are in,
 	// for profiles limited to some libraries.
 	Folders *FolderCache
+	// Service is Overfin's one Jellyfin account, which serves everyone.
+	Service *provision.Service
 }
 
 func (Library) Name() string { return "library" }
@@ -88,8 +90,23 @@ func (l Library) active(w http.ResponseWriter, r *http.Request) *store.Profile {
 	return nil
 }
 
-func auth(p *store.Profile) jellyfin.Auth {
-	return jellyfin.Auth{Token: p.JellyfinToken, DeviceID: provision.DeviceID(p.JellyfinUserID)}
+// account returns Overfin's Jellyfin account (its credentials, on its own
+// device, and its user ID), or writes the problem and returns false.
+func (l Library) account(w http.ResponseWriter, r *http.Request) (jellyfin.Auth, string, bool) {
+	a, uid, err := l.jf(r.Context())
+	if err != nil {
+		l.upstreamError(w, err)
+		return jellyfin.Auth{}, "", false
+	}
+	return a, uid, true
+}
+
+// jf returns Overfin's Jellyfin account.
+func (l Library) jf(ctx context.Context) (jellyfin.Auth, string, error) {
+	if l.Service == nil {
+		return jellyfin.Auth{}, "", errors.New("api: no Jellyfin account")
+	}
+	return l.Service.Auth(ctx)
 }
 
 // upstreamError answers for a failed Jellyfin call: "not found" when Jellyfin
@@ -99,6 +116,14 @@ func (l Library) upstreamError(w http.ResponseWriter, err error) {
 	if jellyfin.IsStatus(err, http.StatusNotFound) {
 		problem.Send(w, problem.NotFound, "")
 		return
+	}
+	// Jellyfin refused the account's token: a new one, for what follows.
+	if jellyfin.IsStatus(err, http.StatusUnauthorized) && l.Service != nil {
+		go func() {
+			if err := l.Service.Refused(context.Background()); err != nil {
+				l.Logger.Error("renewing the Jellyfin account's token failed", "err", err)
+			}
+		}()
 	}
 	l.Logger.Error("jellyfin call failed", "err", err)
 	problem.Send(w, problem.Internal, "")
@@ -124,7 +149,11 @@ func (l Library) libraries(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	raw, err := l.Jellyfin.Libraries(r.Context(), auth(p), p.JellyfinUserID)
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	raw, err := l.Jellyfin.Libraries(r.Context(), ja, uid)
 	if err != nil {
 		l.upstreamError(w, err)
 		return
@@ -157,7 +186,11 @@ func (l Library) person(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	raw, err := l.Jellyfin.Item(r.Context(), auth(p), p.JellyfinUserID, jfID)
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	raw, err := l.Jellyfin.Item(r.Context(), ja, uid, jfID)
 	if err != nil {
 		l.upstreamError(w, err)
 		return
@@ -183,7 +216,11 @@ func (l Library) item(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	raw, err := l.Jellyfin.Item(r.Context(), auth(p), p.JellyfinUserID, jfID)
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	raw, err := l.Jellyfin.Item(r.Context(), ja, uid, jfID)
 	if err != nil {
 		l.upstreamError(w, err)
 		return
@@ -221,13 +258,23 @@ func (l Library) items(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
 	a, err := l.access(r.Context(), p)
 	if err != nil {
 		l.storeError(w, err)
 		return
 	}
-	lq, indexed := indexQuery(q, l.personalReady(r, p))
+	lq, indexed := indexQuery(q, true)
 	indexed = indexed && l.indexReady(r)
+	// What the profile did is Overfin's alone: until the index can answer,
+	// such a listing is empty rather than Jellyfin's account's.
+	if !indexed && (q.Has("played") || q.Has("favorite") || q.Has("inProgress") || q.Get("sort") == "lastPlayed") {
+		writeOK(w, itemPage{Items: []library.ItemSummary{}})
+		return
+	}
 	lq.ProfileID, lq.Access = p.ID, a // for personal filters and sorts; what it may see
 	if jq.SortBy == "random" {
 		var from *store.ListQuery
@@ -243,7 +290,7 @@ func (l Library) items(w http.ResponseWriter, r *http.Request) {
 	}
 	l.page(w, r, p, func(ctx context.Context, start, limit int) (*jellyfin.ItemPage, error) {
 		jq.StartIndex, jq.Limit = start, limit
-		return l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jq)
+		return l.Jellyfin.Items(ctx, ja, uid, jq)
 	})
 }
 
@@ -286,6 +333,10 @@ func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Pro
 	}
 
 	ctx := r.Context()
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
 	var ids []string
 	var err error
 	// Jellyfin's list may hold what Overfin hides from a limited profile,
@@ -298,7 +349,7 @@ func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Pro
 			return
 		}
 	} else {
-		if ids, err = l.Jellyfin.ItemIDs(ctx, auth(p), p.JellyfinUserID, jq); err != nil {
+		if ids, err = l.Jellyfin.ItemIDs(ctx, ja, uid, jq); err != nil {
 			l.upstreamError(w, err)
 			return
 		}
@@ -321,7 +372,7 @@ func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Pro
 	}
 	if start < total {
 		pageIDs := ids[start:min(start+limit, total)]
-		raw, err := l.Jellyfin.ItemsByID(ctx, auth(p), p.JellyfinUserID, pageIDs)
+		raw, err := l.Jellyfin.ItemsByID(ctx, ja, uid, pageIDs)
 		if err != nil {
 			l.upstreamError(w, err)
 			return
@@ -383,8 +434,7 @@ func (l Library) resume(w http.ResponseWriter, r *http.Request) {
 	if !onlyParams(w, r, "kind", "limit", "cursor") {
 		return
 	}
-	types, ok := parseKinds(r.URL.Query()["kind"])
-	if !ok {
+	if _, ok := parseKinds(r.URL.Query()["kind"]); !ok {
 		problem.Send(w, problem.InvalidRequest, "")
 		return
 	}
@@ -392,16 +442,11 @@ func (l Library) resume(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	// From Overfin's own data, once it has the profile's (rule 40).
-	if l.personalReady(r, p) {
-		kinds := r.URL.Query()["kind"]
-		l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
-			return l.Provisioner.Store.InProgress(ctx, p.ID, kinds, offset, limit)
-		})
-		return
-	}
-	l.page(w, r, p, func(ctx context.Context, start, limit int) (*jellyfin.ItemPage, error) {
-		return l.Jellyfin.Resume(ctx, auth(p), p.JellyfinUserID, types, start, limit)
+	// From Overfin's own data (rule 40): Jellyfin's one account keeps
+	// nobody's.
+	kinds := r.URL.Query()["kind"]
+	l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
+		return l.Provisioner.Store.InProgress(ctx, p.ID, kinds, offset, limit)
 	})
 }
 
@@ -421,14 +466,8 @@ func (l Library) nextUp(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	if l.personalReady(r, p) {
-		l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
-			return l.Provisioner.Store.NextUp(ctx, p.ID, seriesID, offset, limit)
-		})
-		return
-	}
-	l.page(w, r, p, func(ctx context.Context, start, limit int) (*jellyfin.ItemPage, error) {
-		return l.Jellyfin.NextUp(ctx, auth(p), p.JellyfinUserID, seriesID, start, limit)
+	l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
+		return l.Provisioner.Store.NextUp(ctx, p.ID, seriesID, offset, limit)
 	})
 }
 
@@ -450,7 +489,11 @@ func (l Library) latest(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	raw, err := l.Jellyfin.Latest(r.Context(), auth(p), p.JellyfinUserID, parent, limit)
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	raw, err := l.Jellyfin.Latest(r.Context(), ja, uid, parent, limit)
 	if err != nil {
 		l.upstreamError(w, err)
 		return
@@ -510,7 +553,11 @@ func (l Library) image(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	v := images.Viewer{ProfileID: p.ID, UserID: p.JellyfinUserID, Auth: auth(p)}
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	v := images.Viewer{ProfileID: p.ID, UserID: uid, Auth: ja}
 	if a, err := l.access(r.Context(), p); err != nil {
 		l.storeError(w, err)
 		return

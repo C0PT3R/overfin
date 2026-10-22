@@ -120,7 +120,11 @@ func (l Library) libraryOf(ctx context.Context, p *store.Profile, id string) (st
 	if lib, ok := l.Folders.get(id); ok {
 		return lib, nil
 	}
-	lib, err := l.Jellyfin.LibraryOf(ctx, auth(p), p.JellyfinUserID, id)
+	a, uid, err := l.jf(ctx)
+	if err != nil {
+		return "", err
+	}
+	lib, err := l.Jellyfin.LibraryOf(ctx, a, uid, id)
 	if err != nil {
 		if jellyfin.IsStatus(err, 404) {
 			return "", nil

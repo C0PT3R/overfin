@@ -202,12 +202,21 @@ func (b profileBackend) Item(ctx context.Context, id string) (feature.Item, erro
 	if !ok {
 		return feature.Item{}, feature.ErrNotFound
 	}
-	raw, err := b.l.Jellyfin.Item(ctx, auth(b.p), b.p.JellyfinUserID, jfID)
+	a, uid, err := b.l.jf(ctx)
+	if err != nil {
+		return feature.Item{}, err
+	}
+	raw, err := b.l.Jellyfin.Item(ctx, a, uid, jfID)
 	if jellyfin.IsStatus(err, http.StatusNotFound) {
 		return feature.Item{}, feature.ErrNotFound
 	}
 	if err != nil {
 		return feature.Item{}, err
+	}
+	if may, err := b.l.mayOpen(ctx, b.p, raw); err != nil {
+		return feature.Item{}, err
+	} else if !may {
+		return feature.Item{}, feature.ErrNotFound
 	}
 	s, ok := library.Summary(raw)
 	if !ok {
@@ -228,9 +237,16 @@ func (b profileBackend) Items(ctx context.Context, ids []string) ([]feature.Item
 		}
 	}
 	out := []feature.Item{}
+	a, uid, err := b.l.jf(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for start := 0; start < len(jfIDs); start += 100 {
-		raw, err := b.l.Jellyfin.ItemsByID(ctx, auth(b.p), b.p.JellyfinUserID, jfIDs[start:min(start+100, len(jfIDs))])
+		raw, err := b.l.Jellyfin.ItemsByID(ctx, a, uid, jfIDs[start:min(start+100, len(jfIDs))])
 		if err != nil {
+			return nil, err
+		}
+		if raw, err = b.l.keep(ctx, b.p, raw); err != nil {
 			return nil, err
 		}
 		for i := range raw {

@@ -13,7 +13,8 @@ import (
 
 // What each profile does with each title is Overfin's to keep (SECURITY.md
 // rule 40): playbacks record where it stopped and what it watched, and the
-// profile marks titles watched or favorites itself.
+// profile marks titles watched or favorites itself. Jellyfin keeps none of
+// it: its one account plays for everyone.
 
 // When a playback counts: under resumeFrom of a title, nothing is recorded
 // (a peek); from there to watchedFrom, where it stopped; past watchedFrom,
@@ -54,8 +55,8 @@ func (pb Playback) record(ctx context.Context, s *playback.Stream, positionMs in
 
 // markPlayed and the others mark the item the request names, for the
 // active profile: watched or not (on a series or a season, every episode
-// the library has of it), a favorite or not. The item is read from
-// Jellyfin as the profile first, so nothing it may not see is marked.
+// the library has of it), a favorite or not. The item is read first, and
+// checked, so nothing the profile may not see is marked.
 func (l Library) markPlayed(w http.ResponseWriter, r *http.Request)     { l.mark(w, r, true, false) }
 func (l Library) unmarkPlayed(w http.ResponseWriter, r *http.Request)   { l.mark(w, r, false, false) }
 func (l Library) markFavorite(w http.ResponseWriter, r *http.Request)   { l.mark(w, r, true, true) }
@@ -75,7 +76,11 @@ func (l Library) mark(w http.ResponseWriter, r *http.Request, on, favorite bool)
 		return
 	}
 	ctx := r.Context()
-	raw, err := l.Jellyfin.Item(ctx, auth(p), p.JellyfinUserID, id)
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	raw, err := l.Jellyfin.Item(ctx, ja, uid, id)
 	if err != nil {
 		l.upstreamError(w, err)
 		return
@@ -115,16 +120,6 @@ func (l Library) mark(w http.ResponseWriter, r *http.Request, on, favorite bool)
 	if err != nil {
 		l.storeError(w, err)
 		return
-	}
-	// Jellyfin is told too, while some listings still read what it keeps
-	// (before a profile's data is brought over).
-	if favorite {
-		err = l.Jellyfin.SetFavorite(ctx, auth(p), p.JellyfinUserID, id, on)
-	} else {
-		err = l.Jellyfin.SetPlayed(ctx, auth(p), p.JellyfinUserID, id, on)
-	}
-	if err != nil {
-		l.Logger.Warn("could not tell Jellyfin what a profile marked", "err", err)
 	}
 	state, err := l.userState(ctx, p, keys[id])
 	if err != nil {
@@ -207,7 +202,11 @@ func (l Library) forgetProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	raw, err := l.Jellyfin.Item(ctx, auth(p), p.JellyfinUserID, id)
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	raw, err := l.Jellyfin.Item(ctx, ja, uid, id)
 	if err != nil {
 		l.upstreamError(w, err)
 		return

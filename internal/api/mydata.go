@@ -8,6 +8,7 @@ import (
 	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
 )
 
@@ -224,9 +225,16 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 const historyLimit = 10_000
 
 // history reads a profile's watched, in-progress and favorite items from
-// Jellyfin, with its own token. Jellyfin's filters combine with "and", so
-// it takes one pass each.
+// Jellyfin, with its own token: only a profile that brought a Jellyfin user
+// of its own has any there (Overfin's one account plays for the others,
+// and what they do is Overfin's, in Titles). Jellyfin's filters combine
+// with "and", so it takes one pass each.
 func (a Account) history(ctx context.Context, p *store.Profile) ([]exportItemJSON, error) {
+	out := []exportItemJSON{}
+	if p.JellyfinUserID == "" {
+		return out, nil
+	}
+	own := jellyfin.Auth{Token: p.JellyfinToken, DeviceID: provision.DeviceID(p.JellyfinUserID)}
 	jf := a.Provisioner.Jellyfin
 	yes := true
 	passes := []jellyfin.ItemQuery{
@@ -235,12 +243,14 @@ func (a Account) history(ctx context.Context, p *store.Profile) ([]exportItemJSO
 		{IsFavorite: &yes},
 	}
 	seen := map[string]bool{}
-	out := []exportItemJSON{}
 	for _, q := range passes {
 		q.Recursive, q.SortBy, q.Descending, q.ExtraFields = true, "DatePlayed", true, "ProviderIds"
 		for start := 0; start < historyLimit; start += 500 {
 			q.StartIndex, q.Limit = start, 500
-			page, err := jf.Items(ctx, auth(p), p.JellyfinUserID, q)
+			page, err := jf.Items(ctx, own, p.JellyfinUserID, q)
+			if jellyfin.IsStatus(err, http.StatusUnauthorized) || jellyfin.IsStatus(err, http.StatusNotFound) {
+				return out, nil // not on this server (any more)
+			}
 			if err != nil {
 				return nil, err
 			}

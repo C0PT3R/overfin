@@ -84,7 +84,7 @@ func (p *Panel) accountJSON(r *http.Request, a *store.Account) (accountJSON, err
 		}
 		out.Profiles = append(out.Profiles, adminProfile{ID: pr.ID, Name: pr.Name, Kind: pr.Kind, Owner: pr.Owner,
 			MovieCeiling: pr.MovieCeiling, SeriesCeiling: pr.SeriesCeiling, HasPIN: pr.HasPIN, PINLocked: locks[pr.ID],
-			Linked: !strings.HasPrefix(pr.JellyfinUsername, "of-")})
+			Linked: pr.JellyfinUsername != "" && !strings.HasPrefix(pr.JellyfinUsername, "of-")})
 	}
 	sessions, err := p.Store.Sessions(ctx, a.ID)
 	if err != nil {

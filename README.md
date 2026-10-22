@@ -263,7 +263,8 @@ terms. Seerr, when connected, is a second source, and will bring requests.
 Overfin treats every browser as untrusted and Jellyfin's data as untrusted
 input. Among its rules: every route is declared (no passthrough to
 Jellyfin), Jellyfin tokens never reach the browser and are encrypted at
-rest, each profile has its own locked-down Jellyfin user, images are
+rest, Overfin reaches Jellyfin as one locked-down account and decides
+itself what each profile may see, images are
 re-encoded, nothing is collected for analytics, and the control panel is
 never on the internet.
 

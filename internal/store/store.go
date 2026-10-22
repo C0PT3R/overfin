@@ -91,24 +91,56 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("store: applying %s: %w", name, err)
-		}
-		// PRAGMA doesn't take parameters; version is an int we computed.
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
+		if err := s.apply(ctx, name, string(body), version); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// foreignKeysOff marks a migration that rebuilds a table: it runs with
+// foreign keys off (dropping the old table would otherwise delete or
+// unlink every row pointing at it), and they're checked before it commits.
+const foreignKeysOff = "-- overfin: foreign keys off\n"
+
+// apply runs one migration in its own transaction.
+func (s *Store) apply(ctx context.Context, name, body string, version int) (err error) {
+	// The pragma works only outside a transaction; the store has one
+	// connection, so it holds for the transaction below.
+	if strings.HasPrefix(body, foreignKeysOff) {
+		if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+			return err
+		}
+		defer func() {
+			if _, ferr := s.db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); ferr != nil && err == nil {
+				err = ferr
+			}
+		}()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, body); err != nil {
+		return fmt.Errorf("store: applying %s: %w", name, err)
+	}
+	if strings.HasPrefix(body, foreignKeysOff) {
+		rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+		if err != nil {
+			return err
+		}
+		broken := rows.Next()
+		rows.Close()
+		if broken {
+			return fmt.Errorf("store: applying %s: it would break references between tables", name)
+		}
+	}
+	// PRAGMA doesn't take parameters; version is an int we computed.
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---- Accounts and profiles --------------------------------------------------
@@ -172,8 +204,10 @@ func scanAccount(sc scanner) (*Account, error) {
 	return &a, nil
 }
 
-// Profile is one profile of an account. JellyfinToken is the plain token,
-// opened from its sealed form; it never leaves the server.
+// Profile is one profile of an account. Only a profile that brought a
+// Jellyfin user of its own (an adopted account) has JellyfinUserID and
+// JellyfinToken (the plain token, opened from its sealed form; it never
+// leaves the server): Overfin's one Jellyfin account serves everyone.
 type Profile struct {
 	ID               string
 	AccountID        string
@@ -235,13 +269,18 @@ func (s *Store) CreateAccount(ctx context.Context, subject string, owner NewOwne
 }
 
 func insertProfile(ctx context.Context, tx *sql.Tx, box *seal.Box, p *Profile, now time.Time) error {
-	sealed := box.Seal([]byte(p.JellyfinToken), p.ID)
+	// A profile has a Jellyfin user of its own only when it brought one
+	// (an adopted account); Overfin's one account serves the others.
+	var sealed any
+	if p.JellyfinUserID != "" {
+		sealed = box.Seal([]byte(p.JellyfinToken), p.ID)
+	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO profiles (id, account_id, name, kind, owner, jellyfin_user_id,
 			jellyfin_username, jellyfin_token, language, movie_ceiling, series_ceiling, libraries, blocked_tags, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.AccountID, p.Name, p.Kind, boolInt(p.Owner), p.JellyfinUserID,
-		p.JellyfinUsername, sealed, nullable(p.Language), nullable(p.MovieCeiling), nullable(p.SeriesCeiling),
+		p.ID, p.AccountID, p.Name, p.Kind, boolInt(p.Owner), nullable(p.JellyfinUserID),
+		nullable(p.JellyfinUsername), sealed, nullable(p.Language), nullable(p.MovieCeiling), nullable(p.SeriesCeiling),
 		jsonList(p.Libraries), jsonList(p.BlockedTags), now.Unix())
 	if err != nil {
 		return fmt.Errorf("store: creating profile: %w", err)
@@ -300,24 +339,27 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	var p Profile
 	var owner int
 	var sealed []byte
-	var language, movie, series sql.NullString
+	var language, movie, series, jfUser, jfName sql.NullString
 	var libraries, tags *string
 	var created int64
-	err := sc.Scan(&p.ID, &p.AccountID, &p.Name, &p.Kind, &owner, &p.JellyfinUserID,
-		&p.JellyfinUsername, &sealed, &language, &movie, &series, &libraries, &tags, &p.HasPIN, &created)
+	err := sc.Scan(&p.ID, &p.AccountID, &p.Name, &p.Kind, &owner, &jfUser,
+		&jfName, &sealed, &language, &movie, &series, &libraries, &tags, &p.HasPIN, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	token, err := s.box.Open(sealed, p.ID)
-	if err != nil {
-		// Tampered with, moved from another row, or a different key.
-		return nil, fmt.Errorf("store: profile %s: %w", p.ID, err)
+	p.JellyfinUserID, p.JellyfinUsername = jfUser.String, jfName.String
+	if sealed != nil {
+		token, err := s.box.Open(sealed, p.ID)
+		if err != nil {
+			// Tampered with, moved from another row, or a different key.
+			return nil, fmt.Errorf("store: profile %s: %w", p.ID, err)
+		}
+		p.JellyfinToken = string(token)
 	}
 	p.Owner = owner == 1
-	p.JellyfinToken = string(token)
 	p.Language = language.String
 	p.MovieCeiling, p.SeriesCeiling = movie.String, series.String
 	p.Libraries, p.BlockedTags = scanList(libraries), scanList(tags)
@@ -886,7 +928,8 @@ type Unreadable struct {
 
 // UnreadableTokens lists the profiles whose Jellyfin token can't be opened.
 func (s *Store) UnreadableTokens(ctx context.Context) ([]Unreadable, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, jellyfin_user_id, jellyfin_username, jellyfin_token FROM profiles`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, jellyfin_user_id, jellyfin_username, jellyfin_token FROM profiles
+		WHERE jellyfin_token IS NOT NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -895,10 +938,12 @@ func (s *Store) UnreadableTokens(ctx context.Context) ([]Unreadable, error) {
 	for rows.Next() {
 		var u Unreadable
 		var sealed []byte
-		if err := rows.Scan(&u.ProfileID, &u.JellyfinUserID, &u.JellyfinUsername, &sealed); err != nil {
+		var name sql.NullString
+		if err := rows.Scan(&u.ProfileID, &u.JellyfinUserID, &name, &sealed); err != nil {
 			return nil, err
 		}
 		if _, err := s.box.Open(sealed, u.ProfileID); err != nil {
+			u.JellyfinUsername = name.String
 			out = append(out, u)
 		}
 	}

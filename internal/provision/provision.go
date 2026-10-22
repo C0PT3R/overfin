@@ -310,97 +310,21 @@ func (p *Provisioner) existing(ctx context.Context, subject string) (*store.Acco
 	return acct, profiles[0], nil
 }
 
+// create makes a new account. It needs no Jellyfin user of its own:
+// Overfin's one Jellyfin account serves everyone.
 func (p *Provisioner) create(ctx context.Context, subject string) (*store.Account, *store.Profile, error) {
-	u, rollback, err := p.newJellyfinUser(ctx)
+	acct, prof, err := p.Store.CreateAccount(ctx, subject, store.NewOwner{Name: OwnerProfileName})
 	if err != nil {
-		return nil, nil, err
-	}
-	acct, prof, err := p.Store.CreateAccount(ctx, subject, store.NewOwner{
-		Name: OwnerProfileName, JellyfinUserID: u.ID, JellyfinUsername: u.Username, JellyfinToken: u.Token,
-	})
-	if err != nil {
-		rollback()
 		return nil, nil, err
 	}
 	p.Logger.Info("account provisioned", "user", p.logID(subject), "account", acct.ID)
 	return acct, prof, nil
 }
 
-// AddProfile creates another profile in an account, with its own Jellyfin
-// user. A kids profile's ceilings are Overfin's to apply, not Jellyfin's.
+// AddProfile creates another profile in an account. It needs no Jellyfin
+// user of its own, and a kids profile's ceilings are Overfin's to apply.
 func (p *Provisioner) AddProfile(ctx context.Context, accountID string, np store.NewProfile, maxProfiles int) (*store.Profile, error) {
-	// Check first, so a refusal doesn't create and delete a Jellyfin user.
-	existing, err := p.Store.Profiles(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-	if maxProfiles > 0 && len(existing) >= maxProfiles {
-		return nil, store.ErrProfileLimit
-	}
-	for _, e := range existing {
-		if e.Name == np.Name {
-			return nil, store.ErrNameTaken
-		}
-	}
-
-	u, rollback, err := p.newJellyfinUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-	np.JellyfinUserID, np.JellyfinUsername, np.JellyfinToken = u.ID, u.Username, u.Token
-	prof, err := p.Store.AddProfile(ctx, accountID, np, maxProfiles)
-	if err != nil {
-		rollback()
-		return nil, err
-	}
-	return prof, nil
-}
-
-type jellyfinUser struct {
-	ID, Username, Token string
-}
-
-// newJellyfinUser creates a locked-down Jellyfin user with an opaque name and
-// a random password, logs in once to get its token, and forgets the
-// password. rollback deletes the user again, for when a later step fails.
-func (p *Provisioner) newJellyfinUser(ctx context.Context) (_ jellyfinUser, rollback func(), err error) {
-	username := "of-" + randomName()
-	password := randomSecret()
-	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
-
-	userID, err := p.Jellyfin.CreateUser(ctx, admin, username, password)
-	if err != nil {
-		return jellyfinUser{}, nil, err
-	}
-	// From here on, any failure deletes the Jellyfin user again. The
-	// deferred cleanup uses its own variable: the named result rollback is
-	// set to nil by every "return …, nil, err" before deferred calls run.
-	undo := func() { p.rollback(userID) }
-	defer func() {
-		if err != nil {
-			undo()
-		}
-	}()
-
-	policy, err := p.Jellyfin.UserPolicy(ctx, admin, userID)
-	if err != nil {
-		return jellyfinUser{}, nil, err
-	}
-	policy.LockDown()
-	if err = p.Jellyfin.SetUserPolicy(ctx, admin, userID, policy); err != nil {
-		return jellyfinUser{}, nil, err
-	}
-
-	// The same device ID every later call of this profile uses, so the
-	// profile appears as one device in Jellyfin, not two.
-	token, authID, err := p.Jellyfin.Authenticate(ctx, DeviceID(userID), username, password)
-	if err != nil {
-		return jellyfinUser{}, nil, err
-	}
-	if authID != userID {
-		return jellyfinUser{}, nil, errors.New("provision: logged in as a different user than created")
-	}
-	return jellyfinUser{ID: userID, Username: username, Token: token}, undo, nil
+	return p.Store.AddProfile(ctx, accountID, np, maxProfiles)
 }
 
 // Unrestrict lifts any rating limit from a profile's Jellyfin user: Overfin
@@ -536,6 +460,9 @@ func (p *Provisioner) DeleteAccount(ctx context.Context, accountID string, keepH
 		return nil, err
 	}
 	for _, pr := range profiles {
+		if pr.JellyfinUserID == "" {
+			continue // none of its own
+		}
 		if keepHistory {
 			err = p.DisableJellyfinUser(ctx, pr.JellyfinUserID)
 		} else {
@@ -556,6 +483,9 @@ func (p *Provisioner) DeleteAccount(ctx context.Context, accountID string, keepH
 // history on the server: for operators who keep it when an account is
 // deleted.
 func (p *Provisioner) DisableJellyfinUser(ctx context.Context, jellyfinUserID string) error {
+	if jellyfinUserID == "" {
+		return nil // a profile without one
+	}
 	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
 	policy, err := p.Jellyfin.UserPolicy(ctx, admin, jellyfinUserID)
 	if jellyfin.IsStatus(err, http.StatusNotFound) {
@@ -571,6 +501,9 @@ func (p *Provisioner) DisableJellyfinUser(ctx context.Context, jellyfinUserID st
 // DeleteJellyfinUser deletes a profile's Jellyfin user, with its watch
 // history. A user already gone counts as deleted.
 func (p *Provisioner) DeleteJellyfinUser(ctx context.Context, jellyfinUserID string) error {
+	if jellyfinUserID == "" {
+		return nil // a profile without one
+	}
 	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
 	if err := p.Jellyfin.DeleteUser(ctx, admin, jellyfinUserID); err != nil && !jellyfin.IsStatus(err, http.StatusNotFound) {
 		return err

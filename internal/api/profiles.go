@@ -32,6 +32,8 @@ type Profiles struct {
 	// Images, when set, forgets a profile's image access when its limits
 	// change.
 	Images *images.Pipeline
+	// Service is Overfin's one Jellyfin account, which lists the libraries.
+	Service *provision.Service
 	// LogoutURL is where the site sends a user to also leave the identity
 	// provider; empty when there is none.
 	LogoutURL string
@@ -144,7 +146,11 @@ func (p Profiles) accessFrom(ctx context.Context, c *Caller, pr *store.Profile, 
 			if len(req.Libraries.Value) > 100 {
 				return nil, nil, false, nil
 			}
-			raw, err := p.Provisioner.Jellyfin.Libraries(ctx, auth(c.Profile), c.Profile.JellyfinUserID)
+			a, uid, err := p.Service.Auth(ctx)
+			if err != nil {
+				return nil, nil, false, err
+			}
+			raw, err := p.Provisioner.Jellyfin.Libraries(ctx, a, uid)
 			if err != nil {
 				return nil, nil, false, err
 			}

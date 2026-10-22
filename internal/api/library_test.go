@@ -319,6 +319,12 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	prov := &provision.Provisioner{Store: st, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"), Logger: logger}
+	// Overfin's one Jellyfin account, which serves everyone: the fake's
+	// user, with its token.
+	if err := st.SetService(context.Background(), store.ServiceAccount{UserID: userJF, Username: "overfin-service-test", Token: token}); err != nil {
+		t.Fatal(err)
+	}
+	service := &provision.Service{Provisioner: func() *provision.Provisioner { return prov }}
 	sessions := &api.Sessions{Provisioner: prov, Store: st, Logger: logger, Lifetime: time.Hour}
 	extra := []plugin.Plugin{}
 	ids := identity.NewForwardAuth([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, "Remote-User", "", "|")
@@ -333,7 +339,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 			identify = func(h http.Handler) http.Handler { return ids.Middleware(auth.Middleware(h)) }
 		}
 	}
-	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Logger: logger}
+	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: jf, CursorKey: []byte("cursor-key"), Service: service, Logger: logger}
 	if o.seerr != nil {
 		lib.Images = images.New(jf, 1<<20)
 		disc := &api.Discovery{Library: lib, Source: o.seerr, Store: st}
@@ -381,7 +387,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}
 	plugins := append([]plugin.Plugin{lib, pb, api.Stream{Playback: pb},
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, PINs: checker, Mounts: mounts},
-		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, LogoutURL: "/sign-out", Logger: logger,
+		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, Service: service, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},
 	}, extra...)
 	var siteHandler http.Handler

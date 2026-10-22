@@ -62,7 +62,8 @@ func (s Stream) stream(w http.ResponseWriter, r *http.Request) (*playback.Stream
 		problem.Send(w, problem.NotFound, "")
 		return nil, nil
 	}
-	a := auth(p)
+	// As the playback's own device, so its transcode is the one served.
+	a := st.Auth
 	return st, &a
 }
 

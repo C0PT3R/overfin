@@ -64,11 +64,11 @@ func TestListingsFromTheIndex(t *testing.T) {
 		t.Errorf("descending: %v", ids())
 	}
 
-	// What the index can't answer goes to Jellyfin, as before: there, the
-	// fake lists its own seven films.
+	// What the profile did is Overfin's alone, answered from the index:
+	// nothing watched yet, so every film is unwatched.
 	out = page{}
 	get(t, srv, "/api/v1/items?library=lib_"+lib+"&kind=movie&played=false", &out)
-	if len(out.Items) != 7 {
+	if fmt.Sprint(ids()) != want(2, 3, 1) {
 		t.Errorf("a personal filter: %v", ids())
 	}
 }

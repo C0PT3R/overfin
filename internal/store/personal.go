@@ -282,11 +282,18 @@ func (s *Store) Imported(ctx context.Context, profileID string) (bool, error) {
 // again is in the middle too. kinds, when set, keeps those the index knows
 // as one of them.
 func (s *Store) InProgress(ctx context.Context, profileID string, kinds []string, offset, limit int) ([]string, error) {
-	q := `SELECT pt.item_id FROM profile_titles pt LEFT JOIN catalog_items ci ON ci.id = pt.item_id
-		WHERE pt.profile_id = ? AND pt.position_ms > 0 AND pt.item_id IS NOT NULL`
+	// The item it was last seen as, if the index still has it, else another
+	// copy of the same title (a title's state outlives its files and the
+	// server they were on), else the item as kept (kinds the index doesn't
+	// hold).
+	q := `SELECT coalesce(a.id, b.id, pt.item_id) FROM profile_titles pt
+		LEFT JOIN catalog_items a ON a.id = pt.item_id
+		LEFT JOIN catalog_items b ON a.id IS NULL AND b.id =
+			(SELECT x.id FROM catalog_items x WHERE x.title_key = pt.title ORDER BY x.id LIMIT 1)
+		WHERE pt.profile_id = ? AND pt.position_ms > 0 AND coalesce(a.id, b.id, pt.item_id) IS NOT NULL`
 	args := []any{profileID}
 	if len(kinds) > 0 {
-		q += ` AND ci.kind IN (` + marks(len(kinds)) + `)`
+		q += ` AND coalesce(a.kind, b.kind) IN (` + marks(len(kinds)) + `)`
 		for _, k := range kinds {
 			args = append(args, k)
 		}

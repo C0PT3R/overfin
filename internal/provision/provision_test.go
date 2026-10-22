@@ -158,20 +158,23 @@ func TestFirstVisitProvisionsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prof.Owner || prof.JellyfinToken != "token-"+jfUser || prof.Name != OwnerProfileName {
+	// No Jellyfin user of its own: Overfin's one account serves everyone.
+	if !prof.Owner || prof.JellyfinUserID != "" || prof.JellyfinToken != "" || prof.Name != OwnerProfileName {
 		t.Errorf("owner profile = %+v", prof)
 	}
-	if len(fake.created) != 1 || !strings.HasPrefix(fake.created[0], "of-") {
-		t.Errorf("created users = %v, want one opaque name", fake.created)
-	}
-	if fake.policy["IsAdministrator"] != false || fake.policy["IsHidden"] != true {
-		t.Errorf("policy not locked down: %v", fake.policy)
+	if len(fake.created) != 0 {
+		t.Errorf("created users = %v, want none", fake.created)
 	}
 
-	// Second visit: same account, no new Jellyfin user.
+	// Second visit: same account.
 	acct2, _, err := p.Ensure(ctx, id, nil)
-	if err != nil || acct2.ID != acct.ID || len(fake.created) != 1 {
-		t.Errorf("second visit: %v, %v, created %d users", acct2, err, len(fake.created))
+	if err != nil || acct2.ID != acct.ID {
+		t.Errorf("second visit: %v, %v", acct2, err)
+	}
+	// Another profile: none either.
+	kid, err := p.AddProfile(ctx, acct.ID, store.NewProfile{Name: "Kid", Kind: "kids"}, 0)
+	if err != nil || kid.JellyfinUserID != "" || len(fake.created) != 0 {
+		t.Errorf("another profile: %+v %v, created %v", kid, err, fake.created)
 	}
 }
 
@@ -184,39 +187,30 @@ func TestRequiredGroup(t *testing.T) {
 	}
 }
 
-func TestFailedLoginRollsBack(t *testing.T) {
-	fake := &fakeJellyfin{failLogin: true}
-	p := setup(t, fake, "")
-	_, _, err := p.Ensure(context.Background(), identity.Identity{Subject: "s"}, nil)
-	if err == nil {
-		t.Fatal("expected an error")
-	}
-	if len(fake.deleted) != 1 {
-		t.Errorf("the Jellyfin user was not deleted after the failure")
-	}
-	if _, err := p.Store.AccountBySubject(context.Background(), "s"); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("an account was stored despite the failure: %v", err)
-	}
-}
-
 func TestConcurrentFirstVisits(t *testing.T) {
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "")
 	id := identity.Identity{Subject: "same-person"}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	accounts := make([]string, 5)
+	for i := range accounts {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, _, err := p.Ensure(context.Background(), id, nil); err != nil {
+			acct, _, err := p.Ensure(context.Background(), id, nil)
+			if err != nil {
 				t.Error(err)
+				return
 			}
+			accounts[i] = acct.ID
 		}()
 	}
 	wg.Wait()
-	if len(fake.created) != 1 {
-		t.Errorf("%d Jellyfin users created for one person, want 1", len(fake.created))
+	for _, a := range accounts {
+		if a != accounts[0] {
+			t.Errorf("one person, several accounts: %v", accounts)
+		}
 	}
 }
 

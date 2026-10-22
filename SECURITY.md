@@ -14,13 +14,17 @@ These rules are the point of the project; a change that breaks one is a bug.
    match a strict format may appear (as in `/Items/{id}`). Everything else
    travels as encoded query or body values: parameters come from fixed sets of
    allowed values, and free text (such as a search term) is length-capped.
-3. User actions run with that user's own Jellyfin token. The Jellyfin admin key
-   is used only by provisioning code and the admin API (rule 58), never by
-   the public API's user routes. The catalog reads the whole library with
-   Overfin's Jellyfin service account: an ordinary user of its own, never an
-   administrator, hidden, made with the admin key (that's provisioning), its
-   token sealed like every other; it reads titles only, nothing personal,
-   and no user's request ever runs with it. Seerr has no per-user tokens, so Seerr
+3. Every call to Jellyfin runs as Overfin's one Jellyfin account: an ordinary
+   user of its own, never an administrator, hidden, with every library and no
+   limit of Jellyfin's, made with the admin key (that's provisioning), its
+   token sealed like every other. It holds nothing personal: what each
+   profile may see, Overfin decides before anything is shown or played
+   (rule 28), and what each profile does is Overfin's to keep (rule 40).
+   Each playback runs on a Jellyfin device of its own, so playbacks never
+   share a session or a transcode. The Jellyfin admin key is used only by
+   provisioning code and the admin API (rule 58), never by the public API's
+   user routes. A profile that brought a Jellyfin user of its own (an
+   adopted account) keeps it only to bring its history over once. Seerr has no per-user tokens, so Seerr
    calls use its API key with the acting user named in the request; that user
    is always the account's own Seerr user, derived from the session.
 4. Upstream tokens never reach the browser, including inside stream URLs and

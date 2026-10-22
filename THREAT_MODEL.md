@@ -62,8 +62,9 @@ The user controls their browser and can call the API directly with any input.
 Nothing is enforced by the UI.
 
 - **Other people's things:** Overfin IDs are random and checked against the
-  current account [23]. Library items are filtered by Jellyfin itself, because
-  calls use the user's own token [3]. Jellyfin's image endpoints don't check
+  current account [23]. Library items are filtered by Overfin, which reaches
+  Jellyfin as one account and checks every item, listing, image and playback
+  against the profile's access before it's shown [3, 28]. Jellyfin's image endpoints don't check
   permissions, so Overfin checks every image itself, cached or not [27].
   Hidden things return 404, so their existence doesn't leak [24].
 - **Acting for the whole account:** account-wide actions (managing profiles,

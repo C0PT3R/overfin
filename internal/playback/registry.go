@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -107,6 +108,9 @@ type Tickets struct {
 	byTicket map[string]*Stream
 	byID     map[string]*Stream
 	ended    map[string]Ended
+	// devices are the Jellyfin device IDs in use, by live playbacks or by
+	// ones starting.
+	devices map[string]bool
 	// MaxAge is a hard limit on any playback, however active.
 	MaxAge time.Duration
 }
@@ -116,7 +120,8 @@ const endedFor = time.Hour
 
 // NewTickets returns an empty registry.
 func NewTickets(maxAge time.Duration) *Tickets {
-	return &Tickets{byTicket: map[string]*Stream{}, byID: map[string]*Stream{}, ended: map[string]Ended{}, MaxAge: maxAge}
+	return &Tickets{byTicket: map[string]*Stream{}, byID: map[string]*Stream{}, ended: map[string]Ended{},
+		devices: map[string]bool{}, MaxAge: maxAge}
 }
 
 // Add registers a stream and gives it its public ID and secret ticket.
@@ -185,6 +190,7 @@ func (t *Tickets) Remove(s *Stream, reason, by string, now time.Time) bool {
 	}
 	delete(t.byID, s.ID)
 	delete(t.byTicket, s.Ticket)
+	delete(t.devices, s.Auth.DeviceID)
 	t.ended[s.ID+"/"+s.ProfileID] = Ended{Reason: reason, By: by, at: now}
 	for k, e := range t.ended {
 		if now.Sub(e.at) >= endedFor {
@@ -276,4 +282,28 @@ func random(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// ReserveDevice returns a Jellyfin device ID no live playback uses:
+// prefix-1, prefix-2… Overfin's one Jellyfin account plays everything,
+// and Jellyfin keeps one session per device, so each playback gets a
+// device of its own. It's freed with its playback (Remove), or by
+// ReleaseDevice when the playback doesn't start.
+func (t *Tickets) ReserveDevice(prefix string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for n := 1; ; n++ {
+		id := prefix + "-" + strconv.Itoa(n)
+		if !t.devices[id] {
+			t.devices[id] = true
+			return id
+		}
+	}
+}
+
+// ReleaseDevice frees a device reserved for a playback that didn't start.
+func (t *Tickets) ReleaseDevice(id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.devices, id)
 }

@@ -19,9 +19,10 @@ func TestServiceAccount(t *testing.T) {
 	if len(fake.created) != 1 || !strings.HasPrefix(fake.created[0], "overfin-service-") {
 		t.Errorf("created: %v", fake.created)
 	}
-	// Never an administrator, hidden, every library, no playback.
+	// Never an administrator, hidden, every library, and playback: it
+	// serves everyone.
 	for k, want := range map[string]any{"IsAdministrator": false, "IsHidden": true, "EnableAllFolders": true,
-		"EnableMediaPlayback": false, "EnableVideoPlaybackTranscoding": false} {
+		"EnableMediaPlayback": true, "EnableVideoPlaybackTranscoding": true, "EnablePlaybackRemuxing": true} {
 		if fake.policy[k] != want {
 			t.Errorf("policy %s = %v, want %v", k, fake.policy[k], want)
 		}

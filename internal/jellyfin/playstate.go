@@ -6,8 +6,8 @@ import (
 	"net/url"
 )
 
-// PlayState is what Overfin reports to Jellyfin about a playback, so watch
-// history and "continue watching" stay correct.
+// PlayState is what Overfin reports to Jellyfin about a playback, so its
+// sessions and transcodes stay coherent (what people watched is Overfin's).
 type PlayState struct {
 	ItemId              string
 	MediaSourceId       string
@@ -45,33 +45,6 @@ func (c *Client) ReportStopped(ctx context.Context, a Auth, s PlayState) error {
 func (c *Client) StopEncoding(ctx context.Context, a Auth, deviceID, playSessionID string) error {
 	return c.doQuery(ctx, "stop encoding", http.MethodDelete, "/Videos/ActiveEncodings",
 		url.Values{"deviceId": {deviceID}, "playSessionId": {playSessionID}}, a, nil, nil)
-}
-
-// SetPlayed marks an item watched or not for a user, as that user. On a
-// series or a season, Jellyfin marks its episodes too.
-func (c *Client) SetPlayed(ctx context.Context, a Auth, userID, itemID string, played bool) error {
-	id, err := NormalizeID(itemID)
-	if err != nil {
-		return err
-	}
-	method := http.MethodPost
-	if !played {
-		method = http.MethodDelete
-	}
-	return c.doQuery(ctx, "set played", method, "/UserPlayedItems/"+id, url.Values{"userId": {userID}}, a, nil, nil)
-}
-
-// SetFavorite marks an item a favorite of a user or not, as that user.
-func (c *Client) SetFavorite(ctx context.Context, a Auth, userID, itemID string, favorite bool) error {
-	id, err := NormalizeID(itemID)
-	if err != nil {
-		return err
-	}
-	method := http.MethodPost
-	if !favorite {
-		method = http.MethodDelete
-	}
-	return c.doQuery(ctx, "set favorite", method, "/UserFavoriteItems/"+id, url.Values{"userId": {userID}}, a, nil, nil)
 }
 
 // VideoCopied tells whether Jellyfin copies the video of the item a device

@@ -393,6 +393,14 @@ own do), so a title looks the same wherever it is.
    session per device). The admin key is then needed only for setup and
    migration. Linked accounts (migration's "link" mode) keep their old
    Jellyfin user until they're moved.
+   *Done.* Every call to Jellyfin runs as the service account, which now
+   plays too; each playback reserves a device ID of its own
+   (overfin-play-1, -2…), freed when it ends. New accounts and profiles get
+   no Jellyfin user; those that have one keep it only to bring their
+   history over once. Continue Watching, Next Up, the personal filters and
+   marks are Overfin's alone, and Continue Watching follows a title to its
+   other copies, so switching to another Jellyfin server keeps everyone's
+   place.
 
 ## Milestone 5: Federation
 

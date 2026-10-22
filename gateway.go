@@ -50,6 +50,9 @@ type shared struct {
 	tickets   *playback.Tickets
 	// folders remembers which library items the index doesn't hold are in.
 	folders *api.FolderCache
+	// service is Overfin's one Jellyfin account, shared by everything: a
+	// second sign-in on its device would cancel the first one's token.
+	service *provision.Service
 	// jellyfinSaved: Jellyfin's settings are the setup page's, in the
 	// database, not the configuration's, so the panel may change them.
 	jellyfinSaved bool
@@ -133,7 +136,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		checker.UnlockAfter = 15 * time.Minute
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor,
-		Folders: sh.folders, Logger: logger}
+		Folders: sh.folders, Service: sh.service, Logger: logger}
 	// Discovery, when there's a source for TMDB's data. The library hands
 	// it the catalog's TMDB images.
 	var disc *api.Discovery
@@ -170,7 +173,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	plugins := []plugin.Plugin{
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Mounts: mounts,
 			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images, PINs: checker},
-		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db,
+		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, Service: sh.service,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 	}
 	if sessions.Auth != nil {

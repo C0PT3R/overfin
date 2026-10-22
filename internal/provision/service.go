@@ -14,9 +14,10 @@ import (
 // and signing in again on it would cancel its token (Jellyfin 12).
 const serviceDevice = "overfin-service"
 
-// Service is Overfin's Jellyfin service account: an ordinary user of its
-// own (never an administrator, hidden, with every library) that reads the
-// whole library for the catalog. Creating it is provisioning: the admin key
+// Service is Overfin's one Jellyfin account: an ordinary user of its own
+// (never an administrator, hidden, with every library and no limit of its
+// own) that serves everyone, the catalog's reads, browsing and playback
+// alike (milestone 4, step 4). Overfin applies every limit itself. Creating it is provisioning: the admin key
 // is used for that, and to give it a new token if Jellyfin refuses the old
 // one (SECURITY.md rule 3); everything else runs with its own token.
 type Service struct {
@@ -26,6 +27,8 @@ type Service struct {
 
 	mu      sync.Mutex
 	account *store.ServiceAccount
+	// checked: the account's policy was checked since Overfin started.
+	checked bool
 }
 
 // Auth returns the service account's credentials, making the account on
@@ -54,6 +57,17 @@ func (s *Service) Auth(ctx context.Context) (jellyfin.Auth, string, error) {
 		default:
 			s.account = a
 		}
+	}
+	if !s.checked {
+		err := s.ensurePolicy(ctx)
+		if jellyfin.IsStatus(err, http.StatusNotFound) {
+			// Not on this server (a new one): a new account.
+			err = s.renew(ctx)
+		}
+		if err != nil {
+			return jellyfin.Auth{}, "", err
+		}
+		s.checked = true
 	}
 	return jellyfin.Auth{Token: s.account.Token, DeviceID: serviceDevice}, s.account.UserID, nil
 }
@@ -123,13 +137,7 @@ func (s *Service) create(ctx context.Context) (*store.ServiceAccount, error) {
 	if err != nil {
 		return nil, err
 	}
-	policy.LockDown()
-	policy["EnableAllFolders"] = true
-	policy["EnabledFolders"] = []string{}
-	policy["EnableMediaPlayback"] = false
-	policy["EnableAudioPlaybackTranscoding"] = false
-	policy["EnableVideoPlaybackTranscoding"] = false
-	policy["EnablePlaybackRemuxing"] = false
+	servicePolicy(policy)
 	if err := p.Jellyfin.SetUserPolicy(ctx, admin, userID, policy); err != nil {
 		return nil, err
 	}
@@ -147,4 +155,37 @@ func (s *Service) create(ctx context.Context) (*store.ServiceAccount, error) {
 	ok = true
 	p.Logger.Info("made the Jellyfin service account", "user", username)
 	return a, nil
+}
+
+// servicePolicy is the account's policy: locked down like any user Overfin
+// makes, with every library, playback, transcoding and remuxing, and no
+// limit of Jellyfin's (Overfin applies them all).
+func servicePolicy(policy jellyfin.Policy) {
+	policy.LockDown()
+	policy.Unlimited()
+	policy["EnableAllFolders"] = true
+	policy["EnabledFolders"] = []string{}
+	policy["MaxActiveSessions"] = 0
+	policy["RemoteClientBitrateLimit"] = 0
+}
+
+// ensurePolicy gives an existing account the current policy (one made
+// before it served playback had none). The caller holds s.mu.
+func (s *Service) ensurePolicy(ctx context.Context) error {
+	p := s.Provisioner()
+	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
+	policy, err := p.Jellyfin.UserPolicy(ctx, admin, s.account.UserID)
+	if err != nil {
+		return err
+	}
+	if policy["EnableMediaPlayback"] == true && policy["EnableVideoPlaybackTranscoding"] == true &&
+		policy["EnablePlaybackRemuxing"] == true && !policy.Limited() {
+		return nil
+	}
+	servicePolicy(policy)
+	if err := p.Jellyfin.SetUserPolicy(ctx, admin, s.account.UserID, policy); err != nil {
+		return err
+	}
+	p.Logger.Info("the Jellyfin service account may play now")
+	return nil
 }

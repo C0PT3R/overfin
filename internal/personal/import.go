@@ -59,6 +59,13 @@ func (im *Importer) Once(ctx context.Context) error {
 		return err
 	}
 	for _, p := range profiles {
+		// A profile without a Jellyfin user of its own has nothing there.
+		if p.JellyfinUserID == "" {
+			if err := im.Store.MarkImported(ctx, p.ID, time.Now()); err != nil {
+				return err
+			}
+			continue
+		}
 		n, err := im.profile(ctx, p)
 		if jellyfin.IsStatus(err, http.StatusUnauthorized) {
 			continue // its token is being renewed: next time

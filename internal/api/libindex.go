@@ -130,7 +130,12 @@ func (l Library) indexPage(w http.ResponseWriter, r *http.Request, p *store.Prof
 		out.TotalCount = &total
 	} else if offset == 0 {
 		jq.StartIndex, jq.Limit = 0, 0
-		count, err := l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jq)
+		a, uid, err := l.jf(ctx)
+		if err != nil {
+			l.upstreamError(w, err)
+			return
+		}
+		count, err := l.Jellyfin.Items(ctx, a, uid, jq)
 		if err != nil {
 			l.upstreamError(w, err)
 			return
@@ -149,7 +154,11 @@ func (l Library) itemsByID(ctx context.Context, p *store.Profile, ids []string) 
 	if len(ids) == 0 {
 		return out, nil
 	}
-	page, err := l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jellyfin.ItemQuery{IDs: ids, Limit: len(ids)})
+	a, uid, err := l.jf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	page, err := l.Jellyfin.Items(ctx, a, uid, jellyfin.ItemQuery{IDs: ids, Limit: len(ids)})
 	if err != nil {
 		return nil, err
 	}
@@ -210,15 +219,4 @@ func (l Library) idPage(w http.ResponseWriter, r *http.Request, p *store.Profile
 		return
 	}
 	writeOK(w, out)
-}
-
-// personalReady reports whether Overfin's own data can answer for the
-// profile: once the index has read the library and the profile's data was
-// brought over from Jellyfin.
-func (l Library) personalReady(r *http.Request, p *store.Profile) bool {
-	if !l.indexReady(r) {
-		return false
-	}
-	ok, err := l.Provisioner.Store.Imported(r.Context(), p.ID)
-	return err == nil && ok
 }

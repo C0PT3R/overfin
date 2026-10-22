@@ -296,7 +296,11 @@ func (d Discovery) place(ctx context.Context, p *store.Profile, titles []store.T
 	}
 	items := map[string]library.ItemSummary{}
 	if len(itemIDs) > 0 {
-		page, err := d.Library.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID,
+		a, uid, err := d.Library.jf(ctx)
+		if err != nil {
+			return nil, err
+		}
+		page, err := d.Library.Jellyfin.Items(ctx, a, uid,
 			jellyfin.ItemQuery{IDs: itemIDs, Limit: len(itemIDs)})
 		if err != nil {
 			return nil, err

@@ -78,7 +78,8 @@ func TestProfilesAndSwitching(t *testing.T) {
 		}
 	}
 
-	// Switch: the library now runs with the partner's own Jellyfin token.
+	// Switch: the library still runs as Overfin's one Jellyfin account; the
+	// partner has no Jellyfin user of its own.
 	if code, body := post(t, srv, "/api/v1/profiles/"+partner.ID+"/activate", `{}`); code != 200 {
 		t.Fatalf("activate: %d %s", code, body)
 	}
@@ -87,8 +88,8 @@ func TestProfilesAndSwitching(t *testing.T) {
 		t.Errorf("active profile after switching: %s", me)
 	}
 	getAs(t, srv, subject, "/api/v1/libraries")
-	if fake.lastToken != partnerToken {
-		t.Errorf("library call used %q, want the partner's token", fake.lastToken)
+	if fake.lastToken != token || len(fake.users) != 0 {
+		t.Errorf("library call used %q (want the account's), users made %v", fake.lastToken, fake.users)
 	}
 
 	// The partner profile isn't the owner: no managing profiles or sessions.
@@ -148,9 +149,9 @@ func TestKidsProfiles(t *testing.T) {
 	}
 	var kid struct{ ID string }
 	json.Unmarshal([]byte(body), &kid)
-	// Overfin holds it to its ceilings: Jellyfin doesn't limit it.
-	if fake.policy["IsHidden"] != true || fake.policy["MaxParentalRating"] != nil || fake.policy["BlockUnratedItems"] != nil {
-		t.Errorf("kids policy: %v", fake.policy)
+	// Overfin holds it to its ceilings: it has no Jellyfin user to limit.
+	if len(fake.users) != 0 {
+		t.Errorf("Jellyfin users made: %v", fake.users)
 	}
 
 	// The owner's PIN guards limits once the owner has one.

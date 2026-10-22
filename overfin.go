@@ -262,6 +262,8 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// The service account follows the configuration's admin key.
+	sh.service.Provisioner = gw.Provisioner
 	site.set(gw)
 
 	// Playbacks outlive reloads, so their janitor runs for the whole run:
@@ -271,7 +273,7 @@ func run(logger *slog.Logger) error {
 	go purgeExpired(ctx, db, logger)
 	// The catalog's index, read through Overfin's Jellyfin service account.
 	cat := &catalog.Sync{Jellyfin: sh.jf, Store: db, Logger: logger,
-		Service:      &provision.Service{Provisioner: gw.Provisioner},
+		Service:      sh.service,
 		ChangesEvery: 5 * time.Minute, FullEvery: 6 * time.Hour}
 	go cat.Run(ctx)
 	// Discovery's lists, from TMDB: 10 pages (200 titles) per list, every
@@ -328,7 +330,8 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 		return nil, err
 	}
 	return &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
-		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache()}, nil
+		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache(),
+		service: &provision.Service{}}, nil
 }
 
 // runRecovery runs -recover-tokens. It needs Jellyfin: from the
@@ -449,6 +452,9 @@ func unrestrictKids(ctx context.Context, db *store.Store, prov func() *provision
 		kids, err := db.KidsProfiles(ctx)
 		failed := err != nil
 		for _, p := range kids {
+			if p.JellyfinUserID == "" {
+				continue // none of its own: nothing to lift
+			}
 			if err = prov().Unrestrict(ctx, p.JellyfinUserID); err != nil {
 				failed = true
 			}

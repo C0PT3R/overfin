@@ -360,7 +360,23 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	p := caller.Profile
 	ctx := r.Context()
 
-	raw, err := l.Jellyfin.Item(ctx, auth(p), p.JellyfinUserID, jfItem)
+	// Overfin's one Jellyfin account plays, as a device of this playback's
+	// own: Jellyfin keeps one session per device, and ties each transcode
+	// to the device that asked for it.
+	ja, uid, ok := l.account(w, r)
+	if !ok {
+		return
+	}
+	play := ja
+	play.DeviceID = pb.Tickets.ReserveDevice("overfin-play")
+	started := false
+	defer func() {
+		if !started {
+			pb.Tickets.ReleaseDevice(play.DeviceID)
+		}
+	}()
+
+	raw, err := l.Jellyfin.Item(ctx, ja, uid, jfItem)
 	if err != nil {
 		l.upstreamError(w, err)
 		return
@@ -374,13 +390,13 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	info, err := l.Jellyfin.PlaybackInfo(ctx, auth(p), p.JellyfinUserID, jfItem, pr)
+	info, err := l.Jellyfin.PlaybackInfo(ctx, play, uid, jfItem, pr)
 	if err != nil {
 		l.upstreamError(w, err)
 		return
 	}
 	audioItem := summary.Kind == "track" || summary.Kind == "audiobook"
-	dec, err := playback.Decide(info, jfItem, audioItem, auth(p).DeviceID)
+	dec, err := playback.Decide(info, jfItem, audioItem, play.DeviceID)
 	switch {
 	case errors.Is(err, playback.ErrNotPlayable):
 		problem.Send(w, problem.NotPlayable, "")
@@ -423,9 +439,10 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	s := &playback.Stream{
 		AccountID: p.AccountID, ProfileID: p.ID, SessionID: caller.Session.ID, Device: device,
 		ItemID: jfItem, SourceID: sourceID, PlaySessionID: info.PlaySessionId, Decision: *dec,
-		Auth: auth(p), AudioIndex: pr.AudioStreamIndex, SubtitleIndex: pr.SubtitleStreamIndex,
+		Auth: play, AudioIndex: pr.AudioStreamIndex, SubtitleIndex: pr.SubtitleStreamIndex,
 	}
 	pb.Tickets.Add(s, pr.StartTimeTicks, time.Now())
+	started = true // the device is the playback's now, freed when it ends
 
 	out := sessionJSON{
 		ID: s.ID, Item: summary, Method: dec.Method,
@@ -476,7 +493,7 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		out.SubtitleTrack = "s" + strconv.Itoa(*i)
 	}
 	// Skip markers are a bonus: playback goes on without them.
-	if segs, err := l.Jellyfin.MediaSegments(ctx, auth(p), jfItem); err == nil {
+	if segs, err := l.Jellyfin.MediaSegments(ctx, ja, jfItem); err == nil {
 		for _, sg := range segs {
 			if kind := strings.ToLower(sg.Type); kind != "unknown" && kind != "" && sg.EndTicks > sg.StartTicks {
 				out.Segments = append(out.Segments, segmentJSON{Kind: kind, StartMs: sg.StartTicks / 10_000, EndMs: sg.EndTicks / 10_000})
