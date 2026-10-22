@@ -183,6 +183,36 @@ func TestSync(t *testing.T) {
 	}
 }
 
+// What Jellyfin's socket says: items removed leave the index at once,
+// without a full pass, once Jellyfin confirms they're gone; the libraries
+// are kept with each read.
+func TestChangedOnSocket(t *testing.T) {
+	s, lib, st, now := setup(t)
+	ctx := context.Background()
+	lib.add(1, map[string]any{"Type": "Movie", "Name": "Heat"}, now.Add(-time.Hour))
+	lib.add(2, map[string]any{"Type": "Movie", "Name": "Arrival"}, now.Add(-time.Hour))
+	s.once(ctx)
+	if libs, err := st.Libraries(ctx); err != nil || len(libs) != 1 || libs[0].ID != id(900) || !strings.Contains(string(libs[0].Item), `"All"`) {
+		t.Fatalf("libraries: %v %v", libs, err)
+	}
+
+	*now = now.Add(time.Minute)
+	lib.items = slices.DeleteFunc(lib.items, func(it map[string]any) bool { return it["Id"] == id(2) })
+	s.changed(jellyfin.LibraryChange{ItemsRemoved: []string{id(2), id(1), "not-an-id"}})
+	select {
+	case <-s.wakeCh():
+	default:
+		t.Error("not woken")
+	}
+	s.once(ctx)
+	if c := counts(t, st); c["movie"] != 1 {
+		t.Errorf("after the removal: %v (%s)", c, s.lastErr)
+	}
+	if st, _ := st.CatalogState(ctx); st.Pass != 1 {
+		t.Errorf("a full pass ran: %+v", st)
+	}
+}
+
 func TestConvert(t *testing.T) {
 	it, ok := convert(jellyfin.RawItem{Id: id(1), Type: "Movie", Name: "<script>x</script>Heat",
 		ProviderIds: map[string]string{"Tmdb": "949; DROP", "Imdb": "tt0113277"},

@@ -146,11 +146,7 @@ func (p Profiles) accessFrom(ctx context.Context, c *Caller, pr *store.Profile, 
 			if len(req.Libraries.Value) > 100 {
 				return nil, nil, false, nil
 			}
-			a, uid, err := p.Service.Auth(ctx)
-			if err != nil {
-				return nil, nil, false, err
-			}
-			raw, err := p.Provisioner.Jellyfin.Libraries(ctx, a, uid)
+			raw, err := libraryItems(ctx, p.Store, p.Service, p.Provisioner.Jellyfin)
 			if err != nil {
 				return nil, nil, false, err
 			}

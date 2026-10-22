@@ -154,11 +154,7 @@ func (l Library) libraries(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	ja, uid, ok := l.account(w, r)
-	if !ok {
-		return
-	}
-	raw, err := l.Jellyfin.Libraries(r.Context(), ja, uid)
+	raw, err := l.libraryItems(r.Context())
 	if err != nil {
 		l.upstreamError(w, err)
 		return
@@ -174,6 +170,35 @@ func (l Library) libraries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeOK(w, map[string]any{"items": out})
+}
+
+// libraryItems are the libraries, as the index last read them; from
+// Jellyfin itself only before the index's first read.
+func (l Library) libraryItems(ctx context.Context) ([]jellyfin.RawItem, error) {
+	return libraryItems(ctx, l.Provisioner.Store, l.Service, l.Jellyfin)
+}
+
+func libraryItems(ctx context.Context, st *store.Store, service *provision.Service, jf *jellyfin.Client) ([]jellyfin.RawItem, error) {
+	kept, err := st.Libraries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(kept) == 0 {
+		a, uid, err := service.Auth(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return jf.Libraries(ctx, a, uid)
+	}
+	out := make([]jellyfin.RawItem, 0, len(kept))
+	for _, k := range kept {
+		var it jellyfin.RawItem
+		if err := json.Unmarshal(k.Item, &it); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, nil
 }
 
 // shuffle orders ids by HMAC-SHA256(seed, id). Unlike a seeded random

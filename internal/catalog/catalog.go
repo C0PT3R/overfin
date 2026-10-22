@@ -10,11 +10,14 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
 	"regexp"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/overfin/server/internal/jellyfin"
@@ -35,14 +38,91 @@ type Sync struct {
 	Store    *store.Store
 	Service  Service
 	Logger   *slog.Logger
-	// ChangesEvery is how often changes are read; FullEvery, how often the
-	// whole library is.
+	// ChangesEvery is how often changes are read while Jellyfin's socket
+	// is out of reach (Watch); FullEvery, how often the whole library is.
 	ChangesEvery time.Duration
 	FullEvery    time.Duration
 
 	mu      sync.Mutex
 	lastErr string
 	now     func() time.Time
+	// watching: Jellyfin's socket is connected, and says what changes.
+	watching atomic.Bool
+	wake     chan struct{}
+	// removed are the items Jellyfin said were removed, to check.
+	removed map[string]bool
+}
+
+// wakeUp has Run read the changes now.
+func (s *Sync) wakeUp() {
+	select {
+	case s.wakeCh() <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Sync) wakeCh() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wake == nil {
+		s.wake = make(chan struct{}, 1)
+	}
+	return s.wake
+}
+
+// Watch listens on Jellyfin's socket as the service account until ctx
+// ends: each library change has the index read the changes at once, so
+// it doesn't ask Jellyfin every ChangesEvery. When the socket drops, the
+// changes are read on reconnecting (the margin covers what was said in
+// between), and the index polls meanwhile.
+func (s *Sync) Watch(ctx context.Context) {
+	wait := 10 * time.Second
+	for ctx.Err() == nil {
+		a, _, err := s.Service.Auth(ctx)
+		if err == nil {
+			err = s.Jellyfin.Watch(ctx, a, func() {
+				s.watching.Store(true)
+				wait = 10 * time.Second
+				s.Logger.Info("catalog: listening to Jellyfin for library changes")
+				s.wakeUp()
+			}, s.changed)
+		}
+		was := s.watching.Swap(false)
+		if ctx.Err() != nil {
+			return
+		}
+		if jellyfin.IsStatus(err, http.StatusUnauthorized) {
+			if err := s.Service.Refused(ctx); err != nil {
+				s.Logger.Warn("catalog: renewing the service account failed", "err", err)
+			}
+		}
+		if was {
+			s.Logger.Warn("catalog: Jellyfin's socket dropped; reading changes every few minutes until it's back", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait = min(2*wait, 5*time.Minute)
+	}
+}
+
+// changed notes a library change from Jellyfin, and wakes Run.
+func (s *Sync) changed(lc jellyfin.LibraryChange) {
+	if len(lc.ItemsRemoved) > 0 {
+		s.mu.Lock()
+		if s.removed == nil {
+			s.removed = map[string]bool{}
+		}
+		for _, raw := range lc.ItemsRemoved {
+			if id, err := jellyfin.NormalizeID(raw); err == nil && len(s.removed) < 100_000 {
+				s.removed[id] = true
+			}
+		}
+		s.mu.Unlock()
+	}
+	s.wakeUp()
 }
 
 // pageSize is how many titles one request reads. With their people, a
@@ -61,25 +141,42 @@ func (s *Sync) clock() time.Time {
 }
 
 // Run keeps the index in step until ctx ends: a full pass first if the last
-// one is old or there's none, then changes every ChangesEvery, and a full
-// pass every FullEvery.
+// one is old or there's none, then changes when Jellyfin's socket says
+// (Watch; every ChangesEvery while it's out of reach), and a full pass
+// every FullEvery.
 func (s *Sync) Run(ctx context.Context) {
 	// Title keys first, for items indexed before they existed.
 	if err := s.Store.RefreshTitleKeys(ctx); err != nil && ctx.Err() == nil {
 		s.Logger.Error("catalog: computing title keys failed", "err", err)
 	}
+	wake := s.wakeCh()
 	for {
 		s.once(ctx)
+		every := s.ChangesEvery
+		if s.watching.Load() {
+			every = time.Hour // only to see whether a full pass is due
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(s.ChangesEvery):
+		case <-wake:
+		case <-time.After(every):
 		}
 	}
 }
 
 func (s *Sync) once(ctx context.Context) {
+	s.mu.Lock()
+	removed := slices.Collect(maps.Keys(s.removed))
+	s.removed = nil
+	s.mu.Unlock()
 	st, err := s.Store.CatalogState(ctx)
+	if err == nil && len(removed) > 0 && st.Pass > 0 {
+		var n int
+		if n, err = s.confirmGone(ctx, removed, st.Pass); n > 0 {
+			s.Logger.Info("catalog: titles removed", "titles", n)
+		}
+	}
 	if err == nil {
 		if st.Pass == 0 || s.clock().Sub(st.FullAt) >= s.FullEvery {
 			err = s.Full(ctx)
@@ -162,6 +259,19 @@ func (s *Sync) read(ctx context.Context, since time.Time, pass int64) (int, erro
 	}); err != nil {
 		return 0, err
 	}
+	kept := make([]store.Library, 0, len(libs))
+	for _, lib := range libs {
+		if id, err := jellyfin.NormalizeID(lib.Id); err == nil {
+			item, err := json.Marshal(lib)
+			if err != nil {
+				return 0, err
+			}
+			kept = append(kept, store.Library{ID: id, Item: item})
+		}
+	}
+	if err := s.Store.SetLibraries(ctx, kept); err != nil {
+		return 0, err
+	}
 	n := 0
 	for _, lib := range libs {
 		libID, err := jellyfin.NormalizeID(lib.Id)
@@ -206,8 +316,14 @@ func (s *Sync) sweep(ctx context.Context, pass int64) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	return s.confirmGone(ctx, unseen, pass)
+}
+
+// confirmGone asks Jellyfin about items thought gone, keeps those it still
+// has (as seen by pass), and removes the others from the index.
+func (s *Sync) confirmGone(ctx context.Context, ids []string, pass int64) (int, error) {
 	removed := 0
-	for batch := range slices.Chunk(unseen, 100) {
+	for batch := range slices.Chunk(ids, 100) {
 		var found []jellyfin.RawItem
 		err := s.withService(ctx, func(a jellyfin.Auth, userID string) error {
 			var err error

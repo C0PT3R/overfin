@@ -279,11 +279,14 @@ func run(logger *slog.Logger) error {
 	janitor := api.Playback{Library: api.Library{Jellyfin: sh.jf, Logger: logger}, Tickets: sh.tickets, Logger: logger}
 	go janitor.RunJanitor(ctx)
 	go purgeExpired(ctx, db, logger)
-	// The catalog's index, read through Overfin's Jellyfin service account.
+	// The catalog's index, read through Overfin's Jellyfin service account,
+	// as Jellyfin's socket says the library changed (polling only while
+	// it's out of reach), and whole once a day.
 	cat := &catalog.Sync{Jellyfin: sh.jf, Store: db, Logger: logger,
 		Service:      sh.service,
-		ChangesEvery: 5 * time.Minute, FullEvery: 6 * time.Hour}
+		ChangesEvery: 5 * time.Minute, FullEvery: 24 * time.Hour}
 	go cat.Run(ctx)
+	go cat.Watch(ctx)
 	// Discovery's lists, from TMDB: 10 pages (200 titles) per list, every
 	// hour.
 	sh.lists = catalog.NewLists(gw.tmdbSource, db, logger, time.Hour, 10)
