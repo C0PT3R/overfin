@@ -168,3 +168,44 @@ func TestLibraryTitleKeys(t *testing.T) {
 		t.Errorf("keys: %v %v", keys, err)
 	}
 }
+
+// A cast photo's titles, kept in step with the titles' details.
+func TestCastPhotos(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	details := func(photos ...string) []byte {
+		var d TitleDetails
+		for _, p := range photos {
+			d.Cast = append(d.Cast, CastMember{Name: "x", Profile: p})
+		}
+		b, _ := json.Marshal(d)
+		return b
+	}
+	photo := func(path string) []string {
+		keys, err := s.ImageTitles(ctx, "profile", path, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(keys)
+		return keys
+	}
+	s.SetTitleDetails(ctx, Title{Kind: "movie", TMDB: "1", Name: "A"}, details("/aaaaaaaa.jpg", "/bbbbbbbb.jpg"), time.Now())
+	s.SetTitleDetails(ctx, Title{Kind: "series", TMDB: "2", Name: "B"}, details("/aaaaaaaa.jpg"), time.Now())
+	if got := photo("/aaaaaaaa.jpg"); !slices.Equal(got, []string{"movie/tmdb/1", "series/tmdb/2"}) {
+		t.Errorf("both: %v", got)
+	}
+	// New details: the old cast goes.
+	s.SetTitleDetails(ctx, Title{Kind: "movie", TMDB: "1", Name: "A"}, details("/cccccccc.jpg"), time.Now())
+	if got := photo("/bbbbbbbb.jpg"); len(got) != 0 {
+		t.Errorf("old cast kept: %v", got)
+	}
+	if got := photo("/cccccccc.jpg"); !slices.Equal(got, []string{"movie/tmdb/1"}) {
+		t.Errorf("new cast: %v", got)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM catalog_titles WHERE kind = 'series'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := photo("/aaaaaaaa.jpg"); len(got) != 0 {
+		t.Errorf("deleted title kept: %v", got)
+	}
+}

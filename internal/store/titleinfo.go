@@ -385,8 +385,7 @@ func (s *Store) ImageTitles(ctx context.Context, typ, path string, limit int) ([
 		q = `SELECT key FROM artwork WHERE type = ?1 AND path = ?2`
 	case "profile":
 		// A film's or a series' cast member.
-		q = `SELECT t.kind || '/tmdb/' || t.tmdb AS key FROM catalog_titles t, json_each(t.details, '$.cast') c
-			WHERE ?1 = 'profile' AND t.details IS NOT NULL AND json_extract(c.value, '$.profile') = ?2`
+		q = `SELECT key FROM cast_photos WHERE ?1 = 'profile' AND path = ?2`
 	case "still":
 		q = `SELECT key FROM artwork WHERE type = ?1 AND path = ?2
 			UNION SELECT 'series/tmdb/' || series || '/s' || season || '/e' || episode FROM catalog_episodes WHERE still = ?2`
