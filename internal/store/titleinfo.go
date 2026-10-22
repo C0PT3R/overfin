@@ -266,9 +266,10 @@ func (s *Store) countEpisodes(ctx context.Context, t *TitleInfo, today string) e
 	}
 	// A specials season counts its own; a series, the others'.
 	specials := t.Ref.Kind == "season" && t.Ref.Season == 0
+	lo, hi := keyRange(prefix)
 	err := s.db.QueryRowContext(ctx, `SELECT count(DISTINCT title_key) FROM catalog_items
-		WHERE kind = 'episode' AND title_key LIKE ? ESCAPE '\' AND (coalesce(season_number, 0) > 0 OR ?)`,
-		likePrefix(prefix), specials).Scan(&t.Have)
+		WHERE kind = 'episode' AND title_key >= ? AND title_key < ? AND (coalesce(season_number, 0) > 0 OR ?)`,
+		lo, hi, specials).Scan(&t.Have)
 	if err != nil {
 		return err
 	}
@@ -325,8 +326,9 @@ func (s *Store) SeasonEpisodes(ctx context.Context, season TitleRef) ([]int, err
 			return nil, err
 		}
 	}
-	if err := add(`SELECT DISTINCT episode_number FROM catalog_items WHERE kind = 'episode' AND title_key LIKE ? ESCAPE '\'
-		AND episode_number IS NOT NULL ORDER BY episode_number`, likePrefix(season.Key()+"/e")); err != nil {
+	lo, hi := keyRange(season.Key() + "/e")
+	if err := add(`SELECT DISTINCT episode_number FROM catalog_items WHERE kind = 'episode' AND title_key >= ? AND title_key < ?
+		AND episode_number IS NOT NULL ORDER BY episode_number`, lo, hi); err != nil {
 		return nil, err
 	}
 	slices.Sort(out)
@@ -344,8 +346,9 @@ func (s *Store) SeriesSeasons(ctx context.Context, series TitleRef, listed []Sea
 			out = append(out, se.Number)
 		}
 	}
+	lo, hi := keyRange(series.Key() + "/s")
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT season_number FROM catalog_items WHERE kind IN ('season', 'episode')
-		AND title_key LIKE ? ESCAPE '\' AND season_number IS NOT NULL`, likePrefix(series.Key()+"/s"))
+		AND title_key >= ? AND title_key < ? AND season_number IS NOT NULL`, lo, hi)
 	if err != nil {
 		return nil, err
 	}
@@ -502,13 +505,14 @@ func (s *Store) nextEpisode(ctx context.Context, profileID string, w TitleRef, t
 	q := `SELECT season, episode FROM (
 			SELECT season, episode FROM catalog_episodes WHERE series = ? AND ? = 'tmdb' AND air_date IS NOT NULL AND air_date <= ?
 			UNION SELECT season_number, episode_number FROM catalog_items WHERE kind = 'episode'
-				AND title_key LIKE ? ESCAPE '\' AND season_number IS NOT NULL AND episode_number IS NOT NULL)
+				AND title_key >= ? AND title_key < ? AND season_number IS NOT NULL AND episode_number IS NOT NULL)
 		WHERE (season > ? OR (season = ? AND episode > ?)) AND (season > 0 OR ? = 0)
 			AND NOT EXISTS (SELECT 1 FROM profile_titles x WHERE x.profile_id = ? AND x.played = 1
 				AND x.title = ? || '/s' || season || '/e' || episode)
 		ORDER BY season, episode LIMIT 1`
 	var sn, en int
-	err := s.db.QueryRowContext(ctx, q, w.ID, w.Source, today, likePrefix(series+"/s"),
+	lo, hi := keyRange(series + "/s")
+	err := s.db.QueryRowContext(ctx, q, w.ID, w.Source, today, lo, hi,
 		w.Season, w.Season, w.Episode, w.Season, profileID, series).Scan(&sn, &en)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil

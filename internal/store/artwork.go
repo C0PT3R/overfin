@@ -103,6 +103,13 @@ func (s *Store) SetArtwork(ctx context.Context, t ArtworkTarget, images map[stri
 
 func hasPrefix(s, p string) bool { return len(s) >= len(p) && s[:len(p)] == p }
 
+// keyRange is the range of the keys starting with p (not empty, and not
+// ending in the highest byte), as lo <= key < hi: unlike LIKE, an index
+// serves it.
+func keyRange(p string) (lo, hi string) {
+	return p, p[:len(p)-1] + string(p[len(p)-1]+1)
+}
+
 // likePrefix is a LIKE pattern for what starts with p.
 func likePrefix(p string) string {
 	out := make([]byte, 0, len(p)+1)
@@ -152,7 +159,7 @@ func (s *Store) Artwork(ctx context.Context, keys []string) (map[string]map[stri
 // own image, its seasons and episodes too. At most limit.
 func (s *Store) ArtworkItems(ctx context.Context, typ, path string, limit int) ([]string, error) {
 	return s.ids(ctx, `SELECT i.id FROM artwork a JOIN catalog_items i
-			ON i.title_key = a.key OR i.title_key LIKE replace(replace(a.key, '%', '\%'), '_', '\_') || '/%' ESCAPE '\'
+			ON i.title_key = a.key OR (i.title_key >= a.key || '/' AND i.title_key < a.key || '0')
 		WHERE a.type = ? AND a.path = ? LIMIT ?`, typ, path, limit)
 }
 
