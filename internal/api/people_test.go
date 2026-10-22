@@ -42,7 +42,7 @@ func (f *fakePeople) Search(_ context.Context, q string) ([]tmdb.Title, []tmdb.P
 		{TMDBID: 20, Kind: "movie", Name: "Évasion 2", Year: 2013},
 		{TMDBID: 949, Kind: "movie", Name: "Évasion", Year: 2013},
 		{TMDBID: 21, Kind: "movie", Name: "Évasion 3", Year: 2099},
-	}, []tmdb.PersonHit{{ID: 1245, Name: "Sly", Profile: "/sly1234567.jpg", First: q != "evasion 2"}}, nil
+	}, []tmdb.PersonHit{{ID: 1245, Name: "Sly", Profile: "/sly1234567.jpg", First: q == "evasio"}}, nil
 }
 
 func (f *fakePeople) Person(_ context.Context, id int) (*tmdb.PersonFull, error) {
@@ -138,7 +138,7 @@ func TestSearch(t *testing.T) {
 	if res.PeopleFirst {
 		t.Error("people first despite the library's Évasion")
 	}
-	for q, want := range map[string]bool{"evasio": true, "evasion 2": false} {
+	for q, want := range map[string]bool{"evasio": true, "evasion 2": false, "sly": true} {
 		_, body := post(t, srv, "/api/v1/search", `{"query":"`+q+`"}`)
 		if got := strings.Contains(body, `"peopleFirst":true`); got != want {
 			t.Errorf("%s: people first %v", q, got)

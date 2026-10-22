@@ -30,8 +30,8 @@ type searchResults struct {
 	Titles []library.TitleSummary `json:"titles"`
 	People []searchPerson         `json:"people"`
 	// PeopleFirst: the search looks like a person's name (TMDB ranked a
-	// person first, and no library title has that very name), so people
-	// are best shown before titles.
+	// person first, or someone has that very name, and no library title
+	// has it), so people are best shown before titles.
 	PeopleFirst bool `json:"peopleFirst,omitempty"`
 }
 
@@ -110,6 +110,9 @@ func (l Library) search(w http.ResponseWriter, r *http.Request) {
 			keys = append(keys, t.Kind+"/tmdb/"+t.TMDB)
 		}
 		for _, h := range people {
+			if store.Fold(h.Name) == store.Fold(query) {
+				out.PeopleFirst = true
+			}
 			sp := searchPerson{ID: personID(h.TMDB), Name: h.Name, Department: h.Department}
 			if img := images.ArtworkID("profile", h.Profile); img != "" {
 				sp.Image = &library.ImageRef{URL: "/api/v1/images/" + img}
