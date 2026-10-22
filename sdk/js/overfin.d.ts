@@ -225,9 +225,49 @@ export interface Segment {
   endMs: number;
 }
 
+/** A title, in a library or not: a film, a series, a season, an episode. */
+export interface TitleSummary {
+  id: string;
+  kind: 'movie' | 'series' | 'season' | 'episode' | 'other' | (string & {});
+  name: string;
+  year?: number;
+  /** A season's or an episode's, YYYY-MM-DD. */
+  airDate?: string;
+  durationMs?: number;
+  availability: 'available' | 'partiallyAvailable' | 'missing';
+  /** A film or an episode a library has: play it by its ID. */
+  playable: boolean;
+  series?: { id: string; name: string };
+  seasonNumber?: number;
+  episodeNumber?: number;
+  /** A series' or a season's episodes, specials aside. */
+  episodeCount?: { inLibrary: number; aired: number };
+  images?: Images;
+  userState?: UserState;
+}
+
+/** A title's page: a series with its seasons, a season with its episodes. */
+export interface Title extends TitleSummary {
+  overview?: string;
+  tagline?: string;
+  genres?: string[];
+  cast?: { name: string; character?: string; image?: ImageRef }[];
+  seasons?: TitleSummary[];
+  episodes?: TitleSummary[];
+}
+
+export interface TitlePage {
+  items: TitleSummary[];
+  nextCursor?: string;
+  totalCount?: number;
+  seed?: string;
+}
+
 export interface Playback {
   id: string;
   item: ItemSummary;
+  /** What plays, as titles are shown everywhere else. */
+  title?: TitleSummary;
   method: 'direct' | 'remux' | 'transcode' | string;
   stream: { url: string; protocol: 'file' | 'hls'; mimeType?: string };
   positionMs: number;
@@ -243,7 +283,10 @@ export interface Playback {
 }
 
 export interface PlaybackRequest {
-  itemId: string;
+  /** What to play: the server picks the copy. */
+  titleId?: string;
+  /** A particular copy, instead. */
+  itemId?: string;
   capabilities: Capabilities;
   startPositionMs?: number;
   versionId?: string;
@@ -274,7 +317,7 @@ export interface PlayerOptions {
 
 export class Player {
   readonly video: HTMLVideoElement;
-  readonly itemId: string;
+  readonly titleId: string;
   readonly playback: Playback | null;
   readonly positionMs: number;
   readonly audioTrack?: string;
@@ -321,20 +364,24 @@ export class Overfin {
 
   libraries(): Promise<Library[]>;
   item(id: string): Promise<Item>;
+  /** A title's page, in a library or not. */
+  title(id: string): Promise<Title>;
   person(id: string): Promise<Person>;
   items(query?: ItemQuery): Promise<ItemPage>;
-  pages(query?: ItemQuery): AsyncGenerator<ItemPage>;
+  /** A library's titles; kind is required. */
+  titles(query?: ItemQuery): Promise<TitlePage>;
+  pages(query?: ItemQuery): AsyncGenerator<TitlePage>;
   resume(limit?: number): Promise<ItemSummary[]>;
   nextUp(limit?: number): Promise<ItemSummary[]>;
-  /** Started titles and each followed series' next episode, together. */
-  continueWatching(limit?: number): Promise<ItemSummary[]>;
+  /** Started titles and each followed series' next episode, a library's or not. */
+  continueWatching(limit?: number): Promise<TitleSummary[]>;
   /** A library's genres (every library's without one), for filters. */
   genres(libraryId?: string): Promise<Genre[]>;
-  latest(libraryId: string, limit?: number): Promise<ItemSummary[]>;
+  latest(libraryId: string, limit?: number): Promise<TitleSummary[]>;
   imageUrl(ref: ImageRef | undefined, size?: 'small' | 'medium' | 'large'): string;
 
   discover(list: 'trending' | 'popular' | 'upcoming', mediaKind: 'movie' | 'series',
-    options?: { availability?: 'all' | 'library' | 'missing'; limit?: number; cursor?: string }): Promise<CatalogPage>;
+    options?: { availability?: 'all' | 'library' | 'missing'; limit?: number; cursor?: string }): Promise<TitlePage>;
   catalogTitle(mediaKind: 'movie' | 'series', tmdbId: string): Promise<CatalogDetail>;
 
   setPlayed(id: string, played?: boolean): Promise<UserState>;
@@ -342,7 +389,7 @@ export class Overfin {
   forgetProgress(id: string): Promise<UserState>;
   clearHistory(): Promise<null>;
 
-  watchlist(): Promise<ItemSummary[]>;
+  watchlist(): Promise<TitleSummary[]>;
   onWatchlist(id: string): Promise<boolean>;
   addToWatchlist(id: string): Promise<null>;
   removeFromWatchlist(id: string): Promise<null>;
@@ -352,5 +399,5 @@ export class Overfin {
   currentPlayback(): Promise<Playback>;
   reportProgress(id: string, report: { positionMs: number; paused?: boolean; ended?: boolean }): Promise<null>;
   stopPlayback(id: string, positionMs: number, options?: { keepalive?: boolean }): Promise<null>;
-  play(video: HTMLVideoElement, itemId: string, options?: PlayerOptions): Promise<Player>;
+  play(video: HTMLVideoElement, titleId: string, options?: PlayerOptions): Promise<Player>;
 }

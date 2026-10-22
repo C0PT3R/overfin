@@ -336,11 +336,10 @@ paths:
       operationId: getWatchlist
       summary: The active profile's watchlist, most recently added first
       description: |
-        Only when the operator enables the watchlist plugin. Movies, whole
-        shows, seasons and single episodes, as the person added them; a show
-        is the show itself, so its new episodes come along. Private to the
-        profile. Titles the profile can't see (a kids limit, say) or that no
-        longer exist are left out.
+        Films, whole series, seasons and single episodes, in a library or
+        not, as the person added them; a series is the series itself, so its
+        new episodes come along. Private to the profile. Titles the profile
+        can't see (a kids limit, say) are left out.
       tags: [watchlist]
       responses:
         "200":
@@ -354,15 +353,11 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: "#/components/schemas/ItemSummary"
+                      $ref: "#/components/schemas/TitleSummary"
 
-  /me/watchlist/{itemId}:
+  /me/watchlist/{titleId}:
     parameters:
-      - name: itemId
-        in: path
-        required: true
-        schema:
-          type: string
+      - $ref: "#/components/parameters/TitleId"
     get:
       operationId: onWatchlist
       summary: Whether a title is on the watchlist
@@ -375,8 +370,9 @@ paths:
     put:
       operationId: addToWatchlist
       summary: Put a title on the watchlist
-      description: A movie, show, season, episode or video the profile can
-        see. One already there stays where it was. At most 1000 titles.
+      description: A film, series, season, episode or video the profile can
+        see, in a library or not. One already there stays where it was. At
+        most 1000 titles.
       tags: [watchlist]
       responses:
         "204":
@@ -1135,6 +1131,248 @@ paths:
                     items:
                       $ref: "#/components/schemas/ItemSummary"
 
+  /titles:
+    get:
+      operationId: listTitles
+      summary: A library's titles, filtered and sorted
+      description: >-
+        From Overfin's index. Films and series (`kind`), or a series'
+        seasons and episodes (`parent`), with the same filters and sorts as
+        `/items`. Each title appears once, whatever copies the library has.
+        Empty until the index is first read.
+      tags: [titles]
+      parameters:
+        - name: library
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: kind
+          in: query
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 4
+            items:
+              type: string
+              enum: [movie, series, season, episode]
+        - name: parent
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: genre
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+        - name: person
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: studio
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+        - name: yearFrom
+          in: query
+          schema:
+            type: integer
+        - name: yearTo
+          in: query
+          schema:
+            type: integer
+        - name: played
+          in: query
+          schema:
+            type: boolean
+        - name: favorite
+          in: query
+          schema:
+            type: boolean
+        - name: inProgress
+          in: query
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, addedAt, premiereDate, communityRating, lastPlayed, random]
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: seed
+          in: query
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9]{1,32}$"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of titles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TitlePage"
+
+  /titles/latest:
+    get:
+      operationId: listLatestTitles
+      summary: What's new in a library, or in all
+      description: >-
+        Films and series only. A series counts as new when one of its
+        episodes is, and appears once, by its newest episode.
+      tags: [titles]
+      parameters:
+        - name: library
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TitlePage"
+
+  /titles/continue:
+    get:
+      operationId: listContinueTitles
+      summary: Continue Watching, in titles
+      description: >-
+        What the profile is in the middle of, and the next episode of each
+        series it follows, the last watched first. The next episode is the
+        first after the last one watched that it hasn't watched, among those
+        aired and those a library has, so one no library has comes next too
+        (its `availability` is then `missing`, to request). A series appears
+        once; an episode in the middle stands for it.
+      tags: [titles]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Most recently watched first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TitlePage"
+
+  /titles/{titleId}:
+    parameters:
+      - $ref: "#/components/parameters/TitleId"
+    get:
+      operationId: getTitle
+      summary: A title's page, in a library or not
+      description: >-
+        A film, a series, a season or an episode, from TMDB's data, never
+        the media server's. A series lists its seasons, a season its
+        episodes, those no library has too, each with its availability.
+        What Overfin doesn't describe yet is asked of TMDB when it's
+        opened. Hidden from a profile that may see none of its copies, and,
+        for a kids profile, when its rating isn't within its limits.
+      tags: [titles]
+      responses:
+        "200":
+          description: The title.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Title"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /titles/{titleId}/played:
+    parameters:
+      - $ref: "#/components/parameters/TitleId"
+    put:
+      operationId: markTitlePlayed
+      summary: Mark a title watched
+      description: >-
+        A series or a season marks its aired episodes too, in a library or
+        not.
+      tags: [titles]
+      responses:
+        "200":
+          description: What the profile did with the title now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: unmarkTitlePlayed
+      summary: Mark a title not watched
+      tags: [titles]
+      responses:
+        "200":
+          description: What the profile did with the title now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /titles/{titleId}/favorite:
+    parameters:
+      - $ref: "#/components/parameters/TitleId"
+    put:
+      operationId: markTitleFavorite
+      summary: Make a title a favorite
+      tags: [titles]
+      responses:
+        "200":
+          description: What the profile did with the title now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: unmarkTitleFavorite
+      summary: Take a title out of the favorites
+      tags: [titles]
+      responses:
+        "200":
+          description: What the profile did with the title now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /titles/{titleId}/progress:
+    parameters:
+      - $ref: "#/components/parameters/TitleId"
+    delete:
+      operationId: forgetTitleProgress
+      summary: Take a title out of Continue Watching
+      tags: [titles]
+      responses:
+        "200":
+          description: What the profile did with the title now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /items/{itemId}:
     parameters:
       - $ref: "#/components/parameters/ItemId"
@@ -1765,14 +2003,13 @@ paths:
     get:
       operationId: discover
       summary: Trending, popular and upcoming titles from TMDB
-      description: Filter with `availability` to get, for example, "trending
-        in our library" (`library`) or "trending titles we don't have"
-        (`missing`). Titles already in the library carry their
-        `libraryItem`, with progress and watched state. Only when the
-        operator connects Seerr; kids profiles get an empty page for now,
-        since these titles carry no rating Overfin has checked. A filtered
-        page may hold fewer titles than asked for; `nextCursor` says
-        whether there are more.
+      description: >-
+        Filter with `availability` to get, for example, "trending in our
+        library" (`library`) or "trending titles we don't have" (`missing`).
+        Titles, as everywhere, with their availability and what the
+        profile did with them. Kids profiles see those rated within their
+        limits. A filtered page may hold fewer titles than asked for;
+        `nextCursor` says whether there are more.
       tags: [catalog]
       parameters:
         - name: list
@@ -1809,7 +2046,7 @@ paths:
                       items:
                         type: array
                         items:
-                          $ref: "#/components/schemas/CatalogTitle"
+                          $ref: "#/components/schemas/TitleSummary"
 
   /catalog/{mediaKind}/{tmdbId}:
     parameters:
@@ -2152,6 +2389,19 @@ components:
         type: string
         maxLength: 32
         pattern: "^[A-Za-z0-9]+$"
+    TitleId:
+      name: titleId
+      in: path
+      required: true
+      description: >-
+        A title's key, with underscores, such as `title_movie_tmdb_949`,
+        `title_series_tmdb_1399_s1_e2`, or `title_item_` and a file's ID for
+        one no one identified.
+      schema:
+        type: string
+        maxLength: 128
+        pattern: "^title_[a-z0-9_]{1,122}$"
+        examples: [title_movie_tmdb_949]
     ItemId:
       name: itemId
       in: path
@@ -2770,6 +3020,113 @@ components:
               items:
                 type: string
 
+    TitleSummary:
+      type: object
+      required: [id, kind, name, availability, playable]
+      properties:
+        id:
+          type: string
+          examples: [title_series_tmdb_1399_s1_e2]
+        kind:
+          type: string
+          description: Open set; `other` is a file no one identified.
+          examples: [movie, series, season, episode, other]
+        name:
+          type: string
+        year:
+          type: integer
+        airDate:
+          type: string
+          format: date
+          description: A season's or an episode's.
+        durationMs:
+          $ref: "#/components/schemas/Milliseconds"
+        availability:
+          type: string
+          description: >-
+            Whether a library has it. `partiallyAvailable` is a series or a
+            season with some of its aired episodes.
+          enum: [available, partiallyAvailable, missing]
+        playable:
+          type: boolean
+          description: A film or an episode a library has, to start with `titleId`.
+        series:
+          type: object
+          description: A season's or an episode's.
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        seasonNumber:
+          type: integer
+        episodeNumber:
+          type: integer
+        episodeCount:
+          type: object
+          description: A series' or a season's episodes, specials aside.
+          required: [inLibrary, aired]
+          properties:
+            inLibrary:
+              type: integer
+            aired:
+              type: integer
+        images:
+          $ref: "#/components/schemas/Images"
+        userState:
+          $ref: "#/components/schemas/UserState"
+
+    Title:
+      allOf:
+        - $ref: "#/components/schemas/TitleSummary"
+        - type: object
+          properties:
+            overview:
+              type: string
+            tagline:
+              type: string
+            genres:
+              type: array
+              items:
+                type: string
+            cast:
+              type: array
+              items:
+                type: object
+                required: [name]
+                properties:
+                  name:
+                    type: string
+                  character:
+                    type: string
+                  image:
+                    $ref: "#/components/schemas/ImageRef"
+            seasons:
+              type: array
+              description: A series' seasons, specials last.
+              items:
+                $ref: "#/components/schemas/TitleSummary"
+            episodes:
+              type: array
+              description: A season's episodes.
+              items:
+                $ref: "#/components/schemas/TitleSummary"
+
+    TitlePage:
+      allOf:
+        - $ref: "#/components/schemas/PageInfo"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/TitleSummary"
+            seed:
+              type: string
+              description: For random order, the seed used.
+
     ItemPage:
       allOf:
         - $ref: "#/components/schemas/PageInfo"
@@ -3181,8 +3538,13 @@ components:
 
     PlaybackStart:
       type: object
-      required: [itemId, capabilities]
+      required: [capabilities]
+      description: Name what to play with `titleId` (Overfin picks the copy) or, for a
+        particular copy, `itemId`; one of the two.
       properties:
+        titleId:
+          type: string
+          maxLength: 128
         itemId:
           type: string
           maxLength: 64
@@ -3299,6 +3661,8 @@ components:
           examples: [play_9m2k7w4q1x8c]
         item:
           $ref: "#/components/schemas/ItemSummary"
+        title:
+          $ref: "#/components/schemas/TitleSummary"
         method:
           type: string
           description: >-

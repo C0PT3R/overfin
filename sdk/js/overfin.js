@@ -123,6 +123,8 @@ export class Overfin {
 
   async libraries() { return (await this.request('GET', '/libraries')).items; }
   item(id) { return this.request('GET', `/items/${enc(id)}`); }
+  /** A title's page, in a library or not: a series with its seasons, a season with its episodes. */
+  title(id) { return this.request('GET', `/titles/${enc(id)}`); }
   /** A person's page; their work is items({ person: id }). */
   person(id) { return this.request('GET', `/people/${enc(id)}`); }
 
@@ -134,13 +136,15 @@ export class Overfin {
    * { items, nextCursor?, totalCount?, seed? }.
    */
   items(query = {}) { return this.request('GET', '/items' + toQuery(query)); }
+  /** One page of a library's titles: the same query as items(), kind required. */
+  titles(query = {}) { return this.request('GET', '/titles' + toQuery(query)); }
 
-  /** Every page of a query, one after the other: for await (const page of overfin.pages(q)). */
+  /** Every page of titles, one after the other: for await (const page of overfin.pages(q)). */
   async *pages(query = {}) {
     let cursor = query.cursor;
     let seed = query.seed;
     do {
-      const page = await this.items({ ...query, cursor, seed });
+      const page = await this.titles({ ...query, cursor, seed });
       yield page;
       cursor = page.nextCursor;
       seed = seed || page.seed;
@@ -148,25 +152,27 @@ export class Overfin {
   }
 
   async resume(limit = 12) { return (await this.request('GET', `/items/resume${toQuery({ limit })}`)).items; }
-  async continueWatching(limit = 20) { return (await this.request('GET', `/items/continue${toQuery({ limit })}`)).items; }
+  /** Continue Watching: started titles and each followed series' next episode, a library's or not. */
+  async continueWatching(limit = 20) { return (await this.request('GET', `/titles/continue${toQuery({ limit })}`)).items; }
   async nextUp(limit = 12) { return (await this.request('GET', `/items/next-up${toQuery({ limit })}`)).items; }
   async genres(libraryId) { return (await this.request('GET', `/genres${toQuery({ library: libraryId })}`)).items; }
-  async latest(libraryId, limit = 16) { return (await this.request('GET', `/items/latest${toQuery({ library: libraryId, limit })}`)).items; }
+  /** What's new: films and series, a series by its newest episode. */
+  async latest(libraryId, limit = 16) { return (await this.request('GET', `/titles/latest${toQuery({ library: libraryId, limit })}`)).items; }
 
   // ---- What the profile does with titles -----------------------------------
 
-  /** Marks a title watched (a series or a season: all its episodes), or not. Returns its new state. */
-  setPlayed(id, played = true) { return this.request(played ? 'PUT' : 'DELETE', `/items/${enc(id)}/played`); }
+  /** Marks a title watched (a series or a season: its aired episodes), in a library or not, or not. Returns its new state. */
+  setPlayed(id, played = true) { return this.request(played ? 'PUT' : 'DELETE', `/titles/${enc(id)}/played`); }
   /** Marks a title a favorite, or not. Returns its new state. */
-  setFavorite(id, favorite = true) { return this.request(favorite ? 'PUT' : 'DELETE', `/items/${enc(id)}/favorite`); }
+  setFavorite(id, favorite = true) { return this.request(favorite ? 'PUT' : 'DELETE', `/titles/${enc(id)}/favorite`); }
   /** Takes a title out of Continue Watching; whether it was watched stays. Returns its new state. */
-  forgetProgress(id) { return this.request('DELETE', `/items/${enc(id)}/progress`); }
+  forgetProgress(id) { return this.request('DELETE', `/titles/${enc(id)}/progress`); }
   /** Forgets what the active profile watched. Not for kids profiles. */
   clearHistory() { return this.request('DELETE', '/me/history'); }
 
   // ---- Watchlist (the watchlist plugin) -------------------------------------
 
-  /** The profile's watchlist: movies, shows, seasons, episodes; newest first. */
+  /** The profile's watchlist: films, series, seasons, episodes, in a library or not; newest first. */
   async watchlist() { return (await this.request('GET', '/me/watchlist')).items; }
   /** Whether a title is on the watchlist. */
   async onWatchlist(id) {
@@ -210,13 +216,13 @@ export class Overfin {
   }
 
   /**
-   * Plays an item in a <video> element, and keeps it playing: see Player.
+   * Plays a title in a <video> element, and keeps it playing: see Player.
    * @param {HTMLVideoElement} video
-   * @param {string} itemId
+   * @param {string} titleId
    * @param {PlayerOptions} [options]
    */
-  async play(video, itemId, options = {}) {
-    const player = new Player(this, video, itemId, options);
+  async play(video, titleId, options = {}) {
+    const player = new Player(this, video, titleId, options);
     await player.start();
     return player;
   }
@@ -309,10 +315,10 @@ const LONG_PAUSE = 90_000;       // after this, check the stream still exists
  * takeover by another device.
  */
 export class Player {
-  constructor(client, video, itemId, options = {}) {
+  constructor(client, video, titleId, options = {}) {
     this.client = client;
     this.video = video;
-    this.itemId = itemId;
+    this.titleId = titleId;
     this.options = options;
     // What the server is asked for (audio, and a burned-in subtitle track),
     // and which text subtitle track the browser shows.
@@ -343,13 +349,13 @@ export class Player {
     this.teardown();
     let at = startMs;
     if (at === undefined) {
-      const item = await this.client.item(this.itemId);
-      at = item.userState?.positionMs || 0;
+      const title = await this.client.title(this.titleId);
+      at = title.userState?.positionMs || 0;
     }
     let pb;
     try {
       pb = await this.client.startPlayback({
-        itemId: this.itemId,
+        titleId: this.titleId,
         capabilities: this.options.capabilities || capabilities(),
         startPositionMs: Math.round(at),
         ...clean(this.choice),

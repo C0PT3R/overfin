@@ -118,7 +118,7 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	out := discoverPage{Items: []catalogTitle{}}
+	out := titlePage{Items: []library.TitleSummary{}}
 	ceiling, err := d.Library.ceiling(r.Context(), p)
 	if err != nil {
 		d.Library.storeError(w, err)
@@ -150,15 +150,19 @@ func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
 			out.NextCursor = c
 		}
 	}
-	placed, err := d.place(r.Context(), p, titles)
+	keys := make([]string, 0, len(titles))
+	for _, t := range titles {
+		keys = append(keys, t.Kind+"/tmdb/"+t.TMDB)
+	}
+	all, err := d.Library.titleSummaries(r.Context(), p, keys)
 	if err != nil {
-		d.Library.upstreamError(w, err)
+		d.Library.storeError(w, err)
 		return
 	}
-	for _, t := range placed {
+	for _, t := range all {
 		// The library has it, but not for this profile: not "in the
 		// library" here.
-		if avail == "library" && t.LibraryItem == nil {
+		if avail == "library" && t.Availability == "missing" {
 			continue
 		}
 		out.Items = append(out.Items, t)

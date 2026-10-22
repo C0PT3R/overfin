@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/problem"
 )
 
-// Item is a title in the API's own format (see api/openapi.yaml,
-// ItemSummary): what clients already understand.
-type Item = library.ItemSummary
+// Title is a title in the API's own format (see api/openapi.yaml,
+// TitleSummary): what clients already understand.
+type Title = library.TitleSummary
 
 // ErrNotFound: the title doesn't exist, or this profile may not see it. The
 // two are never told apart.
@@ -46,11 +47,11 @@ func NoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ItemID reads an item ID from a request path ("item_…"), as the backend
-// takes it. ok is false for anything else, which should be answered with
-// NotFound.
-func ItemID(s string) (id string, ok bool) {
-	if _, ok := library.Unwrap(library.ItemPrefix, s); !ok {
+// TitleID reads a title ID from a request path ("title_…"), as the backend
+// takes it: only its shape is checked, the backend checks the rest. ok is
+// false for anything else, which should be answered with NotFound.
+func TitleID(s string) (id string, ok bool) {
+	if !strings.HasPrefix(s, library.TitlePrefix) || len(s) > 128 {
 		return "", false
 	}
 	return s, true

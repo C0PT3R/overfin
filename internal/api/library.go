@@ -63,6 +63,9 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/items/latest":   l.latest,
 		"GET /api/v1/genres":         l.genres,
 		// Titles, in a library or not (milestone 5).
+		"GET /api/v1/titles":                  l.titles,
+		"GET /api/v1/titles/latest":           l.latestTitles,
+		"GET /api/v1/titles/continue":         l.continueTitles,
 		"GET /api/v1/titles/{id}":             l.title,
 		"PUT /api/v1/titles/{id}/played":      l.markTitlePlayed,
 		"DELETE /api/v1/titles/{id}/played":   l.unmarkTitlePlayed,

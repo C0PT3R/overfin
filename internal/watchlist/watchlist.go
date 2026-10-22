@@ -78,10 +78,16 @@ type handlers struct {
 }
 
 // watchable are the kinds of titles one watches.
-var watchable = map[string]bool{"movie": true, "series": true, "season": true, "episode": true, "video": true, "musicVideo": true}
+var watchable = map[string]bool{"movie": true, "series": true, "season": true, "episode": true, "other": true}
 
-// ids lists a profile's watchlist, most recently added first.
-func ids(ctx context.Context, db *sql.DB, profileID string) ([]string, error) {
+// ids lists a profile's watchlist, most recently added first. Entries kept
+// before titles had IDs of their own (library items) become their titles
+// here, once.
+func ids(ctx context.Context, db *sql.DB, c *feature.Caller) ([]string, error) {
+	if err := toTitles(ctx, db, c); err != nil {
+		return nil, err
+	}
+	profileID := c.ProfileID
 	rows, err := db.QueryContext(ctx, `SELECT item_id FROM watchlist WHERE profile_id = ? ORDER BY added_at DESC, rowid DESC`, profileID)
 	if err != nil {
 		return nil, err
@@ -98,22 +104,60 @@ func ids(ctx context.Context, db *sql.DB, profileID string) ([]string, error) {
 	return out, rows.Err()
 }
 
+// toTitles turns a profile's entries that are library items into their
+// titles; those whose title is unknown, or already on the list, go.
+func toTitles(ctx context.Context, db *sql.DB, c *feature.Caller) error {
+	rows, err := db.QueryContext(ctx, `SELECT item_id FROM watchlist WHERE profile_id = ? AND item_id LIKE 'item\_%' ESCAPE '\'`, c.ProfileID)
+	if err != nil {
+		return err
+	}
+	var old []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		old = append(old, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range old {
+		title, err := c.Backend.TitleOfItem(ctx, id)
+		if err != nil {
+			return err
+		}
+		if title != "" {
+			if _, err := db.ExecContext(ctx, `UPDATE OR IGNORE watchlist SET item_id = ? WHERE profile_id = ? AND item_id = ?`,
+				title, c.ProfileID, id); err != nil {
+				return err
+			}
+		}
+		if _, err := db.ExecContext(ctx, `DELETE FROM watchlist WHERE profile_id = ? AND item_id = ?`, c.ProfileID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // items reads the watchlist's titles through the backend as the caller, in
 // the list's order: what the profile can't see, or what's gone, is left out.
-func items(ctx context.Context, db *sql.DB, c *feature.Caller) ([]feature.Item, error) {
-	list, err := ids(ctx, db, c.ProfileID)
+func items(ctx context.Context, db *sql.DB, c *feature.Caller) ([]feature.Title, error) {
+	list, err := ids(ctx, db, c)
 	if err != nil {
 		return nil, err
 	}
-	found, err := c.Backend.Items(ctx, list)
+	found, err := c.Backend.Titles(ctx, list)
 	if err != nil {
 		return nil, err
 	}
-	byID := map[string]feature.Item{}
+	byID := map[string]feature.Title{}
 	for _, it := range found {
 		byID[it.ID] = it
 	}
-	out := []feature.Item{}
+	out := []feature.Title{}
 	for _, id := range list {
 		if it, ok := byID[id]; ok {
 			out = append(out, it)
@@ -133,7 +177,7 @@ func (w handlers) list(c *feature.Caller, rw http.ResponseWriter, r *http.Reques
 }
 
 func (w handlers) has(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
-	id, ok := feature.ItemID(r.PathValue("id"))
+	id, ok := feature.TitleID(r.PathValue("id"))
 	if !ok {
 		feature.Problem(rw, feature.NotFound, "")
 		return
@@ -152,13 +196,13 @@ func (w handlers) has(c *feature.Caller, rw http.ResponseWriter, r *http.Request
 
 func (w handlers) add(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	id, ok := feature.ItemID(r.PathValue("id"))
+	id, ok := feature.TitleID(r.PathValue("id"))
 	if !ok {
 		feature.Problem(rw, feature.NotFound, "")
 		return
 	}
 	// Only a title this profile can see, and only kinds one watches.
-	it, err := c.Backend.Item(ctx, id)
+	it, err := c.Backend.Title(ctx, id)
 	if errors.Is(err, feature.ErrNotFound) {
 		feature.Problem(rw, feature.NotFound, "")
 		return
@@ -168,7 +212,7 @@ func (w handlers) add(c *feature.Caller, rw http.ResponseWriter, r *http.Request
 		return
 	}
 	if !watchable[it.Kind] {
-		feature.Problem(rw, feature.InvalidRequest, "only movies, shows, seasons, episodes and videos go on a watchlist")
+		feature.Problem(rw, feature.InvalidRequest, "only films, series, seasons, episodes and videos go on a watchlist")
 		return
 	}
 	tx, err := w.db.BeginTx(ctx, nil)
@@ -195,7 +239,7 @@ func (w handlers) add(c *feature.Caller, rw http.ResponseWriter, r *http.Request
 }
 
 func (w handlers) remove(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
-	id, ok := feature.ItemID(r.PathValue("id"))
+	id, ok := feature.TitleID(r.PathValue("id"))
 	if !ok {
 		feature.Problem(rw, feature.NotFound, "")
 		return

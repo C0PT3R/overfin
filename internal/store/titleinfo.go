@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -365,4 +366,128 @@ func (s *Store) ImageTitles(ctx context.Context, typ, path string, limit int) ([
 		return nil, nil
 	}
 	return s.ids(ctx, `SELECT key FROM (`+q+`) LIMIT ?3`, typ, path, limit)
+}
+
+// ContinueTitles lists, by title key, what a profile is in the middle of
+// and the next episode of each series it follows, together, the last
+// watched first: Continue Watching, in titles. The next episode is the
+// first after the last one watched that it hasn't watched, among those
+// TMDB lists as aired by today and those a library has, so one no library
+// has comes next too. A series shows once: an episode in the middle stands
+// for it. Specials (season 0) come next only after a special. At most
+// limit.
+func (s *Store) ContinueTitles(ctx context.Context, profileID, today string, limit int) ([]string, error) {
+	type entry struct {
+		key string
+		at  int64
+	}
+	var out []entry
+	inProgress := map[string]bool{} // series keys
+	rows, err := s.db.QueryContext(ctx, `SELECT title, coalesce(last_played_at, 0) FROM profile_titles
+		WHERE profile_id = ? AND position_ms > 0 ORDER BY last_played_at DESC LIMIT 500`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.key, &e.at); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, e)
+		if r, ok := ParseTitleKey(e.key); ok && r.Kind == "episode" {
+			inProgress[r.Series().Key()] = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Each followed series' last watched episode.
+	type last struct {
+		ref TitleRef
+		at  int64
+	}
+	lasts := map[string]last{}
+	var order []string
+	rows, err = s.db.QueryContext(ctx, `SELECT title, coalesce(last_played_at, 0) FROM profile_titles
+		WHERE profile_id = ? AND played = 1 AND title LIKE 'series/%/s%/e%' ORDER BY last_played_at DESC`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var key string
+		var at int64
+		if err := rows.Scan(&key, &at); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		r, ok := ParseTitleKey(key)
+		if !ok || r.Kind != "episode" {
+			continue
+		}
+		sk := r.Series().Key()
+		l, seen := lasts[sk]
+		if !seen {
+			order = append(order, sk)
+		}
+		if !seen || at > l.at || (at == l.at && (r.Season > l.ref.Season || (r.Season == l.ref.Season && r.Episode > l.ref.Episode))) {
+			lasts[sk] = last{r, at}
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, sk := range order {
+		if i == 200 {
+			break
+		}
+		if inProgress[sk] {
+			continue
+		}
+		l := lasts[sk]
+		next, err := s.nextEpisode(ctx, profileID, l.ref, today)
+		if err != nil {
+			return nil, err
+		}
+		if next != "" {
+			out = append(out, entry{next, l.at})
+		}
+	}
+	slices.SortStableFunc(out, func(a, b entry) int { return cmp.Compare(b.at, a.at) })
+	keys := make([]string, 0, min(len(out), limit))
+	for _, e := range out {
+		if len(keys) == limit {
+			break
+		}
+		keys = append(keys, e.key)
+	}
+	return keys, nil
+}
+
+// nextEpisode is the key of the episode after w that the profile hasn't
+// watched, or "" when there's none.
+func (s *Store) nextEpisode(ctx context.Context, profileID string, w TitleRef, today string) (string, error) {
+	series := w.Series().Key()
+	// TMDB's aired episodes and the library's, as (season, episode).
+	q := `SELECT season, episode FROM (
+			SELECT season, episode FROM catalog_episodes WHERE series = ? AND ? = 'tmdb' AND air_date IS NOT NULL AND air_date <= ?
+			UNION SELECT season_number, episode_number FROM catalog_items WHERE kind = 'episode'
+				AND title_key LIKE ? ESCAPE '\' AND season_number IS NOT NULL AND episode_number IS NOT NULL)
+		WHERE (season > ? OR (season = ? AND episode > ?)) AND (season > 0 OR ? = 0)
+			AND NOT EXISTS (SELECT 1 FROM profile_titles x WHERE x.profile_id = ? AND x.played = 1
+				AND x.title = ? || '/s' || season || '/e' || episode)
+		ORDER BY season, episode LIMIT 1`
+	var sn, en int
+	err := s.db.QueryRowContext(ctx, q, w.ID, w.Source, today, likePrefix(series+"/s"),
+		w.Season, w.Season, w.Episode, w.Season, profileID, series).Scan(&sn, &en)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return TitleRef{Kind: "episode", Source: w.Source, ID: w.ID, Season: sn, Episode: en}.Key(), nil
 }

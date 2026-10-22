@@ -229,6 +229,9 @@ func (pb Playback) writeView(w http.ResponseWriter, s *playback.Stream) {
 }
 
 type startRequest struct {
+	// TitleID is what to play (milestone 5): Overfin picks a copy the
+	// profile may see. ItemID, a copy, is the older way.
+	TitleID         string                `json:"titleId"`
 	ItemID          string                `json:"itemId"`
 	Capabilities    playback.Capabilities `json:"capabilities"`
 	StartPositionMs int64                 `json:"startPositionMs"`
@@ -271,20 +274,22 @@ type streamJSON struct {
 }
 
 type sessionJSON struct {
-	ID             string              `json:"id"`
-	Item           library.ItemSummary `json:"item"`
-	Method         string              `json:"method"`
-	Stream         streamJSON          `json:"stream"`
-	PositionMs     int64               `json:"positionMs"`
-	DurationMs     int64               `json:"durationMs,omitempty"`
-	Versions       []versionJSON       `json:"versions,omitempty"`
-	VersionID      string              `json:"versionId,omitempty"`
-	AudioTracks    []trackJSON         `json:"audioTracks,omitempty"`
-	AudioTrack     string              `json:"audioTrack,omitempty"`
-	SubtitleTracks []trackJSON         `json:"subtitleTracks,omitempty"`
-	SubtitleTrack  string              `json:"subtitleTrack,omitempty"`
-	MaxBitrateKbps int                 `json:"maxBitrateKbps,omitempty"`
-	Segments       []segmentJSON       `json:"segments,omitempty"`
+	ID   string              `json:"id"`
+	Item library.ItemSummary `json:"item"`
+	// Title is what plays, as titles are shown everywhere else.
+	Title          *library.TitleSummary `json:"title,omitempty"`
+	Method         string                `json:"method"`
+	Stream         streamJSON            `json:"stream"`
+	PositionMs     int64                 `json:"positionMs"`
+	DurationMs     int64                 `json:"durationMs,omitempty"`
+	Versions       []versionJSON         `json:"versions,omitempty"`
+	VersionID      string                `json:"versionId,omitempty"`
+	AudioTracks    []trackJSON           `json:"audioTracks,omitempty"`
+	AudioTrack     string                `json:"audioTrack,omitempty"`
+	SubtitleTracks []trackJSON           `json:"subtitleTracks,omitempty"`
+	SubtitleTrack  string                `json:"subtitleTrack,omitempty"`
+	MaxBitrateKbps int                   `json:"maxBitrateKbps,omitempty"`
+	Segments       []segmentJSON         `json:"segments,omitempty"`
 }
 
 var (
@@ -309,6 +314,10 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jfItem, ok := library.Unwrap(library.ItemPrefix, req.ItemID)
+	if req.TitleID != "" {
+		_, ok = titleRef(req.TitleID)
+		ok = ok && req.ItemID == ""
+	}
 	if !ok || req.StartPositionMs < 0 || req.MaxBitrateKbps < 0 || len(req.Queue) > 0 ||
 		(req.Device != "" && !deviceRe.MatchString(req.Device)) {
 		// Queues arrive with the rest of playback management.
@@ -359,6 +368,17 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	}
 	p := caller.Profile
 	ctx := r.Context()
+	if req.TitleID != "" {
+		var err error
+		if jfItem, err = l.copyOf(ctx, p, req.TitleID); err != nil {
+			l.storeError(w, err)
+			return
+		}
+		if jfItem == "" {
+			problem.Send(w, problem.NotFound, "")
+			return
+		}
+	}
 
 	// Overfin's one Jellyfin account plays, as a device of this playback's
 	// own: Jellyfin keeps one session per device, and ties each transcode
@@ -444,10 +464,18 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	pb.Tickets.Add(s, pr.StartTimeTicks, time.Now())
 	started = true // the device is the playback's now, freed when it ends
 
+	titles, err := l.titlesOfItems(ctx, p, []string{jfItem})
+	if err != nil {
+		l.storeError(w, err)
+		return
+	}
 	out := sessionJSON{
 		ID: s.ID, Item: summary, Method: dec.Method,
 		PositionMs: req.StartPositionMs, DurationMs: dec.Source.RunTimeTicks / 10_000,
 		VersionID: "ver_" + sourceID, MaxBitrateKbps: kbps,
+	}
+	if len(titles) == 1 {
+		out.Title = &titles[0]
 	}
 	base := "/api/v1/stream/" + s.Ticket + "/"
 	if dec.Protocol == "hls" {

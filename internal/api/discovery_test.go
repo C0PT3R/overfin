@@ -86,6 +86,7 @@ func TestDiscover(t *testing.T) {
 	}, 1); err != nil {
 		t.Fatal(err)
 	}
+	st.RefreshTitleKeys(context.Background())
 	// The lists, read in the background as Overfin does.
 	lists := catalog.NewLists(func() tmdb.Source { return s }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 1)
 	if err := lists.Refresh(context.Background()); err != nil {
@@ -93,9 +94,8 @@ func TestDiscover(t *testing.T) {
 	}
 
 	type title struct {
-		TMDBID, MediaKind, Name, Availability string
-		Images                                *struct{ Primary *struct{ URL string } }
-		LibraryItem                           *struct{ ID string }
+		ID, Kind, Name, Availability string
+		Images                       *struct{ Primary *struct{ URL string } }
 	}
 	var out struct {
 		Items      []title
@@ -108,19 +108,18 @@ func TestDiscover(t *testing.T) {
 		t.Fatalf("items: %+v", out)
 	}
 	have, missing := out.Items[0], out.Items[1]
-	if have.TMDBID != "949" || have.Availability != "available" || have.LibraryItem == nil ||
-		have.LibraryItem.ID != fmt.Sprintf("item_%032x", 3) || strings.Contains(have.Name, "<") {
+	if have.ID != "title_movie_tmdb_949" || have.Availability != "available" || have.Kind != "movie" || strings.Contains(have.Name, "<") {
 		t.Errorf("in the library: %+v", have)
 	}
-	if missing.Availability != "missing" || missing.LibraryItem != nil || missing.Images != nil {
+	if missing.ID != "title_movie_tmdb_100" || missing.Availability != "missing" || missing.Images != nil {
 		t.Errorf("missing (and its unsafe poster dropped): %+v", missing)
 	}
 
 	// Filters.
-	for avail, want := range map[string]string{"library": "949", "missing": "100"} {
+	for avail, want := range map[string]string{"library": "title_movie_tmdb_949", "missing": "title_movie_tmdb_100"} {
 		out.Items = nil
 		get(t, srv, "/api/v1/discover?list=trending&mediaKind=movie&availability="+avail, &out)
-		if len(out.Items) != 1 || out.Items[0].TMDBID != want {
+		if len(out.Items) != 1 || out.Items[0].ID != want {
 			t.Errorf("%s: %+v", avail, out.Items)
 		}
 	}
@@ -189,7 +188,7 @@ func TestDiscover(t *testing.T) {
 	}
 	out.Items = nil
 	if code := get(t, srv, "/api/v1/discover?list=trending&mediaKind=movie", &out); code != 200 ||
-		len(out.Items) != 1 || out.Items[0].TMDBID != "949" || out.Items[0].LibraryItem == nil {
+		len(out.Items) != 1 || out.Items[0].ID != "title_movie_tmdb_949" || out.Items[0].Availability != "available" {
 		t.Errorf("kids discover: %d %+v", code, out.Items)
 	}
 	if code := get(t, srv, "/api/v1/catalog/movie/949", nil); code != 200 {

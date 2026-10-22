@@ -14,7 +14,6 @@ import (
 	"github.com/overfin/server/internal/creation"
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
-	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -197,68 +196,52 @@ type profileBackend struct {
 	p *store.Profile
 }
 
-func (b profileBackend) Item(ctx context.Context, id string) (feature.Item, error) {
-	jfID, ok := library.Unwrap(library.ItemPrefix, id)
+func (b profileBackend) Title(ctx context.Context, id string) (feature.Title, error) {
+	ref, ok := titleRef(id)
 	if !ok {
-		return feature.Item{}, feature.ErrNotFound
+		return feature.Title{}, feature.ErrNotFound
 	}
-	a, uid, err := b.l.jf(ctx)
+	b.l.describe(ctx, ref)
+	got, err := b.l.titleSummaries(ctx, b.p, []string{ref.Key()})
 	if err != nil {
-		return feature.Item{}, err
+		return feature.Title{}, err
 	}
-	raw, err := b.l.Jellyfin.Item(ctx, a, uid, jfID)
-	if jellyfin.IsStatus(err, http.StatusNotFound) {
-		return feature.Item{}, feature.ErrNotFound
+	if len(got) == 0 || (got[0].Name == "" && got[0].Availability == "missing") {
+		return feature.Title{}, feature.ErrNotFound
 	}
-	if err != nil {
-		return feature.Item{}, err
-	}
-	if may, err := b.l.mayOpen(ctx, b.p, raw); err != nil {
-		return feature.Item{}, err
-	} else if !may {
-		return feature.Item{}, feature.ErrNotFound
-	}
-	s, ok := library.Summary(raw)
-	if !ok {
-		return feature.Item{}, feature.ErrNotFound
-	}
-	one := []library.ItemSummary{s}
-	if err := b.l.withStates(ctx, b.p, one); err != nil {
-		return feature.Item{}, err
-	}
-	return one[0], nil
+	return got[0], nil
 }
 
-func (b profileBackend) Items(ctx context.Context, ids []string) ([]feature.Item, error) {
-	var jfIDs []string
+func (b profileBackend) Titles(ctx context.Context, ids []string) ([]feature.Title, error) {
+	var keys []string
 	for _, id := range ids {
-		if jfID, ok := library.Unwrap(library.ItemPrefix, id); ok {
-			jfIDs = append(jfIDs, jfID)
+		if ref, ok := titleRef(id); ok {
+			keys = append(keys, ref.Key())
 		}
 	}
-	out := []feature.Item{}
-	a, uid, err := b.l.jf(ctx)
+	got, err := b.l.titleSummaries(ctx, b.p, keys)
 	if err != nil {
 		return nil, err
 	}
-	for start := 0; start < len(jfIDs); start += 100 {
-		raw, err := b.l.Jellyfin.ItemsByID(ctx, a, uid, jfIDs[start:min(start+100, len(jfIDs))])
-		if err != nil {
-			return nil, err
+	out := got[:0]
+	for _, t := range got {
+		if t.Name != "" || t.Availability != "missing" {
+			out = append(out, t)
 		}
-		if raw, err = b.l.keep(ctx, b.p, raw); err != nil {
-			return nil, err
-		}
-		for i := range raw {
-			if s, ok := library.Summary(&raw[i]); ok {
-				out = append(out, s)
-			}
-		}
-	}
-	if err := b.l.withStates(ctx, b.p, out); err != nil {
-		return nil, err
 	}
 	return out, nil
+}
+
+func (b profileBackend) TitleOfItem(ctx context.Context, itemID string) (string, error) {
+	jfID, ok := library.Unwrap(library.ItemPrefix, itemID)
+	if !ok {
+		return "", nil
+	}
+	keys, err := b.l.Provisioner.Store.TitleKeys(ctx, []string{jfID})
+	if err != nil {
+		return "", err
+	}
+	return titleID(keys[jfID]), nil
 }
 
 // Export asks the module, if it holds data about profiles, for this

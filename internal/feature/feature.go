@@ -119,12 +119,15 @@ type Caller struct {
 
 // Backend is the media backend seen as one profile.
 type Backend interface {
-	// Item returns one title, or ErrNotFound when it doesn't exist or this
-	// profile may not see it.
-	Item(ctx context.Context, id string) (Item, error)
-	// Items returns the titles among ids this profile can see, in no
+	// Title returns one title (in a library or not), or ErrNotFound when it
+	// doesn't exist or this profile may not see it.
+	Title(ctx context.Context, id string) (Title, error)
+	// Titles returns the titles among ids this profile can see, in no
 	// particular order; the others are left out.
-	Items(ctx context.Context, ids []string) ([]Item, error)
+	Titles(ctx context.Context, ids []string) ([]Title, error)
+	// TitleOfItem is the title ID of a library item ("item_…"), for data
+	// kept before titles had IDs of their own; "" when it's unknown.
+	TitleOfItem(ctx context.Context, itemID string) (string, error)
 }
 
 // Forgetter is implemented by a module that keeps data about profiles or

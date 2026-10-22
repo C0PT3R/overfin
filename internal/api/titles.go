@@ -20,51 +20,17 @@ import (
 // everything about it comes from TMDB's data, never Jellyfin's. A library's
 // copies of a title only decide whether it can be played.
 
-const titlePrefix = "title_"
-
 // titleID is a title's ID in the API: its key, with underscores
 // (movie/tmdb/949 → title_movie_tmdb_949). No part of a key has one.
-func titleID(key string) string { return titlePrefix + strings.ReplaceAll(key, "/", "_") }
+func titleID(key string) string { return library.TitlePrefix + strings.ReplaceAll(key, "/", "_") }
 
 // titleRef checks a title's ID.
 func titleRef(id string) (store.TitleRef, bool) {
-	rest, ok := strings.CutPrefix(id, titlePrefix)
+	rest, ok := strings.CutPrefix(id, library.TitlePrefix)
 	if !ok || len(rest) > 120 {
 		return store.TitleRef{}, false
 	}
 	return store.ParseTitleKey(strings.ReplaceAll(rest, "_", "/"))
-}
-
-type titleParent struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-// episodeCount is how much of a series or a season the library has.
-type episodeCount struct {
-	InLibrary int `json:"inLibrary"`
-	Aired     int `json:"aired"`
-}
-
-// titleSummary is a title wherever it's listed.
-type titleSummary struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"` // movie, series, season, episode, other
-	Name string `json:"name"`
-	Year int    `json:"year,omitempty"`
-	// AirDate is a season's or an episode's, YYYY-MM-DD.
-	AirDate    string `json:"airDate,omitempty"`
-	DurationMs int64  `json:"durationMs,omitempty"`
-	// Availability: available, partiallyAvailable (a series or a season
-	// with some of its episodes) or missing.
-	Availability  string             `json:"availability"`
-	Playable      bool               `json:"playable"`
-	Series        *titleParent       `json:"series,omitempty"`
-	SeasonNumber  *int               `json:"seasonNumber,omitempty"`
-	EpisodeNumber *int               `json:"episodeNumber,omitempty"`
-	EpisodeCount  *episodeCount      `json:"episodeCount,omitempty"`
-	Images        *library.Images    `json:"images,omitempty"`
-	UserState     *library.UserState `json:"userState,omitempty"`
 }
 
 type titleCast struct {
@@ -76,13 +42,13 @@ type titleCast struct {
 // titleDetail is a title's page: a series' with its seasons, a season's
 // with its episodes.
 type titleDetail struct {
-	titleSummary
-	Overview string         `json:"overview,omitempty"`
-	Tagline  string         `json:"tagline,omitempty"`
-	Genres   []string       `json:"genres,omitempty"`
-	Cast     []titleCast    `json:"cast,omitempty"`
-	Seasons  []titleSummary `json:"seasons,omitempty"`
-	Episodes []titleSummary `json:"episodes,omitempty"`
+	library.TitleSummary
+	Overview string                 `json:"overview,omitempty"`
+	Tagline  string                 `json:"tagline,omitempty"`
+	Genres   []string               `json:"genres,omitempty"`
+	Cast     []titleCast            `json:"cast,omitempty"`
+	Seasons  []library.TitleSummary `json:"seasons,omitempty"`
+	Episodes []library.TitleSummary `json:"episodes,omitempty"`
 }
 
 func today() string { return time.Now().UTC().Format("2006-01-02") }
@@ -106,8 +72,8 @@ func availability(t *store.TitleInfo) string {
 	return "missing"
 }
 
-func summaryOf(t *store.TitleInfo) titleSummary {
-	s := titleSummary{ID: titleID(t.Ref.Key()), Kind: t.Ref.Kind, Name: t.Name, Year: t.Year, AirDate: t.AirDate,
+func summaryOf(t *store.TitleInfo) library.TitleSummary {
+	s := library.TitleSummary{ID: titleID(t.Ref.Key()), Kind: t.Ref.Kind, Name: t.Name, Year: t.Year, AirDate: t.AirDate,
 		DurationMs: int64(t.Details.Runtime) * 60_000, Availability: availability(t)}
 	if s.Kind == "item" {
 		s.Kind = "other"
@@ -117,7 +83,7 @@ func summaryOf(t *store.TitleInfo) titleSummary {
 	}
 	s.Playable = (t.Ref.Kind == "movie" || t.Ref.Kind == "episode" || t.Ref.Kind == "item") && len(t.Items) > 0
 	if t.Ref.Kind == "season" || t.Ref.Kind == "episode" {
-		s.Series = &titleParent{ID: titleID(t.Ref.Series().Key()), Name: t.SeriesName}
+		s.Series = &library.TitleParent{ID: titleID(t.Ref.Series().Key()), Name: t.SeriesName}
 		n := t.Ref.Season
 		s.SeasonNumber = &n
 	}
@@ -126,7 +92,7 @@ func summaryOf(t *store.TitleInfo) titleSummary {
 		s.EpisodeNumber = &n
 	}
 	if t.Ref.Kind == "series" || t.Ref.Kind == "season" {
-		s.EpisodeCount = &episodeCount{InLibrary: t.Have, Aired: t.Aired}
+		s.EpisodeCount = &library.EpisodeCount{InLibrary: t.Have, Aired: t.Aired}
 	}
 	ref := func(typ, path string, aspect *float64) *library.ImageRef {
 		if id := images.ArtworkID(typ, path); id != "" {
@@ -205,7 +171,7 @@ func (l Library) visibleTitles(ctx context.Context, p *store.Profile, titles []*
 
 // titleSummaries returns titles by key, in order, each once, leaving out
 // those the profile may not see, with what it did with them.
-func (l Library) titleSummaries(ctx context.Context, p *store.Profile, keys []string) ([]titleSummary, error) {
+func (l Library) titleSummaries(ctx context.Context, p *store.Profile, keys []string) ([]library.TitleSummary, error) {
 	st := l.Provisioner.Store
 	infos, err := st.TitleInfos(ctx, keys, today())
 	if err != nil {
@@ -233,7 +199,7 @@ func (l Library) titleSummaries(ctx context.Context, p *store.Profile, keys []st
 	if err != nil {
 		return nil, err
 	}
-	out := []titleSummary{}
+	out := []library.TitleSummary{}
 	for i, t := range list {
 		if !visible[i] {
 			continue
@@ -321,7 +287,7 @@ func (l Library) title(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	out := titleDetail{titleSummary: sums[0], Overview: t.Overview, Tagline: t.Details.Tagline, Genres: t.Details.Genres}
+	out := titleDetail{TitleSummary: sums[0], Overview: t.Overview, Tagline: t.Details.Tagline, Genres: t.Details.Genres}
 	if n, err := strconv.Atoi(ref.TMDB()); err == nil && (ref.Kind == "movie" || ref.Kind == "series") {
 		for _, c := range t.Details.Cast {
 			tc := titleCast{Name: c.Name, Character: c.Character}
@@ -534,4 +500,34 @@ func first(s []string) string {
 		return s[0]
 	}
 	return ""
+}
+
+// copyOf picks the copy of a title to play: the first one the profile may
+// see, by Jellyfin ID; "" when there's none (or it isn't a title that
+// plays).
+func (l Library) copyOf(ctx context.Context, p *store.Profile, id string) (string, error) {
+	ref, ok := titleRef(id)
+	if !ok || (ref.Kind != "movie" && ref.Kind != "episode" && ref.Kind != "item") {
+		return "", nil
+	}
+	st := l.Provisioner.Store
+	infos, err := st.TitleInfos(ctx, []string{ref.Key()}, today())
+	t := infos[ref.Key()]
+	if err != nil || t == nil || len(t.Items) == 0 {
+		return "", err
+	}
+	a, err := l.access(ctx, p)
+	if err != nil || a == nil {
+		return first(t.Items), err
+	}
+	allowed, _, err := st.AllowedItems(ctx, *a, t.Items)
+	if err != nil {
+		return "", err
+	}
+	for _, item := range t.Items {
+		if allowed[item] {
+			return item, nil
+		}
+	}
+	return "", nil
 }

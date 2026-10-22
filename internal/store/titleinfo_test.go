@@ -87,3 +87,38 @@ func TestTitleInfos(t *testing.T) {
 		t.Errorf("seasons: %v", seasons)
 	}
 }
+
+// Continue Watching in titles: what's in the middle, and each followed
+// series' next episode, a library's or not.
+func TestContinueTitles(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	_, prof, _ := s.CreateAccount(ctx, "subject-1", owner("1"))
+	now := time.Now()
+	for _, se := range []Season{
+		{Number: 1, Episodes: []Episode{{Number: 1, AirDate: "2011-04-17"}, {Number: 2, AirDate: "2011-04-24"}}},
+		{Number: 2, Episodes: []Episode{{Number: 1, AirDate: "2012-04-01"}, {Number: 2, AirDate: "2099-01-01"}}},
+	} {
+		s.SetSeason(ctx, "1399", se, now)
+	}
+	s.SetSeason(ctx, "2", Season{Number: 1, Episodes: []Episode{{Number: 1, AirDate: "2020-01-01"}, {Number: 2, AirDate: "2020-01-08"}}}, now)
+	// Series 1399: season 1 watched; season 2, episode 1 (no library has
+	// it) is next. Series 2: episode 1 in the middle. A film in the middle.
+	s.SetPlayed(ctx, prof.ID, map[string]string{"series/tmdb/1399/s1/e1": "", "series/tmdb/1399/s1/e2": ""}, true, now.Add(-2*time.Hour))
+	s.RecordPlay(ctx, prof.ID, "series/tmdb/2/s1/e1", "", 60_000, false, now.Add(-time.Hour))
+	s.RecordPlay(ctx, prof.ID, "movie/tmdb/949", "", 60_000, false, now.Add(-time.Minute))
+
+	got, err := s.ContinueTitles(ctx, prof.ID, "2026-10-22", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"movie/tmdb/949", "series/tmdb/2/s1/e1", "series/tmdb/1399/s2/e1"}; !slices.Equal(got, want) {
+		t.Errorf("continue = %v, want %v", got, want)
+	}
+	// Season 2's first episode watched: the next hasn't aired, so the
+	// series has nothing next.
+	s.SetPlayed(ctx, prof.ID, map[string]string{"series/tmdb/1399/s2/e1": ""}, true, now)
+	if got, _ := s.ContinueTitles(ctx, prof.ID, "2026-10-22", 10); len(got) != 2 {
+		t.Errorf("nothing aired next: %v", got)
+	}
+}

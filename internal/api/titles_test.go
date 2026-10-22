@@ -100,6 +100,31 @@ func TestTitles(t *testing.T) {
 		t.Errorf("film no library has: %d %+v", code, missing)
 	}
 
+	// Lists give titles: the library's, what's new, Continue Watching.
+	var page struct {
+		Items      []testTitle
+		TotalCount *int
+	}
+	if code := get(t, srv, "/api/v1/titles?kind=series", &page); code != 200 || len(page.Items) != 1 ||
+		page.Items[0].ID != "title_series_tmdb_1399" || page.TotalCount == nil || *page.TotalCount != 1 {
+		t.Errorf("series listing: %d %+v", code, page)
+	}
+	page.Items = nil
+	if code := get(t, srv, "/api/v1/titles/latest", &page); code != 200 || len(page.Items) != 1 || page.Items[0].Kind != "series" {
+		t.Errorf("latest: %d %+v", code, page.Items)
+	}
+	// Season 1's two episodes the library has, watched (season 2 not):
+	// next is the third, which it doesn't have.
+	put(t, srv, "DELETE", "/api/v1/titles/title_series_tmdb_1399_s2/played", "")
+	for _, e := range []string{"e1", "e2"} {
+		put(t, srv, "PUT", "/api/v1/titles/title_series_tmdb_1399_s1_"+e+"/played", "")
+	}
+	page.Items = nil
+	if code := get(t, srv, "/api/v1/titles/continue", &page); code != 200 || len(page.Items) != 1 ||
+		page.Items[0].ID != "title_series_tmdb_1399_s1_e3" || page.Items[0].Availability != "missing" {
+		t.Errorf("continue: %d %+v", code, page.Items)
+	}
+
 	// Nothing known, or not a title.
 	for _, bad := range []string{"title_movie_tmdb_555", "title_movie_tmdb_949_s1", "title_movie/tmdb/1", "item_" + id(1), "title_series_tmdb_1399_s9_e1"} {
 		if code := get(t, srv, "/api/v1/titles/"+bad, nil); code != 404 {
@@ -121,5 +146,33 @@ func TestTitles(t *testing.T) {
 	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "movie", TMDB: "100"}, map[string][]string{"US": {"G"}}, now)
 	if code := get(t, srv, "/api/v1/titles/title_movie_tmdb_100", nil); code != 200 {
 		t.Errorf("rated G, for a kid: %d", code)
+	}
+}
+
+// Playback asks for a title; Overfin picks the copy. A title no library
+// has doesn't play.
+func TestPlayATitle(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{store: &st})
+	ctx := context.Background()
+	st.PutCatalog(ctx, []store.CatalogItem{{ID: fmt.Sprintf("%032x", 1), Kind: "movie", Name: "Heat", SortName: "heat", TMDB: "949"}}, 1)
+	st.RefreshTitleKeys(ctx)
+	det, _ := json.Marshal(store.TitleDetails{})
+	st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: "949", Name: "Heat (TMDB)"}, det, time.Now())
+	st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: "100", Name: "Pas ici"}, det, time.Now())
+
+	code, body := post(t, srv, "/api/v1/playback", `{"titleId":"title_movie_tmdb_949","capabilities":{}}`)
+	var session struct {
+		Title *struct{ ID, Name string }
+	}
+	json.Unmarshal([]byte(body), &session)
+	if code != 201 || session.Title == nil || session.Title.ID != "title_movie_tmdb_949" || session.Title.Name != "Heat (TMDB)" {
+		t.Errorf("play a title: %d %s", code, body)
+	}
+	if code, _ := post(t, srv, "/api/v1/playback", `{"titleId":"title_movie_tmdb_100","capabilities":{}}`); code != 404 {
+		t.Errorf("a title no library has: %d", code)
+	}
+	if code, _ := post(t, srv, "/api/v1/playback", fmt.Sprintf(`{"titleId":"title_movie_tmdb_949","itemId":"item_%032x"}`, 1)); code != 400 {
+		t.Errorf("both a title and a copy: %d", code)
 	}
 }

@@ -51,7 +51,7 @@ test('queries repeat list values and skip empty ones', async () => {
 
 test('pages follow cursors and keep the shuffle seed', async () => {
   const calls = fakeServer({
-    'GET /api/v1/items': (url) => {
+    'GET /api/v1/titles': (url) => {
       const q = new URL(url, 'http://x').searchParams;
       if (!q.get('cursor')) return [200, { items: [{ id: 'a' }], nextCursor: 'c2', seed: 's1' }];
       return [200, { items: [{ id: 'b' }] }];
@@ -91,15 +91,15 @@ test('discovery asks for its list and filters', async () => {
 
 test('marks are PUT or DELETE on the title', async () => {
   const calls = fakeServer({
-    'PUT /api/v1/items/item_1/played': () => [200, { played: true }],
-    'DELETE /api/v1/items/item_1/favorite': () => [200, { favorite: false }],
-    'DELETE /api/v1/items/item_1/progress': () => [200, { positionMs: 0 }],
+    'PUT /api/v1/titles/title_movie_tmdb_1/played': () => [200, { played: true }],
+    'DELETE /api/v1/titles/title_movie_tmdb_1/favorite': () => [200, { favorite: false }],
+    'DELETE /api/v1/titles/title_movie_tmdb_1/progress': () => [200, { positionMs: 0 }],
     'DELETE /api/v1/me/history': () => [204, null],
   });
   const overfin = new Overfin();
-  assert.equal((await overfin.setPlayed('item_1')).played, true);
-  assert.equal((await overfin.setFavorite('item_1', false)).favorite, false);
-  await overfin.forgetProgress('item_1');
+  assert.equal((await overfin.setPlayed('title_movie_tmdb_1')).played, true);
+  assert.equal((await overfin.setFavorite('title_movie_tmdb_1', false)).favorite, false);
+  await overfin.forgetProgress('title_movie_tmdb_1');
   assert.equal(await overfin.clearHistory(), null);
   assert.deepEqual(calls.map((c) => c.method), ['PUT', 'DELETE', 'DELETE', 'DELETE']);
 });
@@ -132,7 +132,7 @@ function playbackServer() {
   const state = { gone: null };
   const calls = fakeServer({
     'POST /api/v1/playback': (_, body) => [201, {
-      id: `pb${++n}`, item: { id: body.itemId, name: 'Film' }, method: 'direct',
+      id: `pb${++n}`, item: { id: 'item_1', name: 'Film' }, title: { id: body.titleId, name: 'Film' }, method: 'direct',
       stream: { url: `/api/v1/stream/t${n}/file`, protocol: 'file' }, positionMs: body.startPositionMs,
     }],
     'POST /api/v1/playback/pb1/progress': () => state.gone || [204, null],
@@ -149,7 +149,7 @@ test('the player restarts a freed stream at the same place, quietly', async () =
   const { calls, state } = playbackServer();
   const video = fakeVideo();
   const errors = [];
-  const player = await new Overfin().play(video, 'item_1', {
+  const player = await new Overfin().play(video, 'title_movie_tmdb_1', {
     startMs: 0, capabilities: {}, onError: (e) => errors.push(e),
   });
   assert.equal(player.playback.id, 'pb1');
@@ -170,7 +170,7 @@ test('a takeover is reported, and continueHere takes it back', async () => {
   const { state } = playbackServer();
   const video = fakeVideo();
   let takenBy = null;
-  const player = await new Overfin().play(video, 'item_1', {
+  const player = await new Overfin().play(video, 'title_movie_tmdb_1', {
     startMs: 0, capabilities: {}, onTakenOver: (device) => { takenBy = device; },
   });
   video.currentTime = 30;
@@ -187,14 +187,14 @@ test('a takeover is reported, and continueHere takes it back', async () => {
 
 test('without a start position, the player resumes where the profile left off', async () => {
   const calls = fakeServer({
-    'GET /api/v1/items/item_1': () => [200, { id: 'item_1', userState: { positionMs: 42000 } }],
+    'GET /api/v1/titles/title_movie_tmdb_1': () => [200, { id: 'title_movie_tmdb_1', userState: { positionMs: 42000 } }],
     'POST /api/v1/playback': (_, body) => [201, {
       id: 'pb1', item: { id: 'item_1', name: 'Film' }, method: 'direct',
       stream: { url: '/x', protocol: 'file' }, positionMs: body.startPositionMs,
     }],
     'POST /api/v1/playback/pb1/stop': () => [204, null],
   });
-  const player = await new Overfin().play(fakeVideo(), 'item_1', { capabilities: {} });
+  const player = await new Overfin().play(fakeVideo(), 'title_movie_tmdb_1', { capabilities: {} });
   assert.equal(calls.find((c) => c.url === '/api/v1/playback').body.startPositionMs, 42000);
   await player.close();
 });
