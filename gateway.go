@@ -73,7 +73,7 @@ type shared struct {
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
-	return &provision.Provisioner{
+	p := &provision.Provisioner{
 		Store:         sh.db,
 		Jellyfin:      sh.jf,
 		AdminKey:      cfg.Secrets.JellyfinAdminKey,
@@ -81,6 +81,12 @@ func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
 		LogKey:        sh.keys.LogID,
 		Logger:        sh.logger,
 	}
+	// A deleted account's Seerr user goes with it, through the Seerr
+	// connected now (connecting or disconnecting one builds again).
+	if client := sh.seerr; client != nil {
+		p.DeleteSeerrUser = client.DeleteUser
+	}
+	return p
 }
 
 // build makes the request handler for a configuration.
@@ -185,6 +191,13 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	}
 	if disc != nil {
 		plugins = append(plugins, disc)
+	}
+	// Requests, through the Seerr connected when this was built (connecting
+	// or disconnecting Seerr builds again); without one, they answer "not
+	// found".
+	if cfg.Plugins.Enabled("library") {
+		client := sh.seerr
+		plugins = append(plugins, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }})
 	}
 	// Modules go behind the same guards as the core's own routes.
 	for _, m := range mounts {

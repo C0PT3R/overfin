@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -198,6 +199,10 @@ func (l Library) titleSummaries(ctx context.Context, p *store.Profile, keys []st
 	if err != nil {
 		return nil, err
 	}
+	requests, err := l.requestsCovering(ctx, p.AccountID, list)
+	if err != nil {
+		return nil, err
+	}
 	out := []library.TitleSummary{}
 	for i, t := range list {
 		if !visible[i] {
@@ -207,6 +212,7 @@ func (l Library) titleSummaries(ctx context.Context, p *store.Profile, keys []st
 		if st, ok := states[t.Ref.Key()]; ok {
 			s.UserState = stateOf(st)
 		}
+		s.Request = requests[t.Ref.Key()]
 		out = append(out, s)
 	}
 	return out, nil
@@ -333,14 +339,20 @@ func (l Library) title(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, out)
 }
 
-// visibleTitle reads a title the profile may see, or writes "not found".
+// visibleTitle reads the title the request's path names, when the profile
+// may see it, or writes "not found".
 func (l Library) visibleTitle(w http.ResponseWriter, r *http.Request, p *store.Profile) (*store.TitleInfo, bool) {
 	ref, ok := titleRef(r.PathValue("id"))
 	if !ok {
 		problem.Send(w, problem.NotFound, "")
 		return nil, false
 	}
-	ctx := r.Context()
+	return l.visibleTitleRef(w, r.Context(), p, ref)
+}
+
+// visibleTitleRef reads a title the profile may see, or writes "not
+// found".
+func (l Library) visibleTitleRef(w http.ResponseWriter, ctx context.Context, p *store.Profile, ref store.TitleRef) (*store.TitleInfo, bool) {
 	key := ref.Key()
 	infos, err := l.Provisioner.Store.TitleInfos(ctx, []string{key}, today())
 	if err != nil {
@@ -527,4 +539,37 @@ func (l Library) copyOf(ctx context.Context, p *store.Profile, id string) (strin
 		}
 	}
 	return "", nil
+}
+
+// requestsCovering finds, for titles, the account's latest request covering
+// each: a film's or a series' own, and for a season or an episode, its
+// series' when it asked for every season or for that one.
+func (l Library) requestsCovering(ctx context.Context, accountID string, titles []*store.TitleInfo) (map[string]*library.TitleRequest, error) {
+	var keys []string
+	for _, t := range titles {
+		switch t.Ref.Kind {
+		case "movie", "series":
+			keys = append(keys, t.Ref.Key())
+		case "season", "episode":
+			keys = append(keys, t.Ref.Series().Key())
+		}
+	}
+	all, err := l.Provisioner.Store.AccountRequests(ctx, accountID, keys)
+	if err != nil || len(all) == 0 {
+		return nil, err
+	}
+	out := map[string]*library.TitleRequest{}
+	for _, t := range titles {
+		for _, x := range all { // the latest first
+			covers := x.Title == t.Ref.Key()
+			if t.Ref.Kind == "season" || t.Ref.Kind == "episode" {
+				covers = x.Title == t.Ref.Series().Key() && (len(x.Seasons) == 0 || slices.Contains(x.Seasons, t.Ref.Season))
+			}
+			if covers {
+				out[t.Ref.Key()] = &library.TitleRequest{ID: x.ID, Status: x.Status}
+				break
+			}
+		}
+	}
+	return out, nil
 }

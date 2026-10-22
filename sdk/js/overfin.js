@@ -180,6 +180,15 @@ export class Overfin {
   addToWatchlist(id) { return this.request('PUT', `/me/watchlist/${enc(id)}`); }
   removeFromWatchlist(id) { return this.request('DELETE', `/me/watchlist/${enc(id)}`); }
 
+  // ---- Requests (when the server has Seerr connected) -----------------------
+
+  /** The profile's requests (the owner's: its kids profiles' too), newest first. Rejects with 404 when the server offers none. */
+  async requests() { return (await this.request('GET', '/requests')).items; }
+  /** Requests a title no library has (a season or an episode: its season; a series: seasons, or all). */
+  requestTitle(titleId, seasons) { return this.request('POST', '/requests', seasons ? { titleId, seasons } : { titleId }); }
+  /** Cancels a request while it's pending. */
+  cancelRequest(id) { return this.request('DELETE', `/requests/${enc(id)}`); }
+
   // ---- Discovery (when the server has Seerr connected) ----------------------
 
   /**

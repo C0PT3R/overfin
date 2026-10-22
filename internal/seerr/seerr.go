@@ -86,7 +86,7 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	return nil
 }
 
-// ErrNotFound: Seerr doesn't know the title.
+// ErrNotFound: Seerr doesn't know it (a title, a user, a request).
 var ErrNotFound = tmdb.ErrNotFound
 
 // Check tells whether the server is Seerr and takes the key, and which

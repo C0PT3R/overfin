@@ -65,6 +65,9 @@ type Provisioner struct {
 	RequiredGroup string
 	LogKey        []byte // keys.LogID, for pseudonymous log entries
 	Logger        *slog.Logger
+	// DeleteSeerrUser, when set, deletes a deleted account's Seerr user
+	// (by its Seerr ID); nil when no Seerr is connected.
+	DeleteSeerrUser func(ctx context.Context, seerrID int) error
 	// mu serializes account creation and adoption. Both are rare, and
 	// serializing them rules out two accounts for one person.
 	mu       sync.Mutex
@@ -452,8 +455,10 @@ func (p *Provisioner) Relogin(ctx context.Context, jellyfinUserID, username stri
 
 // DeleteAccount deletes an account and everything Overfin holds about it.
 // Its Jellyfin users go first, deleted with their history or disabled
-// (keepHistory), so a failure deletes nothing here and a retry picks up where
-// it stopped. It returns the account's profiles, as they were.
+// (keepHistory), and its Seerr user, deleted with its requests (kept with
+// keepHistory: it's anonymous, and no one can sign in as it), so a failure
+// deletes nothing here and a retry picks up where it stopped. It returns
+// the account's profiles, as they were.
 func (p *Provisioner) DeleteAccount(ctx context.Context, accountID string, keepHistory bool) ([]*store.Profile, error) {
 	profiles, err := p.Store.Profiles(ctx, accountID)
 	if err != nil {
@@ -470,6 +475,15 @@ func (p *Provisioner) DeleteAccount(ctx context.Context, accountID string, keepH
 		}
 		if err != nil {
 			return nil, err
+		}
+	}
+	if !keepHistory && p.DeleteSeerrUser != nil {
+		if id, ok, err := p.Store.SeerrUser(ctx, accountID); err != nil {
+			return nil, err
+		} else if ok {
+			if err := p.DeleteSeerrUser(ctx, id); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := p.Store.DeleteAccount(ctx, accountID); err != nil {

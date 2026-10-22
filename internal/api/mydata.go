@@ -82,9 +82,20 @@ type exportProfileJSON struct {
 	// title: where it stopped, whether it watched it, how many times and
 	// when last, its favorites.
 	Titles []exportTitleJSON `json:"titles"`
+	// Requests are the titles the profile requested, and where each
+	// stood when last read from Seerr.
+	Requests []exportRequestJSON `json:"requests"`
 	// Modules holds what each switched-on module keeps about the profile,
 	// by module name (the watchlist, say).
 	Modules map[string]any `json:"modules,omitempty"`
+}
+
+type exportRequestJSON struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Seasons     []int  `json:"seasons,omitempty"`
+	Status      string `json:"status"`
+	RequestedAt string `json:"requestedAt"`
 }
 
 type exportTitleJSON struct {
@@ -180,6 +191,17 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 			}
 			titles = append(titles, t)
 		}
+		asked, err := a.Sessions.Store.ProfileRequests(ctx, c.Account.ID, []string{p.ID})
+		if err != nil {
+			a.Logger.Error("reading a profile's requests for an export failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+		requests := make([]exportRequestJSON, 0, len(asked))
+		for _, x := range asked {
+			requests = append(requests, exportRequestJSON{ID: x.ID, Title: x.Title, Seasons: x.Seasons, Status: x.Status,
+				RequestedAt: x.CreatedAt.UTC().Format(time.RFC3339)})
+		}
 		mods := map[string]any{}
 		as := &Caller{Account: c.Account, Session: c.Session, Profile: p, Owner: c.Owner}
 		for _, m := range a.Mounts {
@@ -196,7 +218,7 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 		out.Profiles = append(out.Profiles, exportProfileJSON{
 			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language,
 			MovieCeiling: p.MovieCeiling, SeriesCeiling: p.SeriesCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
-			WatchHistory: history, Titles: titles, Modules: mods,
+			WatchHistory: history, Titles: titles, Requests: requests, Modules: mods,
 		})
 	}
 	sessions, err := a.Sessions.Store.Sessions(ctx, c.Account.ID)

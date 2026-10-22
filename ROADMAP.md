@@ -459,7 +459,13 @@ peer's copy is one more source.
    by season; "Next up" shows the next episode even when it's missing, to
    request. *Done*, but the request button (step 5).
 5. **Requests**, through Seerr, as designed below: the request button on a
-   title, a season or an episode with no copy.
+   title, a season or an episode with no copy. *Done, with Seerr managing
+   them:* each account's anonymous Seerr user (made on its first request,
+   remade if Seerr loses it, deleted with the account), `/requests` (each
+   profile's, the owner seeing the kids profiles' too, statuses read again
+   from Seerr), cancelling while pending, titles saying when they're
+   requested, requests in the data download. Next: "Manage requests from
+   here" and "Use real user names in Seerr".
 
 ## Milestone 6: Federation
 

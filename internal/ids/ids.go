@@ -15,6 +15,7 @@ const (
 	Session  = "sess"
 	Login    = "login"
 	Template = "tmpl"
+	Request  = "req"
 )
 
 // Lowercase base32 without padding: URL-safe and easy to read aloud.

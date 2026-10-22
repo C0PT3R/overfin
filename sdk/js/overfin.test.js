@@ -234,3 +234,18 @@ test('Firefox gets neither Matroska nor HDR on Linux, whatever it says', () => {
   assert.deepEqual(c.hdr, []);
 });
 
+
+test('requests are asked for by title', async () => {
+  const calls = fakeServer({
+    'POST /api/v1/requests': (_, body) => [201, { id: 'req_1', title: { id: body.titleId }, status: 'pending' }],
+    'GET /api/v1/requests': () => [200, { items: [{ id: 'req_1', status: 'approved' }] }],
+    'DELETE /api/v1/requests/req_1': () => [204, null],
+  });
+  const overfin = new Overfin();
+  assert.equal((await overfin.requestTitle('title_series_tmdb_1399', [2])).status, 'pending');
+  assert.deepEqual(calls[0].body, { titleId: 'title_series_tmdb_1399', seasons: [2] });
+  await overfin.requestTitle('title_movie_tmdb_1');
+  assert.deepEqual(calls[1].body, { titleId: 'title_movie_tmdb_1' });
+  assert.equal((await overfin.requests())[0].status, 'approved');
+  assert.equal(await overfin.cancelRequest('req_1'), null);
+});

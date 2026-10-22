@@ -49,6 +49,12 @@ const (
 	InvalidRequest       Type = "invalid-request"
 	InvalidCursor        Type = "invalid-cursor"
 	RateLimited          Type = "rate-limited"
+	// Requests: already asked for (or there), the quota used up, refused
+	// by Seerr, and no longer pending (to cancel).
+	AlreadyRequested Type = "already-requested"
+	QuotaExceeded    Type = "quota-exceeded"
+	RequestRefused   Type = "request-refused"
+	NotPending       Type = "not-pending"
 	// PINRequired: the profile has a PIN and none was given. PINIncorrect:
 	// a wrong PIN. PINLocked: too many wrong PINs; retryAfter says when
 	// another attempt is possible.
@@ -95,6 +101,10 @@ var registry = map[Type]info{
 	InvalidRequest:       {http.StatusBadRequest, "Invalid request"},
 	InvalidCursor:        {http.StatusBadRequest, "Invalid cursor"},
 	RateLimited:          {http.StatusTooManyRequests, "Too many requests"},
+	AlreadyRequested:     {http.StatusConflict, "This is already requested or available"},
+	QuotaExceeded:        {http.StatusConflict, "No requests left for now"},
+	RequestRefused:       {http.StatusConflict, "This request was refused"},
+	NotPending:           {http.StatusConflict, "This request is no longer pending"},
 	PINRequired:          {http.StatusForbidden, "This profile is protected by a PIN"},
 	PINIncorrect:         {http.StatusForbidden, "Wrong PIN"},
 	PINLocked:            {http.StatusForbidden, "Too many wrong PINs; try again later"},

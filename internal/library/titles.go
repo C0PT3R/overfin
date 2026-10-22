@@ -34,6 +34,14 @@ type TitleSummary struct {
 	EpisodeCount  *EpisodeCount `json:"episodeCount,omitempty"`
 	Images        *Images       `json:"images,omitempty"`
 	UserState     *UserState    `json:"userState,omitempty"`
+	// Request is the account's latest request covering it, if any.
+	Request *TitleRequest `json:"request,omitempty"`
+}
+
+// TitleRequest is a request covering a title: its ID and status.
+type TitleRequest struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
 // TitlePrefix starts every title's ID.

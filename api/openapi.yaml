@@ -1816,15 +1816,14 @@ paths:
 
   /requests:
     get:
-      x-status: planned
       operationId: listMyRequests
       summary: The active profile's requests and their status
-      description: The owner profile also sees the requests of the account's
-        kids profiles.
+      description: >-
+        The owner profile also sees the requests of the account's kids
+        profiles. Statuses are read again from Seerr when they may have
+        changed. "Not found" when the server offers no requests (no Seerr
+        connected): clients hide the request button then.
       tags: [requests]
-      parameters:
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Newest first.
@@ -1841,12 +1840,13 @@ paths:
                         items:
                           $ref: "#/components/schemas/MediaRequest"
     post:
-      x-status: planned
       operationId: createRequest
-      summary: Request a movie, or seasons of a series
-      description: Counts against the account's quota. Kids profiles can only
-        request titles within their rating ceiling; an unknown rating is
-        refused.
+      summary: Request a film, a series, or seasons of a series
+      description: >-
+        A title no library has, or not all of. A season or an episode asks
+        for its season. Seerr's own settings decide whether it's approved
+        at once and how it counts against the account's quota. Kids profiles
+        can only request titles within their limits.
       tags: [requests]
       requestBody:
         required: true
@@ -1854,17 +1854,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [mediaKind, tmdbId]
+              required: [titleId]
               properties:
-                mediaKind:
+                titleId:
                   type: string
-                  enum: [movie, series]
-                tmdbId:
-                  type: string
-                  pattern: "^[0-9]{1,12}$"
+                  maxLength: 128
                 seasons:
                   type: array
-                  description: For series, which seasons. Absent means all.
+                  description: For a series, which seasons. Absent means all.
                   maxItems: 100
                   items:
                     type: integer
@@ -1880,8 +1877,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           description: Already requested or available (`already-requested`),
-            quota used up (`quota-exceeded`), or not allowed for this profile
-            (`rating-not-allowed`).
+            quota used up (`quota-exceeded`), or refused by Seerr
+            (`request-refused`).
           content:
             application/problem+json:
               schema:
@@ -1910,7 +1907,6 @@ paths:
           type: string
           maxLength: 64
     delete:
-      x-status: planned
       operationId: cancelRequest
       summary: Cancel one of my requests while it is still pending
       tags: [requests]
@@ -2548,6 +2544,16 @@ components:
           $ref: "#/components/schemas/Images"
         userState:
           $ref: "#/components/schemas/UserState"
+        request:
+          type: object
+          description: The account's latest request covering it.
+          required: [id, status]
+          properties:
+            id:
+              type: string
+            status:
+              type: string
+              description: As a request's.
 
     Title:
       allOf:

@@ -167,6 +167,20 @@ export interface TitleSummary {
   episodeCount?: { inLibrary: number; aired: number };
   images?: Images;
   userState?: UserState;
+  /** The account's latest request covering it. */
+  request?: { id: string; status: RequestStatus };
+}
+
+export type RequestStatus = 'pending' | 'approved' | 'declined' | 'processing' | 'partiallyAvailable' | 'available' | 'failed' | (string & {});
+
+export interface MediaRequest {
+  id: string;
+  title: TitleSummary;
+  seasons?: number[];
+  status: RequestStatus;
+  requestedAt: string;
+  /** For the owner: which kids profile made it. */
+  profileName?: string;
 }
 
 /** A title's page: a series with its seasons, a season with its episodes. */
@@ -306,6 +320,10 @@ export class Overfin {
   clearHistory(): Promise<null>;
 
   watchlist(): Promise<TitleSummary[]>;
+
+  requests(): Promise<MediaRequest[]>;
+  requestTitle(titleId: string, seasons?: number[]): Promise<MediaRequest>;
+  cancelRequest(id: string): Promise<null>;
   onWatchlist(id: string): Promise<boolean>;
   addToWatchlist(id: string): Promise<null>;
   removeFromWatchlist(id: string): Promise<null>;

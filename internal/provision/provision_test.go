@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -440,5 +441,29 @@ func TestClaimHooks(t *testing.T) {
 	// And it can be claimed properly afterwards.
 	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, true, nil); err != nil {
 		t.Errorf("claim after the undo: %v", err)
+	}
+}
+
+// A deleted account's Seerr user goes with it, unless its history is kept.
+func TestDeletingAnAccountDeletesItsSeerrUser(t *testing.T) {
+	p := setup(t, &fakeJellyfin{}, "")
+	ctx := context.Background()
+	var deleted []int
+	p.DeleteSeerrUser = func(_ context.Context, id int) error {
+		deleted = append(deleted, id)
+		return nil
+	}
+	for i, keep := range []bool{true, false} {
+		acct, _, err := p.Ensure(ctx, identity.Identity{Subject: fmt.Sprint("subject-", i)}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Store.SetSeerrUser(ctx, acct.ID, 40+i, time.Now())
+		if _, err := p.DeleteAccount(ctx, acct.ID, keep); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(deleted) != 1 || deleted[0] != 41 {
+		t.Errorf("Seerr users deleted: %v", deleted)
 	}
 }
