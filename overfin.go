@@ -455,7 +455,11 @@ func unrestrictKids(ctx context.Context, db *store.Store, prov func() *provision
 			if p.JellyfinUserID == "" {
 				continue // none of its own: nothing to lift
 			}
-			if err = prov().Unrestrict(ctx, p.JellyfinUserID); err != nil {
+			err = prov().Unrestrict(ctx, p.JellyfinUserID)
+			if jellyfin.IsStatus(err, http.StatusNotFound) {
+				err = nil // not on this server: nothing to lift
+			}
+			if err != nil {
 				failed = true
 			}
 		}
