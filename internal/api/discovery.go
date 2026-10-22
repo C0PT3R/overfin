@@ -94,21 +94,6 @@ type catalogDetail struct {
 	Seasons []catalogSeason `json:"seasons,omitempty"`
 }
 
-// storedDetails is a title's page as the catalog keeps it.
-type storedDetails struct {
-	Genres []string `json:"genres"`
-	Cast   []struct {
-		Name      string `json:"name"`
-		Character string `json:"character"`
-		Profile   string `json:"profile,omitempty"` // TMDB's path of their photo
-	} `json:"cast"`
-	Seasons []struct {
-		Number       int    `json:"number"`
-		Name         string `json:"name"`
-		EpisodeCount int    `json:"episodeCount"`
-	} `json:"seasons"`
-}
-
 type discoverPage struct {
 	Items      []catalogTitle `json:"items"`
 	NextCursor string         `json:"nextCursor,omitempty"`
@@ -223,7 +208,7 @@ func (d Discovery) title(w http.ResponseWriter, r *http.Request) {
 			d.Library.Logger.Warn("TMDB call failed; the kept page is served", "err", err)
 		}
 	}
-	var det storedDetails
+	var det store.TitleDetails
 	if err := json.Unmarshal(t.Details, &det); err != nil {
 		d.Library.Logger.Error("a title's kept page is unreadable", "err", err)
 		problem.Send(w, problem.Internal, "")
@@ -270,21 +255,12 @@ func (d Discovery) fetchDetails(ctx context.Context, kind string, tmdbID int) (*
 	if err != nil {
 		return nil, err
 	}
-	var sd storedDetails
-	sd.Genres = det.Genres
+	sd := store.TitleDetails{Genres: det.Genres}
 	for _, c := range det.Cast {
-		sd.Cast = append(sd.Cast, struct {
-			Name      string `json:"name"`
-			Character string `json:"character"`
-			Profile   string `json:"profile,omitempty"`
-		}{c.Name, c.Character, c.Profile})
+		sd.Cast = append(sd.Cast, store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile})
 	}
 	for _, s := range det.Seasons {
-		sd.Seasons = append(sd.Seasons, struct {
-			Number       int    `json:"number"`
-			Name         string `json:"name"`
-			EpisodeCount int    `json:"episodeCount"`
-		}{s.Number, s.Name, s.EpisodeCount})
+		sd.Seasons = append(sd.Seasons, store.SeasonInfo{Number: s.Number, Name: s.Name, EpisodeCount: s.EpisodeCount})
 	}
 	raw, err := json.Marshal(sd)
 	if err != nil {
@@ -391,7 +367,7 @@ func (d Discovery) image(w http.ResponseWriter, r *http.Request, p *store.Profil
 		}
 		// A photo only of someone on the title's kept cast.
 		if ref.Type == "profile" {
-			var det storedDetails
+			var det store.TitleDetails
 			if len(t.Details) == 0 || json.Unmarshal(t.Details, &det) != nil {
 				return images.ErrInvalid
 			}

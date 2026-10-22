@@ -286,8 +286,8 @@ func run(logger *slog.Logger) error {
 	go sh.ratings.Run(ctx)
 	// The library's artwork from TMDB: looked for every 10 minutes, a
 	// tenth of a second between requests.
-	sh.artwork = catalog.NewArtwork(gw.artworkSource, db, logger, 10*time.Minute, 100*time.Millisecond)
-	go sh.artwork.Run(ctx)
+	sh.titles = catalog.NewTitles(gw.titleSource, db, logger, 10*time.Minute, 100*time.Millisecond)
+	go sh.titles.Run(ctx)
 	go unrestrictKids(ctx, db, gw.Provisioner, logger)
 	// Each profile's data, brought over from Jellyfin once.
 	go (&personal.Importer{Jellyfin: sh.jf, Store: db, Logger: logger, Every: 10 * time.Minute}).Run(ctx)
@@ -297,7 +297,7 @@ func run(logger *slog.Logger) error {
 		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
 			TMDB: func() bool { return gw.tmdbSource() != nil },
 			// A new language: artwork and discovery's lists, read again now.
-			OnLanguage: func() { sh.artwork.Wake(); sh.lists.Wake() },
+			OnLanguage: func() { sh.titles.Wake(); sh.lists.Wake() },
 			Store:      db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}

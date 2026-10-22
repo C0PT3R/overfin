@@ -428,7 +428,11 @@ peer's copy is one more source.
    the same when someone opens them, and a series' season when someone
    browses it. All of it is kept within TMDB's terms (five months), like
    discovery's. Files matched only by an IMDb or TVDB ID are found on TMDB
-   by that ID.
+   by that ID. *Kept, for the library's titles:* the keeper fetches each
+   film's and series' page with its images in one call, and every season
+   TMDB lists (those the library lacks too) with its episodes. Next: titles
+   matched only by IMDb or TVDB, and seasons of titles not in a library,
+   when browsed.
 2. **Titles in the API.** One kind of ID for titles across the public API
    (a film, a series, a season, an episode, by TMDB's IDs and numbers),
    with the same shape wherever a title is listed, and its availability:

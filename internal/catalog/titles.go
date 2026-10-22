@@ -1,0 +1,214 @@
+package catalog
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/tmdb"
+)
+
+// TitleSource is where the library's titles are described: TMDB itself.
+type TitleSource interface {
+	Title(ctx context.Context, kind string, tmdbID int) (*tmdb.Full, error)
+	Season(ctx context.Context, seriesID, season int) (*tmdb.SeasonFull, error)
+}
+
+// Titles keeps what TMDB says about every film and series the library has,
+// in Overfin's database: its page (name, year, overview, genres, runtime,
+// cast), its images, and each of its seasons with their episodes, by title
+// key, refreshed in the background within TMDB's six months. Everything
+// people see about a title comes from here, never from Jellyfin.
+type Titles struct {
+	// Source is the current source, nil when there's none.
+	Source func() TitleSource
+	Store  *store.Store
+	Logger *slog.Logger
+	// Every is how often it looks for titles to fetch; Pause, how long it
+	// waits between two requests, to go easy on TMDB.
+	Every time.Duration
+	Pause time.Duration
+
+	wake chan struct{}
+	now  func() time.Time
+}
+
+// TitlesFresh is how long a title's data stays before it's fetched again.
+const TitlesFresh = 120 * 24 * time.Hour
+
+// NewTitles returns the titles' keeper.
+func NewTitles(source func() TitleSource, st *store.Store, logger *slog.Logger, every, pause time.Duration) *Titles {
+	return &Titles{Source: source, Store: st, Logger: logger, Every: every, Pause: pause, wake: make(chan struct{}, 1)}
+}
+
+func (a *Titles) clock() time.Time {
+	if a.now != nil {
+		return a.now()
+	}
+	return time.Now()
+}
+
+// Wake asks for a pass now, for example after TMDB's language changed.
+func (a *Titles) Wake() {
+	select {
+	case a.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Run makes a pass now, then every Every and whenever woken, until ctx
+// ends.
+func (a *Titles) Run(ctx context.Context) {
+	for {
+		if err := a.Once(ctx); err != nil && ctx.Err() == nil {
+			a.Logger.Error("catalog: fetching titles failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-a.wake:
+		case <-time.After(a.Every):
+		}
+	}
+}
+
+// Once deletes what's too old to keep, then fetches every library title's
+// data not fetched for a while. A title TMDB fails on is left for the next pass;
+// ten failures in a row stop this one.
+func (a *Titles) Once(ctx context.Context) error {
+	if err := a.Store.PurgeArtwork(ctx, a.clock().Add(-Kept)); err != nil {
+		return err
+	}
+	if err := a.Store.PurgeSeasons(ctx, a.clock().Add(-Kept)); err != nil {
+		return err
+	}
+	src := a.Source()
+	if src == nil {
+		return nil
+	}
+	fetched, streak := 0, 0
+	failed := map[string]bool{}
+	defer func() {
+		if fetched > 0 {
+			a.Logger.Info("catalog: titles fetched from TMDB", "titles", fetched)
+		}
+		if len(failed) > 0 {
+			a.Logger.Warn("catalog: some titles couldn't be fetched from TMDB; tried again next time", "titles", len(failed))
+		}
+	}()
+	for {
+		todo, err := a.Store.ArtworkToFetch(ctx, a.clock().Add(-TitlesFresh), 100+len(failed))
+		if err != nil {
+			return err
+		}
+		progress := false
+		for _, t := range todo {
+			if failed[t.Key()] {
+				continue
+			}
+			progress = true
+			images, err := a.fetch(ctx, src, t)
+			switch {
+			case errors.Is(err, tmdb.ErrUnauthorized), ctx.Err() != nil:
+				return err
+			case err != nil:
+				failed[t.Key()] = true
+				if streak++; streak == 10 {
+					return err
+				}
+				continue
+			}
+			streak = 0
+			if err := a.Store.SetArtwork(ctx, t, images, a.clock()); err != nil {
+				return err
+			}
+			fetched++
+		}
+		if !progress {
+			return nil
+		}
+	}
+}
+
+// fetch reads and keeps a title's page and seasons, and returns its images,
+// its seasons' and episodes' included, by title key.
+func (a *Titles) fetch(ctx context.Context, src TitleSource, t store.ArtworkTarget) (map[string]map[string]string, error) {
+	out := map[string]map[string]string{}
+	id, err := strconv.Atoi(t.TMDB)
+	if err != nil {
+		return out, nil
+	}
+	full, err := src.Title(ctx, t.Kind, id)
+	if errors.Is(err, tmdb.ErrNotFound) {
+		return out, nil // TMDB doesn't know it: nothing to show but its file
+	}
+	if err != nil {
+		return nil, err
+	}
+	now := a.clock()
+	det := store.TitleDetails{Genres: full.Genres, Runtime: full.Runtime, Tagline: full.Tagline}
+	for _, c := range full.Cast {
+		det.Cast = append(det.Cast, store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile})
+	}
+	for _, se := range full.Seasons {
+		det.Seasons = append(det.Seasons, store.SeasonInfo{Number: se.Number, Name: se.Name, EpisodeCount: se.EpisodeCount})
+	}
+	raw, err := json.Marshal(det)
+	if err != nil {
+		return nil, err
+	}
+	title := store.Title{Kind: t.Kind, TMDB: t.TMDB, Name: full.Name, Year: full.Year, Overview: full.Overview,
+		Poster: full.Artwork.Poster, Backdrop: full.Artwork.Backdrop}
+	if err := a.Store.SetTitleDetails(ctx, title, raw, now); err != nil {
+		return nil, err
+	}
+	out[t.Key()] = map[string]string{"poster": full.Artwork.Poster, "backdrop": full.Artwork.Backdrop, "logo": full.Artwork.Logo}
+	if err := a.pause(ctx); err != nil {
+		return nil, err
+	}
+	// Every season TMDB lists, and any other the library has.
+	numbers := t.Seasons
+	for _, se := range full.Seasons {
+		if !slices.Contains(numbers, se.Number) {
+			numbers = append(numbers, se.Number)
+		}
+	}
+	for _, n := range numbers {
+		season, err := src.Season(ctx, id, n)
+		if errors.Is(err, tmdb.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		kept := store.Season{Number: n, Name: season.Name, Overview: season.Overview, AirDate: season.AirDate, Poster: season.Poster}
+		sk := t.Key() + "/s" + strconv.Itoa(n)
+		out[sk] = map[string]string{"poster": season.Poster}
+		for _, e := range season.Episodes {
+			kept.Episodes = append(kept.Episodes, store.Episode{Number: e.Number, Name: e.Name, Overview: e.Overview,
+				AirDate: e.AirDate, Runtime: e.Runtime, Still: e.Still})
+			out[sk+"/e"+strconv.Itoa(e.Number)] = map[string]string{"still": e.Still}
+		}
+		if err := a.Store.SetSeason(ctx, t.TMDB, kept, now); err != nil {
+			return nil, err
+		}
+		if err := a.pause(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (a *Titles) pause(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(a.Pause):
+		return nil
+	}
+}

@@ -39,17 +39,23 @@ func fakeTMDB(t *testing.T) *Client {
 			io.WriteString(w, `{"id":1399,"name":"Thrones","seasons":[{"season_number":1,"name":"Season 1","episode_count":10}],
 				"content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-MA"}]}}`)
 		case "/3/movie/550":
-			if r.URL.Query().Get("append_to_response") != "images" || r.URL.Query().Get("language") != "fr" ||
+			if r.URL.Query().Get("append_to_response") != "credits,images" || r.URL.Query().Get("language") != "fr" ||
 				r.URL.Query().Get("include_image_language") != "fr,null,en" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			io.WriteString(w, `{"id":550,"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
+			io.WriteString(w, `{"id":550,"title":"Fight Club","release_date":"1999-10-15","runtime":139,"tagline":"Mischief.",
+				"overview":"An insomniac.","genres":[{"name":"Drame"}],
+				"credits":{"cast":[{"name":"Edward Norton","character":"Narrator","profile_path":"/norton1234.jpg"}]},
+				"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
 				"images":{"logos":[{"file_path":"/logoen1234.png","iso_639_1":"en"},{"file_path":"/logofr1234.png","iso_639_1":"fr"},
 					{"file_path":"/logo.svg","iso_639_1":"fr"}]}}`)
 		case "/3/tv/1399/season/1":
-			io.WriteString(w, `{"poster_path":"/season1abc.jpg","episodes":[{"episode_number":1,"still_path":"/still1abcd.jpg"},
-				{"episode_number":2,"still_path":null},{"episode_number":3,"still_path":"../x.jpg"}]}`)
+			io.WriteString(w, `{"season_number":1,"name":"Saison 1","overview":"Winter.","air_date":"2011-04-17",
+				"poster_path":"/season1abc.jpg","episodes":[
+				{"episode_number":1,"name":"Winter <b>is</b> coming","air_date":"2011-04-17","runtime":62,"still_path":"/still1abcd.jpg"},
+				{"episode_number":2,"name":"The Kingsroad","air_date":"soon","still_path":null},
+				{"episode_number":3,"still_path":"../x.jpg"},{"episode_number":3,"name":"Twice"}]}`)
 		case "/3/certification/movie/list":
 			io.WriteString(w, `{"certifications":{"US":[{"certification":"G","meaning":"All ages","order":1},{"certification":"R","order":4}]}}`)
 		default:
@@ -104,13 +110,30 @@ func TestClient(t *testing.T) {
 	// Artwork in the client's language: the French logo before the English
 	// one; an SVG never.
 	c.Language = func() string { return "fr" }
-	art, err := c.Artwork(ctx, "movie", 550)
-	if err != nil || art.Poster != "/posterfr12.jpg" || art.Backdrop != "/backdrop12.jpg" || art.Logo != "/logofr1234.png" {
-		t.Errorf("artwork: %+v %v", art, err)
+	full, err := c.Title(ctx, "movie", 550)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art := full.Artwork; art.Poster != "/posterfr12.jpg" || art.Backdrop != "/backdrop12.jpg" || art.Logo != "/logofr1234.png" {
+		t.Errorf("artwork: %+v", art)
+	}
+	if full.Name != "Fight Club" || full.Year != 1999 || full.Runtime != 139 || full.Tagline != "Mischief." ||
+		full.Overview != "An insomniac." || len(full.Cast) != 1 || full.Cast[0].Profile != "/norton1234.jpg" {
+		t.Errorf("title: %+v", full)
 	}
 	season, err := c.Season(ctx, 1399, 1)
-	if err != nil || season.Poster != "/season1abc.jpg" || len(season.Stills) != 1 || season.Stills[1] != "/still1abcd.jpg" {
-		t.Errorf("season: %+v %v", season, err)
+	if err != nil || season.Poster != "/season1abc.jpg" || season.Name != "Saison 1" || season.AirDate != "2011-04-17" || len(season.Episodes) != 3 {
+		t.Fatalf("season: %+v %v", season, err)
+	}
+	// Plain text, checked dates and stills, each episode once.
+	if e := season.Episodes[0]; e.Name != "Winter is coming" || e.Runtime != 62 || e.Still != "/still1abcd.jpg" {
+		t.Errorf("episode 1: %+v", e)
+	}
+	if e := season.Episodes[1]; e.AirDate != "" || e.Still != "" {
+		t.Errorf("episode 2: %+v", e)
+	}
+	if e := season.Episodes[2]; e.Still != "" || e.Number != 3 {
+		t.Errorf("episode 3: %+v", e)
 	}
 	c.Language = nil
 

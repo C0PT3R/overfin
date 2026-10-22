@@ -210,9 +210,10 @@ func (s *Store) SetTMDBLanguage(ctx context.Context, lang string) error {
 		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, []byte(lang)); err != nil {
 		return err
 	}
-	// Fetched again: artwork at the keeper's next pass, a title's page the
-	// next time it's opened.
-	for _, q := range []string{`DELETE FROM artwork_fetched`, `UPDATE catalog_titles SET details_at = 0`} {
+	// Fetched again: a library title's data at the keeper's next pass,
+	// another title's page and seasons the next time they're opened.
+	for _, q := range []string{`DELETE FROM artwork_fetched`, `UPDATE catalog_titles SET details_at = 0`,
+		`UPDATE catalog_seasons SET fetched_at = 0`} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}
