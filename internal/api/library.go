@@ -333,13 +333,6 @@ func (l Library) image(w http.ResponseWriter, r *http.Request) {
 
 // ---- Paging -----------------------------------------------------------------
 
-type itemPage struct {
-	Items      []library.ItemSummary `json:"items"`
-	NextCursor string                `json:"nextCursor,omitempty"`
-	TotalCount *int                  `json:"totalCount,omitempty"`
-	Seed       string                `json:"seed,omitempty"`
-}
-
 // cursorBinding describes the query canonically: route, profile and every
 // parameter except the cursor itself, in a fixed order.
 func cursorBinding(r *http.Request, profileID string) string {

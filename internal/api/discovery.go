@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"time"
 
 	"github.com/overfin/server/internal/cursor"
 	"github.com/overfin/server/internal/library"
@@ -36,47 +35,6 @@ func (d Discovery) Register(r *plugin.Registrar) error {
 		}
 	}
 	return nil
-}
-
-// detailsFor is how long a title's page is kept before TMDB is asked for
-// it again.
-const detailsFor = 7 * 24 * time.Hour
-
-// catalogTitle is a title as the API gives it (CatalogTitle).
-type catalogTitle struct {
-	TMDBID       string               `json:"tmdbId"`
-	MediaKind    string               `json:"mediaKind"`
-	Name         string               `json:"name"`
-	Year         int                  `json:"year,omitempty"`
-	Overview     string               `json:"overview,omitempty"`
-	Images       *library.Images      `json:"images,omitempty"`
-	Availability string               `json:"availability"`
-	LibraryItem  *library.ItemSummary `json:"libraryItem,omitempty"`
-}
-
-type catalogSeason struct {
-	Number       int    `json:"number"`
-	Name         string `json:"name,omitempty"`
-	EpisodeCount int    `json:"episodeCount"`
-	Availability string `json:"availability"`
-}
-
-type catalogPerson struct {
-	Name      string            `json:"name"`
-	Character string            `json:"character,omitempty"`
-	Image     *library.ImageRef `json:"image,omitempty"`
-}
-
-type catalogDetail struct {
-	catalogTitle
-	Genres  []string        `json:"genres,omitempty"`
-	Cast    []catalogPerson `json:"cast,omitempty"`
-	Seasons []catalogSeason `json:"seasons,omitempty"`
-}
-
-type discoverPage struct {
-	Items      []catalogTitle `json:"items"`
-	NextCursor string         `json:"nextCursor,omitempty"`
 }
 
 func (d Discovery) discover(w http.ResponseWriter, r *http.Request) {
