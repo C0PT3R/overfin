@@ -79,6 +79,23 @@ type shared struct {
 	// directory is the identity provider's connector, when configured:
 	// who the people behind accounts are, kept briefly in memory.
 	directory *connector.Cache
+	// mail is the SMTP server emails go through, nil for none: the
+	// configuration file's (mailInFile), or the control panel's.
+	mail       atomic.Pointer[mail.Sender]
+	mailInFile bool
+}
+
+// mailer is the SMTP server in effect, nil for none.
+func (sh *shared) mailer() api.Mailer {
+	if s := sh.mail.Load(); s != nil {
+		return s
+	}
+	return nil // not a nil *mail.Sender: that wouldn't be a nil Mailer
+}
+
+// senderFor is the SMTP server with these settings.
+func senderFor(m config.Mail, password string) *mail.Sender {
+	return &mail.Sender{Host: m.Host, Port: m.Port, TLS: m.TLS, From: m.From, Username: m.Username, Password: password}
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -112,6 +129,10 @@ type built struct {
 
 func build(cfg *config.Config, sh *shared) (*built, error) {
 	logger, db, k := sh.logger, sh.db, sh.keys
+	if cfg.Mail.Enabled() {
+		sh.mail.Store(senderFor(cfg.Mail, cfg.Secrets.MailPassword))
+		sh.mailInFile = true
+	}
 	var ids *identity.Resolver
 	switch cfg.Identity.Mode {
 	case "forwardauth":
@@ -157,7 +178,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	var managed *api.Managed
 	if cfg.Identity.Mode == "managed" {
 		managed = &api.Managed{Sessions: sessions, Store: db, Provisioner: prov, CodeKey: k.SigninCode,
-			Mail: mailer(cfg), SiteURL: cfg.Site.URL, LoginLifetime: 30 * 24 * time.Hour, FreshFor: 5 * time.Minute,
+			Mail: sh.mailer, SiteURL: cfg.Site.URL, LoginLifetime: 30 * 24 * time.Hour, FreshFor: 5 * time.Minute,
 			Logger: logger}
 		sessions.StepUpURL, sessions.FreshFor, sessions.SignIn = api.StepUpPath, managed.FreshFor, managed
 		signIn = append(signIn, managed)
@@ -344,6 +365,7 @@ type gateway struct {
 	sh   *shared
 
 	mu      sync.Mutex // one reload at a time
+	mailMu  sync.Mutex // one email change at a time
 	cfg     *config.Config
 	current atomic.Pointer[built]
 }
@@ -688,15 +710,69 @@ func signUp(cfg *config.Config) func(ctx context.Context, previous string, uses 
 	}
 }
 
-// mailer is the SMTP server the configuration names; nil without one.
-func mailer(cfg *config.Config) func() api.Mailer {
-	m := cfg.Mail
-	if !m.Enabled() {
-		return nil
+// Mail is the SMTP server's settings in effect, whether it has a password,
+// and whether the configuration file sets them (then only the file changes
+// them).
+func (g *gateway) Mail() (m config.Mail, hasPassword, inFile bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	s := g.sh.mail.Load()
+	if s == nil {
+		return config.Mail{}, false, g.sh.mailInFile
 	}
-	s := &mail.Sender{Host: m.Host, Port: m.Port, TLS: m.TLS, From: m.From, Username: m.Username,
-		Password: cfg.Secrets.MailPassword}
-	return func() api.Mailer { return s }
+	return config.Mail{Host: s.Host, Port: s.Port, TLS: s.TLS, From: s.From, Username: s.Username},
+		s.Password != "", g.sh.mailInFile
+}
+
+// SetMail changes the SMTP server, after a test email to testTo went
+// through; an empty host turns emails off. An empty password keeps the
+// current one, for the same server and username. Errors say what's wrong in
+// plain words.
+func (g *gateway) SetMail(ctx context.Context, m config.Mail, password, testTo string) (string, error) {
+	// One change at a time, apart from the gateway's lock: a test email
+	// can take a while.
+	g.mailMu.Lock()
+	defer g.mailMu.Unlock()
+	g.mu.Lock()
+	inFile := g.sh.mailInFile
+	g.mu.Unlock()
+	if inFile {
+		return "", problem("Email is set in Overfin's configuration file: change it there.")
+	}
+	m.Host, m.From, m.Username = strings.TrimSpace(m.Host), strings.TrimSpace(m.From), strings.TrimSpace(m.Username)
+	if m.Host == "" {
+		if err := g.sh.db.ForgetMail(ctx); err != nil {
+			return "", err
+		}
+		g.sh.mail.Store(nil)
+		g.sh.logger.Info("email turned off in the control panel")
+		return "Email is off: people sign in with a password, or a sign-in link you hand them.", nil
+	}
+	m.Defaults()
+	if err := m.Check(); err != nil {
+		return "", problem(strings.ReplaceAll(err.Error(), "mail.", ""))
+	}
+	if old := g.sh.mail.Load(); password == "" && old != nil && old.Host == m.Host && old.Username == m.Username {
+		password = old.Password
+	}
+	if m.Username != "" && password == "" {
+		return "", problem("With a username, the SMTP server's password is needed too.")
+	}
+	s := senderFor(m, password)
+	if err := s.Send(ctx, testTo, "Overfin can send emails",
+		"This test comes from Overfin's control panel: sign-in codes will arrive like it.\n"); err != nil {
+		return "", problemf("A test email to %s didn't go through, so nothing changed: %v", testTo, err)
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	if err := g.sh.db.SetMail(ctx, raw, password); err != nil {
+		return "", err
+	}
+	g.sh.mail.Store(s)
+	g.sh.logger.Info("email set up in the control panel", "smtp", m.Host)
+	return "Saved: a test email went to " + testTo + ".", nil
 }
 
 // adminGroup is the control panel's group, when people log in to the site

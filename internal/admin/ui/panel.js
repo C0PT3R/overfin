@@ -82,6 +82,56 @@ function jellyfinSection(j) {
     h('div', { class: 'row' }, msg, save));
 }
 
+// Email: the SMTP server sign-in codes go through (managed sign-in only),
+// tested with an email to the admin before it's saved.
+function mailSection(m) {
+  if (!m) return null;
+  const row = (label, hint, input) => h('div', { class: 'row' }, h('div', {}, label, hint && h('div', { class: 'hint' }, hint)), input);
+  if (m.inFile) {
+    return h('section', {}, h('h2', {}, 'Email'),
+      h('div', { class: 'row' }, h('div', {}, `${m.host}:${m.port}, from ${m.from}`,
+        h('div', { class: 'hint' }, "Set in Overfin's configuration file: change it there."))));
+  }
+  const host = h('input', { value: m.host || '', autocomplete: 'off', spellcheck: 'false', placeholder: 'smtp.example.org' });
+  const tls = h('select', {}, [['starttls', 'STARTTLS'], ['tls', 'TLS'], ['none', 'None']]
+    .map(([v, t]) => h('option', { value: v, selected: v === (m.tls || 'starttls') }, t)));
+  const port = h('input', { type: 'number', min: '1', max: '65535', value: m.port || '', placeholder: 'default' });
+  const from = h('input', { value: m.from || '', autocomplete: 'off', placeholder: 'Media <media@example.org>' });
+  const username = h('input', { value: m.username || '', autocomplete: 'off', spellcheck: 'false' });
+  const password = h('input', { type: 'password', autocomplete: 'new-password', placeholder: m.hasPassword ? 'Unchanged' : '' });
+  const msg = h('span', { class: 'muted' }, m.host ? 'On: people can get sign-in codes by email.' : 'Off: people sign in with a password, or a sign-in link you hand them.');
+  const send = async (body, button) => {
+    msg.className = 'muted';
+    msg.textContent = body.host ? 'Sending you a test email…' : 'Turning email off…';
+    button.disabled = true;
+    try {
+      const out = await api('PUT', '/admin/api/mail', body);
+      password.value = '';
+      password.placeholder = out.mail.hasPassword ? 'Unchanged' : '';
+      msg.className = '';
+      msg.textContent = out.summary;
+    } catch (err) {
+      msg.className = 'error';
+      msg.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  };
+  const save = h('button', { type: 'button', onclick: () => send({ host: host.value, port: Number(port.value) || 0, tls: tls.value,
+    from: from.value, username: username.value, password: password.value }, save) }, 'Send a test and save');
+  const off = h('button', { type: 'button', onclick: () => {
+    host.value = '';
+    send({ host: '', port: 0, tls: '', from: '', username: '', password: '' }, off);
+  } }, 'Turn off');
+  return h('section', {}, h('h2', {}, 'Email'),
+    h('p', { class: 'hint' }, 'For sign-in codes. Your email provider gives these settings; a test email goes to you before they\'re saved.'),
+    row('SMTP server', null, host), row('Encryption', 'STARTTLS usually goes with port 587, TLS with 465. None: a relay on your network, without a password.', tls),
+    row('Port', 'Empty: the usual one.', port),
+    row('Sender', 'The address emails come from.', from), row('Username', 'Often the sender\'s address.', username),
+    row('Password', m.hasPassword ? 'Empty keeps the current one.' : null, password),
+    h('div', { class: 'row' }, msg, h('span', {}, m.host ? off : null, ' ', save)));
+}
+
 // Seerr: discovery's source, connected, changed or disconnected here,
 // tested before it's saved.
 function seerrSection(sr) {
@@ -243,6 +293,7 @@ function render(state, draft) {
 
   const sections = [
     jellyfinSection(state.jellyfin),
+    mailSection(state.mail),
     catalogSection(state.catalog),
     seerrSection(state.seerr),
     ratingsSection(state.ratings),
@@ -749,6 +800,7 @@ async function route() {
   $('#main').classList.remove('wide');
   const state = await api('GET', '/admin/api/features');
   state.jellyfin = await api('GET', '/admin/api/jellyfin').catch(() => null);
+  state.mail = await api('GET', '/admin/api/mail').catch(() => null);
   state.catalog = await api('GET', '/admin/api/catalog').catch(() => null);
   state.seerr = await api('GET', '/admin/api/seerr').catch(() => null);
   state.ratings = await api('GET', '/admin/api/ratings').catch(() => null);

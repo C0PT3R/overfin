@@ -325,21 +325,51 @@ var emailPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?
 // Mail is the SMTP server Overfin sends its emails through (sign-in
 // codes). Off unless Host is set: people then sign in with a password.
 type Mail struct {
-	Host string `toml:"host"`
+	Host string `toml:"host" json:"host"`
 	// Port defaults to 587 (465 with TLS = "tls", 25 with "none").
-	Port int `toml:"port"`
+	Port int `toml:"port" json:"port"`
 	// TLS is "starttls" (the default), "tls", or "none" (a relay on the
 	// local network only: no password is sent then).
-	TLS string `toml:"tls"`
+	TLS string `toml:"tls" json:"tls"`
 	// From is the sender: "address" or "Name <address>".
-	From string `toml:"from"`
+	From string `toml:"from" json:"from"`
 	// Username, when set, signs in to the SMTP server with
 	// OVERFIN_MAIL_PASSWORD.
-	Username string `toml:"username"`
+	Username string `toml:"username" json:"username"`
 }
 
 // Enabled reports whether an SMTP server is configured.
 func (m Mail) Enabled() bool { return m.Host != "" }
+
+// Check says what's wrong with an SMTP server's settings, if anything.
+func (m Mail) Check() error {
+	var errs []error
+	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	if m.Host == "" || strings.ContainsAny(m.Host, "/: \t\r\n") && net.ParseIP(m.Host) == nil {
+		add("mail.host must be the SMTP server's name or address")
+	}
+	if m.TLS != "starttls" && m.TLS != "tls" && m.TLS != "none" {
+		add("mail.tls must be \"starttls\", \"tls\" or \"none\", got %q", m.TLS)
+	}
+	if m.Port < 1 || m.Port > 65535 {
+		add("mail.port must be a port number")
+	}
+	if a, err := mail.ParseAddress(m.From); err != nil || !strings.Contains(a.Address, "@") {
+		add("mail.from must be an email address, or \"Name <address>\"")
+	}
+	if m.TLS == "none" && m.Username != "" {
+		add("mail.username needs TLS: a password is never sent unencrypted")
+	}
+	return errors.Join(errs...)
+}
+
+// Defaults fills in the TLS mode and the port when they're left out.
+func (m *Mail) Defaults() {
+	m.TLS = cmp.Or(m.TLS, "starttls")
+	if m.Port == 0 {
+		m.Port = cmp.Or(map[string]int{"tls": 465, "none": 25}[m.TLS], 587)
+	}
+}
 
 // Enabled reports whether a connector is configured.
 func (c Connector) Enabled() bool { return c.Kind != "" }
@@ -495,11 +525,7 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 		cfg.Secrets.MailPassword = s
 	}
 	if m := &cfg.Mail; m.Enabled() {
-		m.TLS = cmp.Or(m.TLS, "starttls")
-		if m.Port == 0 {
-			m.Port = map[string]int{"tls": 465, "none": 25}[m.TLS]
-			m.Port = cmp.Or(m.Port, 587)
-		}
+		m.Defaults()
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -779,17 +805,8 @@ func (c *Config) validate() error {
 	}
 
 	if m := c.Mail; m.Enabled() {
-		if m.TLS != "starttls" && m.TLS != "tls" && m.TLS != "none" {
-			add("mail.tls must be \"starttls\", \"tls\" or \"none\", got %q", m.TLS)
-		}
-		if m.Port < 1 || m.Port > 65535 {
-			add("mail.port must be a port number")
-		}
-		if a, err := mail.ParseAddress(m.From); err != nil || !strings.Contains(a.Address, "@") {
-			add("mail.from must be an email address, or \"Name <address>\"")
-		}
-		if m.TLS == "none" && m.Username != "" {
-			add("mail.username needs TLS: a password is never sent unencrypted")
+		if err := m.Check(); err != nil {
+			add("%v", err)
 		}
 	} else if c.Mail != (Mail{}) {
 		add("mail.host is required to send emails")

@@ -124,6 +124,8 @@ type Panel struct {
 	// People, with managed sign-in, makes sign-in links; the People view
 	// lists who may sign in.
 	People People
+	// Mail, with managed sign-in, shows and changes the SMTP server.
+	Mail Mail
 	// Group is the identity provider group whose members are admins.
 	Group  string
 	Logger *slog.Logger
@@ -223,6 +225,10 @@ func (p *Panel) handler() http.Handler {
 		mux.HandleFunc("PATCH /admin/api/people/{id}", p.signedIn(p.changePerson))
 		mux.HandleFunc("POST /admin/api/people/{id}/link", p.signedIn(p.personLink))
 		mux.HandleFunc("DELETE /admin/api/people/{id}", p.signedIn(p.removePerson))
+	}
+	if p.Mail != nil {
+		mux.HandleFunc("GET /admin/api/mail", p.signedIn(p.mail))
+		mux.HandleFunc("PUT /admin/api/mail", p.signedIn(p.setMail))
 	}
 	// Modules' own control panel routes, as currently switched on.
 	modulesAPI := p.signedIn(func(w http.ResponseWriter, r *http.Request, _ *session) {

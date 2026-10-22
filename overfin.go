@@ -6,6 +6,7 @@ package overfin
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -269,6 +270,19 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	sh.jellyfinSaved = jellyfinSaved
+	// Email, as the panel set it, unless the configuration file does.
+	if !cfg.Mail.Enabled() {
+		if raw, pw, ok, err := db.Mail(ctx); err != nil {
+			logger.Warn("email's settings can't be read: set email up again in the control panel", "err", err)
+		} else if ok {
+			var m config.Mail
+			if err := json.Unmarshal(raw, &m); err != nil {
+				logger.Warn("email's settings can't be read: set email up again in the control panel", "err", err)
+			} else {
+				sh.mail.Store(senderFor(m, pw))
+			}
+		}
+	}
 	// Seerr, if the panel connected it. Settings sealed with a lost secret
 	// key can't be read: Overfin starts without it, and says so.
 	if url, key, ok, err := db.Seerr(ctx); err != nil {
@@ -362,7 +376,7 @@ func run(logger *slog.Logger) error {
 		p.OnRetitled = sh.titles.Wake
 		if managed {
 			// At /admin/ on the site, for its admins.
-			p.Provider, p.SiteAdmin, p.Directory, p.People = nil, gw.SiteAdmin, admin.Users{Store: db}, gw
+			p.Provider, p.SiteAdmin, p.Directory, p.People, p.Mail = nil, gw.SiteAdmin, admin.Users{Store: db}, gw, gw
 			site.set(withPanel(gw, p.SiteHandler(a.Private)))
 		} else {
 			panel.set(p.Handler())
