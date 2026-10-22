@@ -295,8 +295,12 @@ func keepsMainStream(q url.Values, audioItem bool) bool {
 	} else if slices.ContainsFunc(param(q, "AllowVideoStreamCopy"), isFalse) {
 		return false
 	}
-	if slices.ContainsFunc(param(q, "SubtitleMethod"), isEncode) {
-		return false // subtitles burned into the video
+	// Subtitles burned into the video. Jellyfin also writes
+	// SubtitleMethod=Encode without a subtitle track, when none is shown:
+	// nothing is burned then.
+	if slices.ContainsFunc(param(q, "SubtitleMethod"), isEncode) &&
+		slices.ContainsFunc(param(q, "SubtitleStreamIndex"), func(v string) bool { n, err := strconv.Atoi(v); return err == nil && n >= 0 }) {
+		return false
 	}
 	var reasons []string
 	for _, v := range param(q, "TranscodeReasons") {
