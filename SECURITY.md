@@ -4,6 +4,29 @@ Overfin exists to make a Jellyfin server safe to put behind a public website.
 These rules are the point of the project; a change that breaks one is a bug.
 [THREAT_MODEL.md](THREAT_MODEL.md) explains which threat each rule answers.
 
+## Hard rules and secure defaults
+
+Overfin must be easy to run, for anyone from a first-time operator to a
+network security expert. So the rules come in two kinds:
+
+- **Hard rules** hold on every server, whatever its settings. No setting
+  loosens them. Above all, between servers (rules 65 and after): one badly
+  run server must never be a way into another.
+- **Secure defaults** are where an operator's choice of setup decides, and
+  each says what it can be relaxed to. The default is always the strict
+  one, and relaxing it only ever affects that operator's own server:
+  - **HTTPS** is recommended, not required: Overfin's own (Let's Encrypt),
+    a reverse proxy's, or none, for a LAN or a test.
+  - **Cookies** (rule 17) are `__Host-` and `Secure` whenever there's
+    HTTPS; without it, browsers refuse both, so they go without.
+  - **The control panel** (rule 58) is on the site, for admins who confirm
+    it's them, with Overfin's own sign-in; it can be kept to private
+    addresses; with an identity provider, it has its own private listener.
+  - **Jellyfin and Seerr** are best kept off the internet (Deployment,
+    below); exposing them is the operator's choice.
+
+Every rule not named here is a hard rule.
+
 ## Rules
 
 ### Upstream access
@@ -60,8 +83,10 @@ comes from the internet, and media files can be written by anyone.
     `Accept-Ranges`. Never `Set-Cookie` or `Location`.
 
 ### Identity and sessions
-13. Identity comes from Overfin's own OpenID Connect login (recommended), or
-    from forward-auth headers set by a trusted proxy. With Overfin's login,
+13. Identity comes from Overfin's own sign-in (managed: an email and a code
+    sent there, a password, or a one-time link; the default), from an
+    OpenID Connect provider through Overfin's login, or from forward-auth
+    headers set by a trusted proxy. With Overfin's sign-in or login,
     identity headers are ignored entirely, whoever sends them; a login
     answer only completes in the browser that started it. Forward-auth
     headers are accepted only from the configured proxy address, and the proxy must strip identity headers sent by
@@ -74,15 +99,23 @@ comes from the internet, and media files can be written by anyone.
     ignored.
 15. Only identities matching the configured group or claim are provisioned, and
     provisioning is rate-limited.
-16. Sessions are revalidated with the identity provider at a configured
+16. With Overfin's own sign-in, every request checks the person behind the
+    login: someone disabled or removed is out at once, and a login ends
+    after 30 days without activity. With an identity provider, sessions are
+    revalidated with it at a configured
     interval (with Overfin's login, by refresh token every 10 minutes by
     default; if the provider stays unreachable for an hour, logins fail
     closed). A provider that gives no refresh tokens gets logins that last
     12 hours at most, without extension. Disabling an identity ends its
     sessions and revokes its Jellyfin tokens. The required group is checked
     on every request, so someone taken out of it is out at once.
-17. Session cookies use the `__Host-` prefix and are `HttpOnly`, `Secure` and
-    `SameSite=Strict`.
+17. Session cookies are `HttpOnly` and `SameSite=Strict`, and over HTTPS
+    they use the `__Host-` prefix and are `Secure`. A secure default: a
+    server run without HTTPS (the operator's choice, for a LAN or a test)
+    gets cookies without the prefix and the flag, which browsers refuse
+    there. A cookie set without HTTPS is never read over HTTPS, nor the
+    other way round, and a site whose address is `https://` always gets
+    HTTPS cookies.
 18. Only same-origin requests are accepted (`Sec-Fetch-Site: same-origin`, or
     `none` for plain navigation); cross-site and same-site requests are
     rejected, so sibling subdomains can't act for the user. State-changing
@@ -96,8 +129,10 @@ comes from the internet, and media files can be written by anyone.
     database. PINs are hashed with that key, so a leaked database alone can't
     be used to guess them.
 21. Rare, destructive actions (profile transfer, profile deletion, account
-    deletion, exporting the whole account, PIN reset) require a fresh login
-    through the identity provider. Frequent sensitive actions (switching to a
+    deletion, exporting the whole account, PIN reset, changing one's
+    password) require a fresh login: the password or an emailed code again
+    with Overfin's own sign-in, a new login at the identity provider
+    otherwise. Frequent sensitive actions (switching to a
     PIN-protected profile, changing a kids profile's rating ceiling or turning
     it into a standard profile) require the PIN. A standard profile exporting
     only its own data needs its own PIN, if it has one: the people using
@@ -108,7 +143,7 @@ comes from the internet, and media files can be written by anyone.
     chosen (`profile-required`).
 22. Each wrong PIN adds a growing delay. After a set number of wrong PINs
     (operator setting, default 5), PIN entry on that profile is blocked until
-    the account owner logs in again through the identity provider.
+    the account owner confirms a fresh login (rule 21).
     The threshold is `limits.pin_attempts` (3 to 10, default 5), and the
     wait between attempts never exceeds a minute. On an instance without
     step-up, where the owner can't confirm a login, the block lasts 15
@@ -176,7 +211,9 @@ comes from the internet, and media files can be written by anyone.
     profile made each request, and short-lived playback state; with the admin
     side, also invites, account expiry and limits, and labels the operator
     sets; with the watchlist, each profile's list of titles (private to it,
-    deleted with it); and what each profile did with each title (where it
+    deleted with it); with Overfin's own sign-in, each person's email and,
+    if they set one, a hash of their password (PBKDF2-SHA256, 600,000
+    rounds), deleted with their account; and what each profile did with each title (where it
     stopped, whether it watched it, how many times and when last, its
     favorites), brought over from Jellyfin once with the profile's own
     token, then kept by Overfin. That belongs to its profile: only that
@@ -252,20 +289,33 @@ comes from the internet, and media files can be written by anyone.
     deleted entirely when its only source (Seerr) is disconnected.
 
 ### Administration
-58. Overfin's administration, its built-in control panel, is never exposed
-    to the internet. It exists only on its own listener, off by default; no
-    admin route can be registered on the public API. That listener answers
-    only clients with private addresses (loopback, private ranges,
-    unique-local IPv6), and refuses any request a proxy relays for a public
-    address, so routing it through a public reverse proxy fails closed. How
-    admins reach it (LAN, VPN, SSH tunnel) is the operator's choice. Admins
-    sign in through the identity provider with a fresh login every time,
-    and must belong to the configured admin group; a session ends after 30
-    minutes without activity, and after 12 hours at most. Until Jellyfin is
-    set up, the same listener, with the same guards, serves only the setup
-    page instead: it saves nothing without the one-time code from Overfin's
-    log, stops answering after 10 wrong codes until a restart, and saves
-    once only; Jellyfin's key is kept sealed, like every token. Other apps
+58. Overfin's administration, its built-in control panel, is apart from the
+    public API: no admin route can be registered there, and the panel has
+    its own routes, guards and sessions. Admins confirm it's them every
+    time they sign in to it; a session ends after 30 minutes without
+    activity, and after 12 hours at most. Where it lives is a secure
+    default:
+    - With Overfin's own sign-in, it's at `/admin/` on the site, for people
+      marked admin, who confirmed a fresh login (rule 21) in the last five
+      minutes; their panel session ends as soon as they sign out of the
+      site or stop being admins. `admin.private` keeps it to private
+      addresses, with the guard below. In the panel, admins can't take the
+      admin mark from themselves or remove themselves.
+    - With an identity provider, it's on its own listener, off by default,
+      which answers only clients with private addresses (loopback, private
+      ranges, unique-local IPv6) and refuses any request a proxy relays for
+      a public address, so routing it through a public reverse proxy fails
+      closed. How admins reach it (LAN, VPN, SSH tunnel) is the operator's
+      choice. Admins sign in there with a fresh login every time, and must
+      belong to the configured admin group.
+
+    Until Overfin is set up (Jellyfin, and with Overfin's own sign-in a
+    first admin), it serves only the setup page, on the panel's listener
+    with its guards, and with Overfin's own sign-in on the site's address
+    too: it saves nothing without the one-time code from Overfin's log,
+    stops answering after 10 wrong codes until a restart, and checks
+    everything before saving anything; Jellyfin's key is kept sealed, like
+    every token. Other apps
     (Stewarr…) read what Overfin shares with them on the same listener,
     with the same guards, under /apps/: each with a key an admin made for
     it in the panel, for one purpose ("watch-stats"), shown once, kept only
@@ -312,8 +362,10 @@ comes from the internet, and media files can be written by anyone.
     HttpOnly cookie for a day and leads on to the site; an account is set
     up with it only after a login, under the account-creation lock, so a
     single-use invitation is used once. Uses stay counted when the account
-    is deleted. An invitation decides what an account gets, never who may
-    log in: the identity provider and the required group still do.
+    is deleted. With an identity provider, an invitation decides what an
+    account gets, never who may log in: the provider and the required group
+    still do. With Overfin's own sign-in, an invitation is what lets a new
+    email in (rule 66); everyone else is someone an admin added.
 
 ### The site
 64. The site Overfin serves (overfin-web, or the operator's folder) goes to
@@ -325,6 +377,36 @@ comes from the internet, and media files can be written by anyone.
     itself), while the API keeps its own, stricter one. Other sites may
     link to its pages, which change nothing; the API still refuses them.
 
+### Between servers
+65. Servers never trust each other by default, and nothing here is a secure
+    default: these hold whatever either operator chose for their own
+    server. When servers share with each other (federation, planned), each
+    peer is untrusted, proves who it is with keys exchanged when the two
+    were paired (never with a web certificate alone, nor a name or an
+    address), and gets only what was shared with it, under the sharing
+    server's rules. A server never acts on another's behalf beyond that,
+    and never hands one peer's data to another. A weak or compromised
+    server can at worst lose what was shared with it; it can never reach
+    into the servers that shared it.
+
+### Sign-in by email
+66. With Overfin's own sign-in, whether an email has an account here is
+    never told: asking for a code gets the same answer and counts against
+    the same limit either way, codes are sent in the background, so how
+    long sending takes tells nothing, and a wrong password gets the same
+    answer as an unknown email. Codes go to an email without an account only for a visitor
+    bringing an invitation (rule 63). A code is six digits, works once, for
+    15 minutes, only in the browser that asked for it, and five wrong tries
+    end it; five codes an hour per email at most. The link in the same
+    email works once, in any browser; its token travels in the address's
+    fragment, so it never reaches a server's logs, and is used only on a
+    click, so mail scanners opening links use nothing. A one-time link an
+    admin makes for someone works the same way, for a week. Only keyed
+    hashes of codes, links and the browsers they're bound to are kept.
+    Passwords are 10 to 256 characters; checking one takes the same time
+    whether or not the email has a password, and password tries are
+    limited per email. A new password ends the person's other logins.
+
 ## Deployment
 
 Keeping Jellyfin off the internet is recommended, not required: ideally its
@@ -335,11 +417,19 @@ appear in Jellyfin as opaque users; Jellyfin's own users get nothing of
 Overfin (profiles, limits, what Overfin keeps) unless they move over; moving
 an account to Overfin closes its Jellyfin login (migration's default); and
 Overfin's rules protect only what goes through Overfin, while whatever
-reaches Jellyfin directly is Jellyfin's own business. Overfin's admin
-listener, on the other hand, must not be reachable from the internet: publish it only on the LAN or a VPN, never
+reaches Jellyfin directly is Jellyfin's own business. With an identity provider, Overfin's admin
+listener must not be reachable from the internet: publish it only on the LAN or a VPN, never
 through the reverse proxy that serves the site (rule 58). Overfin never offers
 a route to Jellyfin's dashboard; operators reach it privately (LAN, VPN, SSH
 tunnel).
+
+HTTPS is recommended for any server reachable from the internet: Overfin
+gets its own certificate with `https.domain` (or `OVERFIN_DOMAIN`), or a
+reverse proxy provides it. Behind a proxy, set `site.url` to the site's
+`https://` address, so cookies are HTTPS ones whatever the proxy says, and
+`identity.trusted_proxies`, so the client address is the proxy's to give.
+Without HTTPS, everything sent, passwords and codes included, travels in
+clear: keep that to a LAN or a test.
 
 With Overfin's own login, the proxy only forwards `/api/*` to Overfin and
 can protect the site's pages by asking `/api/v1/gate` first (forward auth to

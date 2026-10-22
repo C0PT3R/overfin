@@ -17,7 +17,8 @@ internet ──▶ reverse proxy ──▶ Overfin ──▶ Jellyfin / Seerr / 
 |---|---|
 | Visitors, logged in or not | No |
 | The website built on Overfin | Partly: it may have bugs, so Overfin limits what a broken site can do |
-| The reverse proxy and identity provider | Yes, for the identity and client IP they assert |
+| The reverse proxy and identity provider, when there are | Yes, for the identity and client IP they assert |
+| Other Overfin servers (federation, planned) | No: each proves who it is and gets only what was shared with it [65] |
 | Other sites on the same domain (sibling subdomains) | No |
 | Jellyfin, Seerr and TMDB as services | Yes |
 | Data from Jellyfin, Seerr and TMDB (metadata, files, subtitles, images) | No |
@@ -27,12 +28,13 @@ internet ──▶ reverse proxy ──▶ Overfin ──▶ Jellyfin / Seerr / 
 
 | Attacker | Goal | Main defenses |
 |---|---|---|
-| Stranger on the internet | Reach Jellyfin, exploit it, get an account | Small fixed API [1], identity before any route [13], provisioning only for allowed identities [15], rate limits [31] |
+| Stranger on the internet | Reach Jellyfin, exploit it, get an account | Small fixed API [1], identity before any route [13], provisioning only for allowed identities [15], codes only for known emails or invitations [66], rate limits [31] |
 | Logged-in, malicious user | Other users' data, more access, exhausting the server | Ownership checks [23, 24, 26, 27], owner-only account actions [25], checked queues and signed cursors [29, 38], limits [31, 32] |
 | Script injected into the website (XSS) | Act as the user, take over the account, send users to a phishing page | No tokens in reach [4, 17], step-up for lasting damage [21], checked return addresses [19] |
-| A compromised sibling subdomain | Make requests in the user's name | Same-origin requests only [18], `__Host-` cookies [17] |
+| A compromised sibling subdomain | Make requests in the user's name | Same-origin requests only [18], `__Host-` cookies over HTTPS [17] |
+| Another server, weak or compromised | Reach into servers that share with it | Peers untrusted, authenticated, limited to what was shared [65] |
 | Attacker-controlled media or metadata | Run code in the browser, reach the internal network, exhaust memory | Untrusted-data rules [5–12] |
-| Network observer | See who watches what | TLS, nothing personal in URLs [48] |
+| Network observer | See who watches what, catch passwords or codes | TLS (a secure default: without HTTPS, everything travels in clear), nothing personal in URLs [48] |
 | Thief of a database or backup | Tokens, identities, PINs | Encryption and keyed PIN hashes [20], pseudonyms [47], minimal data [40] |
 
 ## Case 1: a compromised website
@@ -40,14 +42,19 @@ internet ──▶ reverse proxy ──▶ Overfin ──▶ Jellyfin / Seerr / 
 A site built on Overfin has an XSS bug, so an attacker's script runs in a
 logged-in user's browser on that site.
 
-- **It can't steal anything durable.** Session cookies are `HttpOnly` and
-  `__Host-` scoped [17], and Jellyfin tokens never reach the browser [4].
+- **It can't steal anything durable.** Session cookies are `HttpOnly`, and
+  `__Host-` scoped over HTTPS [17], and Jellyfin tokens never reach the
+  browser [4].
 - **Nothing else can do what it does.** Only same-origin requests are
   accepted, which excludes other sites and sibling subdomains alike, and state
   changes must be JSON [18]. The compromised site is the only way in.
 - **It can act as the user, but not do lasting damage.** Rare destructive
-  actions need a fresh login on the identity provider's own domain, which the
-  script can't read or fake. A PIN typed into the page could be captured by
+  actions need a fresh login: on the identity provider's own domain, which
+  the script can't read or fake; or, with Overfin's own sign-in, a password
+  or a code from the person's mailbox. The script can't read the mailbox,
+  but it runs on the same origin as the sign-in page, so it could show a
+  fake prompt and catch what's typed: with Overfin's own sign-in, this
+  protection is weaker than a provider's login on its own domain. A PIN typed into the page could be captured by
   the script, so PINs only guard frequent, recoverable actions [21].
 - **Overfin's own responses never become the XSS.** Images are re-encoded and
   never SVG or HTML [10], text is plain [9], and every response carries a
@@ -120,7 +127,15 @@ subtitles and attachments) from anywhere.
 - **Open sign-up at the identity provider:** only identities in the configured
   group or claim get Jellyfin users, at a limited rate [15].
 - **Offboarding:** sessions are revalidated, and disabling an identity ends
-  them and revokes its Jellyfin tokens [16].
+  them and revokes its Jellyfin tokens [16]. With Overfin's own sign-in,
+  every request checks the person, so disabling them works at once.
+- **Guessing who has an account:** Overfin's own sign-in answers the same
+  for every email, and sends codes to unknown ones only with an
+  invitation, so it can't be used to spam strangers either [66].
+- **A stolen mailbox:** with Overfin's own sign-in, whoever reads someone's
+  email can sign in as them, as with any "forgot password" email. Codes
+  work even for people who set a password, so a password doesn't close
+  that way in.
 - **Taking over someone else's history:** adopting an existing Jellyfin
   account requires its password, attempts are limited, and an account can be
   adopted only once. Administrator accounts are never adopted, so Overfin
