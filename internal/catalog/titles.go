@@ -135,66 +135,36 @@ func (a *Titles) Once(ctx context.Context) error {
 	}
 }
 
-// fetch reads and keeps a title's page and seasons, and returns its images,
-// its seasons' and episodes' included, by title key.
+// fetch reads and keeps a library title's page and seasons, and returns its
+// images, its seasons' and episodes' included, by title key.
 func (a *Titles) fetch(ctx context.Context, src TitleSource, t store.ArtworkTarget) (map[string]map[string]string, error) {
 	out := map[string]map[string]string{}
 	id, err := strconv.Atoi(t.TMDB)
 	if err != nil {
 		return out, nil
 	}
-	full, err := src.Title(ctx, t.Kind, id)
+	seasons, err := a.page(ctx, src, t.Kind, id, out)
 	if errors.Is(err, tmdb.ErrNotFound) {
 		return out, nil // TMDB doesn't know it: nothing to show but its file
 	}
 	if err != nil {
 		return nil, err
 	}
-	now := a.clock()
-	det := store.TitleDetails{Genres: full.Genres, Runtime: full.Runtime, Tagline: full.Tagline}
-	for _, c := range full.Cast {
-		det.Cast = append(det.Cast, store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile})
-	}
-	for _, se := range full.Seasons {
-		det.Seasons = append(det.Seasons, store.SeasonInfo{Number: se.Number, Name: se.Name, EpisodeCount: se.EpisodeCount})
-	}
-	raw, err := json.Marshal(det)
-	if err != nil {
-		return nil, err
-	}
-	title := store.Title{Kind: t.Kind, TMDB: t.TMDB, Name: full.Name, Year: full.Year, Overview: full.Overview,
-		Poster: full.Artwork.Poster, Backdrop: full.Artwork.Backdrop}
-	if err := a.Store.SetTitleDetails(ctx, title, raw, now); err != nil {
-		return nil, err
-	}
-	out[t.Key()] = map[string]string{"poster": full.Artwork.Poster, "backdrop": full.Artwork.Backdrop, "logo": full.Artwork.Logo}
 	if err := a.pause(ctx); err != nil {
 		return nil, err
 	}
 	// Every season TMDB lists, and any other the library has.
-	numbers := t.Seasons
-	for _, se := range full.Seasons {
-		if !slices.Contains(numbers, se.Number) {
-			numbers = append(numbers, se.Number)
+	for _, n := range t.Seasons {
+		if !slices.Contains(seasons, n) {
+			seasons = append(seasons, n)
 		}
 	}
-	for _, n := range numbers {
-		season, err := src.Season(ctx, id, n)
+	for _, n := range seasons {
+		err := a.season(ctx, src, id, n, out)
 		if errors.Is(err, tmdb.ErrNotFound) {
 			continue
 		}
 		if err != nil {
-			return nil, err
-		}
-		kept := store.Season{Number: n, Name: season.Name, Overview: season.Overview, AirDate: season.AirDate, Poster: season.Poster}
-		sk := t.Key() + "/s" + strconv.Itoa(n)
-		out[sk] = map[string]string{"poster": season.Poster}
-		for _, e := range season.Episodes {
-			kept.Episodes = append(kept.Episodes, store.Episode{Number: e.Number, Name: e.Name, Overview: e.Overview,
-				AirDate: e.AirDate, Runtime: e.Runtime, Still: e.Still})
-			out[sk+"/e"+strconv.Itoa(e.Number)] = map[string]string{"still": e.Still}
-		}
-		if err := a.Store.SetSeason(ctx, t.TMDB, kept, now); err != nil {
 			return nil, err
 		}
 		if err := a.pause(ctx); err != nil {
@@ -202,6 +172,85 @@ func (a *Titles) fetch(ctx context.Context, src TitleSource, t store.ArtworkTarg
 		}
 	}
 	return out, nil
+}
+
+// page reads and keeps a film's or a series' page, adds its images to
+// images, and returns the seasons TMDB lists.
+func (a *Titles) page(ctx context.Context, src TitleSource, kind string, id int, images map[string]map[string]string) ([]int, error) {
+	full, err := src.Title(ctx, kind, id)
+	if err != nil {
+		return nil, err
+	}
+	det := store.TitleDetails{Genres: full.Genres, Runtime: full.Runtime, Tagline: full.Tagline}
+	for _, c := range full.Cast {
+		det.Cast = append(det.Cast, store.CastMember{Name: c.Name, Character: c.Character, Profile: c.Profile})
+	}
+	var seasons []int
+	for _, se := range full.Seasons {
+		det.Seasons = append(det.Seasons, store.SeasonInfo{Number: se.Number, Name: se.Name, EpisodeCount: se.EpisodeCount})
+		seasons = append(seasons, se.Number)
+	}
+	raw, err := json.Marshal(det)
+	if err != nil {
+		return nil, err
+	}
+	title := store.Title{Kind: kind, TMDB: strconv.Itoa(id), Name: full.Name, Year: full.Year, Overview: full.Overview,
+		Poster: full.Artwork.Poster, Backdrop: full.Artwork.Backdrop}
+	if err := a.Store.SetTitleDetails(ctx, title, raw, a.clock()); err != nil {
+		return nil, err
+	}
+	images[kind+"/tmdb/"+title.TMDB] = map[string]string{"poster": full.Artwork.Poster, "backdrop": full.Artwork.Backdrop, "logo": full.Artwork.Logo}
+	return seasons, nil
+}
+
+// season reads and keeps one of a series' seasons with its episodes, and
+// adds their images to images.
+func (a *Titles) season(ctx context.Context, src TitleSource, series, n int, images map[string]map[string]string) error {
+	season, err := src.Season(ctx, series, n)
+	if err != nil {
+		return err
+	}
+	kept := store.Season{Number: n, Name: season.Name, Overview: season.Overview, AirDate: season.AirDate, Poster: season.Poster}
+	sk := "series/tmdb/" + strconv.Itoa(series) + "/s" + strconv.Itoa(n)
+	images[sk] = map[string]string{"poster": season.Poster}
+	for _, e := range season.Episodes {
+		kept.Episodes = append(kept.Episodes, store.Episode{Number: e.Number, Name: e.Name, Overview: e.Overview,
+			AirDate: e.AirDate, Runtime: e.Runtime, Still: e.Still})
+		images[sk+"/e"+strconv.Itoa(e.Number)] = map[string]string{"still": e.Still}
+	}
+	return a.Store.SetSeason(ctx, strconv.Itoa(series), kept, a.clock())
+}
+
+// FetchTitle reads and keeps, now, a film's or a series' page (without its
+// seasons): for a title someone opens that the catalog doesn't describe
+// yet. Its images are kept too when no library has it; for those a library
+// has, the next pass brings them.
+func (a *Titles) FetchTitle(ctx context.Context, kind, tmdbID string) error {
+	src := a.Source()
+	id, err := strconv.Atoi(tmdbID)
+	if src == nil || err != nil {
+		return tmdb.ErrNotFound
+	}
+	images := map[string]map[string]string{}
+	if _, err := a.page(ctx, src, kind, id, images); err != nil {
+		return err
+	}
+	inLibrary, err := a.Store.InLibrary(ctx, kind, tmdbID)
+	if err != nil || inLibrary {
+		return err
+	}
+	return a.Store.SetArtwork(ctx, store.ArtworkTarget{Kind: kind, TMDB: tmdbID}, images, a.clock())
+}
+
+// FetchSeason reads and keeps, now, one of a series' seasons: for a season
+// someone browses that the catalog doesn't have yet.
+func (a *Titles) FetchSeason(ctx context.Context, seriesID string, n int) error {
+	src := a.Source()
+	id, err := strconv.Atoi(seriesID)
+	if src == nil || err != nil {
+		return tmdb.ErrNotFound
+	}
+	return a.season(ctx, src, id, n, map[string]map[string]string{})
 }
 
 func (a *Titles) pause(ctx context.Context) error {

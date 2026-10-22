@@ -258,7 +258,14 @@ func run(logger *slog.Logger) error {
 		}
 		sh.tmdb = c
 	}
-	gw, err := newGateway(*configPath, cfg, sh)
+	// What TMDB says about the library's titles, kept in the background
+	// (started below) and fetched on demand by the site's pages, which is
+	// why it exists before them. Its source is the gateway's, once there is
+	// one.
+	var gw *gateway
+	sh.titles = catalog.NewTitles(func() catalog.TitleSource { return gw.titleSource() }, db, logger,
+		10*time.Minute, 100*time.Millisecond)
+	gw, err = newGateway(*configPath, cfg, sh)
 	if err != nil {
 		return err
 	}
@@ -284,9 +291,8 @@ func run(logger *slog.Logger) error {
 	// minutes, a tenth of a second apart.
 	sh.ratings = ratings.NewKeeper(gw.ratingSource, db, logger, 10*time.Minute, 100*time.Millisecond)
 	go sh.ratings.Run(ctx)
-	// The library's artwork from TMDB: looked for every 10 minutes, a
-	// tenth of a second between requests.
-	sh.titles = catalog.NewTitles(gw.titleSource, db, logger, 10*time.Minute, 100*time.Millisecond)
+	// The library's titles from TMDB: looked for every 10 minutes, a tenth
+	// of a second between requests.
 	go sh.titles.Run(ctx)
 	go unrestrictKids(ctx, db, gw.Provisioner, logger)
 	// Each profile's data, brought over from Jellyfin once.

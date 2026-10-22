@@ -136,7 +136,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		checker.UnlockAfter = 15 * time.Minute
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor,
-		Folders: sh.folders, Service: sh.service, Logger: logger}
+		Folders: sh.folders, Service: sh.service, Titles: sh.titles, Logger: logger}
 	// Discovery, when there's a source for TMDB's data. The library hands
 	// it the catalog's TMDB images.
 	var disc *api.Discovery

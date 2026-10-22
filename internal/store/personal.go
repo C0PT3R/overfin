@@ -209,7 +209,8 @@ func (s *Store) RecordPlay(ctx context.Context, profileID, title, itemID string,
 	return err
 }
 
-// SetPlayed marks titles (title key → item ID) watched or not. Watched, a
+// SetPlayed marks titles (title key → item ID, "" for a title no library
+// has) watched or not. Watched, a
 // title's position goes back to the start and it counts as played at
 // least once; not watched, its position and count start over.
 func (s *Store) SetPlayed(ctx context.Context, profileID string, titles map[string]string, played bool, at time.Time) error {
@@ -223,16 +224,16 @@ func (s *Store) SetPlayed(ctx context.Context, profileID string, titles map[stri
 		if played {
 			q = `INSERT INTO profile_titles (profile_id, title, item_id, played, play_count, last_played_at, updated_at)
 				VALUES (?, ?, ?, 1, 1, ?, ?)
-				ON CONFLICT (profile_id, title) DO UPDATE SET item_id = excluded.item_id, played = 1, position_ms = 0,
+				ON CONFLICT (profile_id, title) DO UPDATE SET item_id = coalesce(excluded.item_id, item_id), played = 1, position_ms = 0,
 					play_count = max(play_count, 1), last_played_at = excluded.last_played_at, updated_at = excluded.updated_at`
 		} else {
 			q = `INSERT INTO profile_titles (profile_id, title, item_id, last_played_at, updated_at) VALUES (?, ?, ?, NULL, ?)
-				ON CONFLICT (profile_id, title) DO UPDATE SET item_id = excluded.item_id, played = 0, position_ms = 0,
+				ON CONFLICT (profile_id, title) DO UPDATE SET item_id = coalesce(excluded.item_id, item_id), played = 0, position_ms = 0,
 					play_count = 0, updated_at = excluded.updated_at`
 		}
-		args := []any{profileID, title, itemID, at.Unix(), at.Unix()}
+		args := []any{profileID, title, nullString(itemID), at.Unix(), at.Unix()}
 		if !played {
-			args = []any{profileID, title, itemID, at.Unix()}
+			args = []any{profileID, title, nullString(itemID), at.Unix()}
 		}
 		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 			return err
@@ -245,8 +246,8 @@ func (s *Store) SetPlayed(ctx context.Context, profileID string, titles map[stri
 func (s *Store) SetFavorite(ctx context.Context, profileID, title, itemID string, favorite bool, at time.Time) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO profile_titles (profile_id, title, item_id, favorite, updated_at)
 		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (profile_id, title) DO UPDATE SET item_id = excluded.item_id, favorite = excluded.favorite,
-			updated_at = excluded.updated_at`, profileID, title, itemID, boolInt(favorite), at.Unix())
+		ON CONFLICT (profile_id, title) DO UPDATE SET item_id = coalesce(excluded.item_id, item_id), favorite = excluded.favorite,
+			updated_at = excluded.updated_at`, profileID, title, nullString(itemID), boolInt(favorite), at.Unix())
 	return err
 }
 

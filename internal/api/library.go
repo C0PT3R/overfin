@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/cursor"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
@@ -45,6 +46,9 @@ type Library struct {
 	Folders *FolderCache
 	// Service is Overfin's one Jellyfin account, which serves everyone.
 	Service *provision.Service
+	// Titles, when set, fetches from TMDB what a title's page needs and
+	// the catalog doesn't have yet.
+	Titles *catalog.Titles
 }
 
 func (Library) Name() string { return "library" }
@@ -58,9 +62,16 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/items/continue": l.continueWatching,
 		"GET /api/v1/items/latest":   l.latest,
 		"GET /api/v1/genres":         l.genres,
-		"GET /api/v1/items/{id}":     l.item,
-		"GET /api/v1/people/{id}":    l.person,
-		"GET /api/v1/images/{id}":    l.image,
+		// Titles, in a library or not (milestone 5).
+		"GET /api/v1/titles/{id}":             l.title,
+		"PUT /api/v1/titles/{id}/played":      l.markTitlePlayed,
+		"DELETE /api/v1/titles/{id}/played":   l.unmarkTitlePlayed,
+		"PUT /api/v1/titles/{id}/favorite":    l.markTitleFavorite,
+		"DELETE /api/v1/titles/{id}/favorite": l.unmarkTitleFavorite,
+		"DELETE /api/v1/titles/{id}/progress": l.forgetTitleProgress,
+		"GET /api/v1/items/{id}":              l.item,
+		"GET /api/v1/people/{id}":             l.person,
+		"GET /api/v1/images/{id}":             l.image,
 		// What the profile does with titles (rule 40).
 		"PUT /api/v1/items/{id}/played":      l.markPlayed,
 		"DELETE /api/v1/items/{id}/played":   l.unmarkPlayed,

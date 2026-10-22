@@ -13,7 +13,7 @@ import (
 	"github.com/overfin/server/internal/store"
 )
 
-// Library items' artwork is Overfin's own, from TMDB (catalog.Artwork),
+// Library items' artwork is Overfin's own, from TMDB (catalog.Titles),
 // wherever it has some: a title looks the same wherever it's stored.
 // Jellyfin's own images stay for what TMDB has none of (titles it doesn't
 // know, images placed next to the files).
@@ -117,8 +117,8 @@ func seriesKey(k string) string {
 	return strings.Join(parts[:3], "/")
 }
 
-// artworkImage serves a library title's artwork, to profiles that may see
-// a title it belongs to, and only at a path Overfin keeps.
+// artworkImage serves a title's artwork, to profiles that may see a title
+// it belongs to (in a library or not), and only at a path Overfin keeps.
 func (l Library) artworkImage(w http.ResponseWriter, r *http.Request, p *store.Profile, id, size string) {
 	ref, err := images.ParseArtwork(id)
 	if err != nil {
@@ -131,21 +131,45 @@ func (l Library) artworkImage(w http.ResponseWriter, r *http.Request, p *store.P
 		if err != nil {
 			return err
 		}
-		if len(ids) == 0 {
-			return images.ErrInvalid
-		}
 		a, err := l.access(ctx, p)
-		if err != nil || a == nil {
-			return err
-		}
-		allowed, _, err := st.AllowedItems(ctx, *a, ids)
 		if err != nil {
 			return err
 		}
-		if len(allowed) == 0 {
-			return images.ErrHidden
+		if len(ids) > 0 {
+			if a == nil {
+				return nil
+			}
+			allowed, _, err := st.AllowedItems(ctx, *a, ids)
+			if err != nil || len(allowed) > 0 {
+				return err
+			}
 		}
-		return nil
+		// The titles no library has that it's one of.
+		keys, err := st.ImageTitles(ctx, ref.Type, ref.Path, 50)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 && len(keys) == 0 {
+			return images.ErrInvalid
+		}
+		infos, err := st.TitleInfos(ctx, keys, today())
+		if err != nil {
+			return err
+		}
+		titles := make([]*store.TitleInfo, 0, len(infos))
+		for _, t := range infos {
+			titles = append(titles, t)
+		}
+		visible, err := l.visibleTitles(ctx, p, titles)
+		if err != nil {
+			return err
+		}
+		for _, v := range visible {
+			if v {
+				return nil
+			}
+		}
+		return images.ErrHidden
 	})
 	switch {
 	case err == nil:
