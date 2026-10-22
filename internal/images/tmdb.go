@@ -20,9 +20,9 @@ const tmdbImageBase = "https://image.tmdb.org/t/p/"
 // for a catalog title's poster or backdrop. The file is the image path TMDB
 // gives, without its slash and extension.
 type TMDBRef struct {
-	Kind   string // movie, series
+	Kind   string // movie, series; "" for a library title's artwork
 	TMDBID int
-	Type   string // poster, backdrop
+	Type   string // poster, backdrop, logo, still
 	Path   string // as TMDB gives it: "/abc123.jpg"
 }
 
@@ -41,6 +41,29 @@ func ParseTMDB(id string) (TMDBRef, error) {
 	return TMDBRef{Kind: m[1], TMDBID: n, Type: m[3], Path: "/" + m[4] + "." + m[5]}, nil
 }
 
+// artworkPattern is a library title's artwork: tmdbart_<type>_<file>_<ext>.
+// The title it belongs to is found from its path.
+var artworkPattern = regexp.MustCompile(`^tmdbart_(poster|backdrop|logo|still)_([A-Za-z0-9]{8,64})_(jpg|png)$`)
+
+// ParseArtwork validates a library artwork ID.
+func ParseArtwork(id string) (TMDBRef, error) {
+	m := artworkPattern.FindStringSubmatch(id)
+	if m == nil {
+		return TMDBRef{}, ErrInvalid
+	}
+	return TMDBRef{Type: m[1], Path: "/" + m[2] + "." + m[3]}, nil
+}
+
+// ArtworkID is the image ID of a library title's artwork at path; "" when
+// the path isn't one.
+func ArtworkID(typ, path string) string {
+	m := tmdbPath.FindStringSubmatch(path)
+	if m == nil {
+		return ""
+	}
+	return fmt.Sprintf("tmdbart_%s_%s_%s", typ, m[1], m[2])
+}
+
 var tmdbPath = regexp.MustCompile(`^/([A-Za-z0-9]{8,64})\.(jpg|png)$`)
 
 // TMDBImageID is the image ID of a title's poster or backdrop at path; ""
@@ -57,6 +80,8 @@ func TMDBImageID(kind string, tmdbID int, typ, path string) string {
 var tmdbWidths = map[string]map[string]string{
 	"poster":   {"small": "w185", "medium": "w342", "large": "w780"},
 	"backdrop": {"small": "w780", "medium": "w1280", "large": "w1280"},
+	"logo":     {"small": "w185", "medium": "w300", "large": "w500"},
+	"still":    {"small": "w185", "medium": "w300", "large": "original"},
 }
 
 var tmdbHTTP = &http.Client{
@@ -106,11 +131,16 @@ func (p *Pipeline) TMDB(ctx context.Context, ref TMDBRef, size string, check fun
 	case <-ctx.Done():
 		return nil, "", ctx.Err()
 	}
-	data, err := Reencode(raw, "image/jpeg")
+	// Logos keep their transparency.
+	contentType := "image/jpeg"
+	if ref.Type == "logo" {
+		contentType = "image/png"
+	}
+	data, err := Reencode(raw, contentType)
 	<-p.slots
 	if err != nil {
 		return nil, "", err
 	}
-	p.cache.put(key, entry{data: data, contentType: "image/jpeg"})
-	return data, "image/jpeg", nil
+	p.cache.put(key, entry{data: data, contentType: contentType})
+	return data, contentType, nil
 }

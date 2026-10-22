@@ -65,6 +65,8 @@ type shared struct {
 	lists *catalog.Lists
 	// ratings keeps titles' certifications, in the background.
 	ratings *ratings.Keeper
+	// artwork keeps the library's artwork from TMDB, in the background.
+	artwork *catalog.Artwork
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -424,6 +426,16 @@ func (g *gateway) tmdbSource() tmdb.Source {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.sh.source()
+}
+
+// artworkSource is where the library's artwork comes from: TMDB itself.
+func (g *gateway) artworkSource() catalog.ArtworkSource {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.sh.tmdb != nil {
+		return g.sh.tmdb
+	}
+	return nil
 }
 
 // ratingSource is where certifications come from.

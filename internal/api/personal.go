@@ -188,7 +188,8 @@ func (l Library) withStates(ctx context.Context, p *store.Profile, items []libra
 		}
 		items[i].UserState = &us
 	}
-	return nil
+	// And Overfin's artwork, wherever items are shown.
+	return l.withArtwork(ctx, items)
 }
 
 // forgetProgress takes a title out of the profile's Continue Watching.

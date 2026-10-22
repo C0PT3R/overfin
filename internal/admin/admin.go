@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -127,7 +128,9 @@ type Panel struct {
 	Seerr Seerr
 	// TMDB, when set, says whether Overfin has a source for TMDB's data
 	// (TMDB itself, or Seerr).
-	TMDB        func() bool
+	TMDB func() bool
+	// OnLanguage, when set, runs after TMDB's language changed.
+	OnLanguage  func()
 	Store       *store.Store
 	Provisioner *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are.
@@ -589,9 +592,11 @@ func (p *Panel) setSeerr(w http.ResponseWriter, r *http.Request, s *session) {
 type ratingsJSON struct {
 	Country   string   `json:"country"`
 	Countries []string `json:"countries"`
-	Fetched   int      `json:"fetched"`
-	Total     int      `json:"total"`
-	Source    bool     `json:"source"`
+	// Language is the language TMDB's data comes in (ISO 639-1).
+	Language string `json:"language"`
+	Fetched  int    `json:"fetched"`
+	Total    int    `json:"total"`
+	Source   bool   `json:"source"`
 }
 
 func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
@@ -605,6 +610,9 @@ func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
 	}
 	if out.Countries == nil {
 		out.Countries = []string{}
+	}
+	if out.Language, err = p.Store.TMDBLanguage(ctx); err != nil {
+		return out, err
 	}
 	out.Fetched, out.Total, err = p.Store.RatingProgress(ctx)
 	return out, err
@@ -620,11 +628,15 @@ func (p *Panel) ratings(w http.ResponseWriter, r *http.Request, s *session) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// setRatings changes the ratings country, to one TMDB has scales for.
-// Kids profiles' ceilings are cleared with it.
+// languageCode is what an ISO 639-1 code looks like.
+var languageCode = regexp.MustCompile(`^[a-z]{2}$`)
+
+// setRatings changes the ratings country, to one TMDB has scales for
+// (kids profiles' ceilings are cleared with it), and TMDB's language.
 func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 	var req struct {
-		Country string `json:"country"`
+		Country  string `json:"country"`
+		Language string `json:"language"`
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -633,6 +645,35 @@ func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 		return
 	}
 	ctx := r.Context()
+	if req.Language != "" {
+		if !languageCode.MatchString(req.Language) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a language code"})
+			return
+		}
+		old, err := p.Store.TMDBLanguage(ctx)
+		if err == nil && old != req.Language {
+			if err = p.Store.SetTMDBLanguage(ctx, req.Language); err == nil {
+				p.Logger.Info("TMDB's language changed in the control panel", "language", req.Language, "by", s.name)
+				if p.OnLanguage != nil {
+					p.OnLanguage()
+				}
+			}
+		}
+		if err != nil {
+			p.Logger.Error("changing TMDB's language failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
+			return
+		}
+		if req.Country == "" {
+			out, err := p.ratingsState(ctx)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
+				return
+			}
+			writeJSON(w, http.StatusOK, out)
+			return
+		}
+	}
 	countries, err := p.Store.RatingCountries(ctx)
 	if err == nil && !slices.Contains(countries, req.Country) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "TMDB has no ratings for this country"})

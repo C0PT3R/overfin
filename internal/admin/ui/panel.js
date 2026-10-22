@@ -126,6 +126,13 @@ function ratingsSection(rt) {
   const countries = rt.countries.length ? rt.countries : [rt.country];
   const select = h('select', {}, countries.map((cc) => h('option', { value: cc }, `${label(cc)} (${cc})`)));
   select.value = rt.country;
+  let langNames = null;
+  try { langNames = new Intl.DisplayNames([navigator.language, 'en'], { type: 'language' }); } catch { langNames = null; }
+  const languages = ['ar', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'he', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'nl', 'no',
+    'pl', 'pt', 'ro', 'ru', 'sv', 'th', 'tr', 'uk', 'vi', 'zh'];
+  if (!languages.includes(rt.language)) languages.push(rt.language);
+  const lang = h('select', {}, languages.map((l) => h('option', { value: l }, `${(langNames && langNames.of(l)) || l} (${l})`)));
+  lang.value = rt.language;
   const status = (r) => {
     if (!r.source) return 'TMDB can\'t be reached: no title can be rated, so kids profiles see nothing.';
     if (!r.countries.length) return 'Fetching the scales from TMDB… Kids profiles see nothing until titles are rated.';
@@ -134,15 +141,17 @@ function ratingsSection(rt) {
   const msg = h('span', { class: 'muted' }, status(rt));
   const save = h('button', { type: 'button', disabled: !rt.countries.length }, 'Save');
   save.onclick = async () => {
-    if (select.value === rt.country) return;
-    if (!confirm('Every kids profile will need new limits from its account\'s owner, and sees nothing until then. Change the country?')) {
+    if (select.value === rt.country && lang.value === rt.language) return;
+    if (select.value !== rt.country &&
+      !confirm('Every kids profile will need new limits from its account\'s owner, and sees nothing until then. Change the country?')) {
       select.value = rt.country;
       return;
     }
     save.disabled = true;
     try {
-      const out = await api('PUT', '/admin/api/ratings', { country: select.value });
+      const out = await api('PUT', '/admin/api/ratings', { country: select.value, language: lang.value });
       rt.country = out.country;
+      rt.language = out.language;
       msg.className = 'muted';
       msg.textContent = status(out);
     } catch (err) {
@@ -152,9 +161,11 @@ function ratingsSection(rt) {
       save.disabled = false;
     }
   };
-  return h('section', {}, h('h2', {}, 'Ratings'),
+  return h('section', {}, h('h2', {}, 'TMDB'),
     h('div', { class: 'row' }, h('div', {}, 'Ratings country',
       h('div', { class: 'hint' }, "Kids profiles' limits use this country's ratings, from TMDB. A title with none there is hidden from them.")), select),
+    h('div', { class: 'row' }, h('div', {}, 'Language',
+      h('div', { class: 'hint' }, "Discovery's titles and the artwork's text (posters, logos), when TMDB has them in it.")), lang),
     h('div', { class: 'row' }, msg, save));
 }
 

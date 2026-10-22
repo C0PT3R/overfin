@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +34,34 @@ type Client struct {
 	base  *url.URL
 	token string
 	http  *http.Client
+	// Language, when set, is the language TMDB answers in (ISO 639-1,
+	// such as "fr"): titles, overviews, and the text on posters and logos.
+	Language func() string
+}
+
+// language is the language to ask for; "" for TMDB's default (English).
+func (c *Client) language() string {
+	if c.Language == nil {
+		return ""
+	}
+	if l := c.Language(); languageCode.MatchString(l) {
+		return l
+	}
+	return ""
+}
+
+// languageCode is what an ISO 639-1 code looks like.
+var languageCode = regexp.MustCompile(`^[a-z]{2}$`)
+
+// withLanguage adds the language to a query.
+func (c *Client) withLanguage(q url.Values) url.Values {
+	if q == nil {
+		q = url.Values{}
+	}
+	if l := c.language(); l != "" {
+		q.Set("language", l)
+	}
+	return q
 }
 
 // New returns a client for TMDB at baseURL (BaseURL, or a test server),
@@ -132,7 +161,7 @@ func (c *Client) Discover(ctx context.Context, list, kind string, page int) (*Pa
 		TotalPages int        `json:"total_pages"`
 		Results    []rawTitle `json:"results"`
 	}
-	if err := c.get(ctx, path, url.Values{"page": {strconv.Itoa(page)}}, &raw); err != nil {
+	if err := c.get(ctx, path, c.withLanguage(url.Values{"page": {strconv.Itoa(page)}}), &raw); err != nil {
 		return nil, err
 	}
 	out := &Page{Page: raw.Page, TotalPages: min(raw.TotalPages, 500)}
@@ -191,7 +220,7 @@ func (c *Client) details(ctx context.Context, kind string, tmdbID int) (*rawDeta
 		extra = "credits,content_ratings"
 	}
 	var raw rawDetails
-	if err := c.get(ctx, "/"+k+"/"+strconv.Itoa(tmdbID), url.Values{"append_to_response": {extra}}, &raw); err != nil {
+	if err := c.get(ctx, "/"+k+"/"+strconv.Itoa(tmdbID), c.withLanguage(url.Values{"append_to_response": {extra}}), &raw); err != nil {
 		return nil, err
 	}
 	if raw.ID != tmdbID {
@@ -263,4 +292,107 @@ func (c *Client) Certifications(ctx context.Context, kind string) (map[string][]
 		}
 	}
 	return MakeScales(scales), nil
+}
+
+// Artwork is a title's images, as TMDB paths (checked; "" when there's
+// none): its poster and backdrop, and its logo (the title as art), in the
+// client's language when TMDB has them.
+type Artwork struct {
+	Poster   string
+	Backdrop string
+	Logo     string
+}
+
+// rawImage is one of TMDB's images of a title.
+type rawImage struct {
+	FilePath string `json:"file_path"`
+	Language string `json:"iso_639_1"`
+}
+
+// pick chooses, among images (best first, as TMDB orders them), one in the
+// language, else one without text, else one in English.
+func pick(images []rawImage, lang string) string {
+	for _, want := range []string{lang, "", "en"} {
+		for _, im := range images {
+			if im.Language == want && imagePath.MatchString(im.FilePath) {
+				return im.FilePath
+			}
+		}
+	}
+	return ""
+}
+
+// Artwork returns a title's images: films ("movie") or series ("series").
+func (c *Client) Artwork(ctx context.Context, kind string, tmdbID int) (*Artwork, error) {
+	k := tv(kind)
+	if k == "" || !ValidID(tmdbID) {
+		return nil, ErrNotFound
+	}
+	lang := c.language()
+	langs := "null,en"
+	if lang != "" && lang != "en" {
+		langs = lang + ",null,en"
+	}
+	var raw struct {
+		ID           int    `json:"id"`
+		PosterPath   string `json:"poster_path"`
+		BackdropPath string `json:"backdrop_path"`
+		Images       struct {
+			Logos   []rawImage `json:"logos"`
+			Posters []rawImage `json:"posters"`
+		} `json:"images"`
+	}
+	q := c.withLanguage(url.Values{"append_to_response": {"images"}, "include_image_language": {langs}})
+	if err := c.get(ctx, "/"+k+"/"+strconv.Itoa(tmdbID), q, &raw); err != nil {
+		return nil, err
+	}
+	if raw.ID != tmdbID {
+		return nil, ErrNotFound
+	}
+	out := &Artwork{Logo: pick(raw.Images.Logos, lang)}
+	// The poster TMDB picks for the language, else the best one listed.
+	if imagePath.MatchString(raw.PosterPath) {
+		out.Poster = raw.PosterPath
+	} else {
+		out.Poster = pick(raw.Images.Posters, lang)
+	}
+	if imagePath.MatchString(raw.BackdropPath) {
+		out.Backdrop = raw.BackdropPath
+	}
+	return out, nil
+}
+
+// SeasonArtwork is a season's poster and its episodes' stills, by episode
+// number, as TMDB paths.
+type SeasonArtwork struct {
+	Poster string
+	Stills map[int]string
+}
+
+// Season returns a season's images.
+func (c *Client) Season(ctx context.Context, seriesID, season int) (*SeasonArtwork, error) {
+	if !ValidID(seriesID) || season < 0 || season > 1000 {
+		return nil, ErrNotFound
+	}
+	var raw struct {
+		PosterPath string `json:"poster_path"`
+		Episodes   []struct {
+			EpisodeNumber int    `json:"episode_number"`
+			StillPath     string `json:"still_path"`
+		} `json:"episodes"`
+	}
+	path := "/tv/" + strconv.Itoa(seriesID) + "/season/" + strconv.Itoa(season)
+	if err := c.get(ctx, path, c.withLanguage(nil), &raw); err != nil {
+		return nil, err
+	}
+	out := &SeasonArtwork{Stills: map[int]string{}}
+	if imagePath.MatchString(raw.PosterPath) {
+		out.Poster = raw.PosterPath
+	}
+	for _, e := range raw.Episodes {
+		if e.EpisodeNumber >= 0 && e.EpisodeNumber <= 10_000 && imagePath.MatchString(e.StillPath) && len(out.Stills) < 2000 {
+			out.Stills[e.EpisodeNumber] = e.StillPath
+		}
+	}
+	return out, nil
 }

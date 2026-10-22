@@ -38,6 +38,18 @@ func fakeTMDB(t *testing.T) *Client {
 		case "/3/tv/1399":
 			io.WriteString(w, `{"id":1399,"name":"Thrones","seasons":[{"season_number":1,"name":"Season 1","episode_count":10}],
 				"content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-MA"}]}}`)
+		case "/3/movie/550":
+			if r.URL.Query().Get("append_to_response") != "images" || r.URL.Query().Get("language") != "fr" ||
+				r.URL.Query().Get("include_image_language") != "fr,null,en" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			io.WriteString(w, `{"id":550,"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
+				"images":{"logos":[{"file_path":"/logoen1234.png","iso_639_1":"en"},{"file_path":"/logofr1234.png","iso_639_1":"fr"},
+					{"file_path":"/logo.svg","iso_639_1":"fr"}]}}`)
+		case "/3/tv/1399/season/1":
+			io.WriteString(w, `{"poster_path":"/season1abc.jpg","episodes":[{"episode_number":1,"still_path":"/still1abcd.jpg"},
+				{"episode_number":2,"still_path":null},{"episode_number":3,"still_path":"../x.jpg"}]}`)
 		case "/3/certification/movie/list":
 			io.WriteString(w, `{"certifications":{"US":[{"certification":"G","meaning":"All ages","order":1},{"certification":"R","order":4}]}}`)
 		default:
@@ -88,6 +100,19 @@ func TestClient(t *testing.T) {
 	if err != nil || len(scales["US"]) != 2 || scales["US"][0].Meaning != "All ages" {
 		t.Errorf("scales: %v %v", scales, err)
 	}
+
+	// Artwork in the client's language: the French logo before the English
+	// one; an SVG never.
+	c.Language = func() string { return "fr" }
+	art, err := c.Artwork(ctx, "movie", 550)
+	if err != nil || art.Poster != "/posterfr12.jpg" || art.Backdrop != "/backdrop12.jpg" || art.Logo != "/logofr1234.png" {
+		t.Errorf("artwork: %+v %v", art, err)
+	}
+	season, err := c.Season(ctx, 1399, 1)
+	if err != nil || season.Poster != "/season1abc.jpg" || len(season.Stills) != 1 || season.Stills[1] != "/still1abcd.jpg" {
+		t.Errorf("season: %+v %v", season, err)
+	}
+	c.Language = nil
 
 	if _, err := c.Details(ctx, "movie", 12345); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown title: %v", err)

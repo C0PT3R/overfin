@@ -482,7 +482,16 @@ func (l Library) image(w http.ResponseWriter, r *http.Request) {
 	if size == "" {
 		size = "medium"
 	}
-	if id := r.PathValue("id"); strings.HasPrefix(id, "tmdb_") {
+	if id := r.PathValue("id"); strings.HasPrefix(id, "tmdbart_") {
+		if !slices.Contains(images.Sizes, size) {
+			problem.Send(w, problem.NotFound, "")
+			return
+		}
+		if p := l.active(w, r); p != nil {
+			l.artworkImage(w, r, p, id, size)
+		}
+		return
+	} else if strings.HasPrefix(id, "tmdb_") {
 		if l.Discovery == nil || !slices.Contains(images.Sizes, size) {
 			problem.Send(w, problem.NotFound, "")
 			return

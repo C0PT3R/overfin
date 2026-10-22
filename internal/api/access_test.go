@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/overfin/server/internal/store"
 )
@@ -94,5 +95,37 @@ func TestLibrariesAndHiddenTags(t *testing.T) {
 	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+partner.ID, `{"libraries":null,"blockedTags":null}`); code != 200 ||
 		strings.Contains(body, "libraries") || strings.Contains(body, "blockedTags") {
 		t.Errorf("lift: %d %s", code, body)
+	}
+}
+
+// Items show Overfin's own artwork where it has some, Jellyfin's otherwise.
+func TestArtworkOnItems(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{store: &st})
+	ctx := context.Background()
+	st.PutCatalog(ctx, []store.CatalogItem{
+		{ID: fmt.Sprintf("%032x", 3), Kind: "movie", Name: "Heat", SortName: "Heat", TMDB: "949"},
+	}, 1)
+	st.RefreshTitleKeys(ctx)
+	st.SetArtwork(ctx, store.ArtworkTarget{Kind: "movie", TMDB: "949"}, map[string]map[string]string{
+		"movie/tmdb/949": {"poster": "/heatposter1.jpg", "logo": "/heatlogo123.png"},
+	}, time.Now())
+
+	var it struct {
+		Images struct {
+			Primary   struct{ URL string }
+			Logo      struct{ URL string }
+			Backdrops []struct{ URL string }
+		}
+	}
+	if code := get(t, srv, fmt.Sprintf("/api/v1/items/item_%032x", 3), &it); code != 200 {
+		t.Fatalf("item: %d", code)
+	}
+	if it.Images.Primary.URL != "/api/v1/images/tmdbart_poster_heatposter1_jpg" || it.Images.Logo.URL != "/api/v1/images/tmdbart_logo_heatlogo123_png" {
+		t.Errorf("artwork: %+v", it.Images)
+	}
+	// A path Overfin doesn't keep is refused before TMDB is asked.
+	if code := get(t, srv, "/api/v1/images/tmdbart_poster_inventedpath_jpg", nil); code != 404 {
+		t.Errorf("invented path: %d", code)
 	}
 }

@@ -331,6 +331,14 @@ own do), so a title looks the same wherever it is.
      season~~ Done, from the index (it keeps each title's people and tags
      too). Still through Jellyfin: kinds the index doesn't hold (music,
      books), which are checked page by page.
+   - ~~**Overfin's own artwork**~~ Done: every film's and series' poster,
+     backdrop and logo, its seasons' posters and its episodes' stills, from
+     TMDB, kept by title key and refreshed in the background (five months
+     at most), in the language set in the panel (which also gives
+     discovery's text). Items carry it wherever they're shown, Jellyfin's
+     own images only where TMDB has none, and an image is served only to a
+     profile that may see a title it belongs to. Jellyfin's image fetchers
+     can then be off. Next: people's photos.
 2. ~~Storage and import~~ Done: each profile's data (positions,
    watched, play counts, last played, favorites) is kept by title (a film
    by its TMDB ID, an episode by its show's and its numbers) and brought

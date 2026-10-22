@@ -249,8 +249,13 @@ func run(logger *slog.Logger) error {
 			sh.seerr, sh.seerrURL, sh.seerrKey = c, url, key
 		}
 	}
-	// TMDB itself, with the project's own key.
+	// TMDB itself, with the project's own key, in the language the panel
+	// sets.
 	if c, err := tmdb.New(tmdb.BaseURL, tmdb.ProjectToken); err == nil {
+		c.Language = func() string {
+			l, _ := db.TMDBLanguage(context.Background())
+			return l
+		}
 		sh.tmdb = c
 	}
 	gw, err := newGateway(*configPath, cfg, sh)
@@ -277,6 +282,10 @@ func run(logger *slog.Logger) error {
 	// minutes, a tenth of a second apart.
 	sh.ratings = ratings.NewKeeper(gw.ratingSource, db, logger, 10*time.Minute, 100*time.Millisecond)
 	go sh.ratings.Run(ctx)
+	// The library's artwork from TMDB: looked for every 10 minutes, a
+	// tenth of a second between requests.
+	sh.artwork = catalog.NewArtwork(gw.artworkSource, db, logger, 10*time.Minute, 100*time.Millisecond)
+	go sh.artwork.Run(ctx)
 	go unrestrictKids(ctx, db, gw.Provisioner, logger)
 	// Each profile's data, brought over from Jellyfin once.
 	go (&personal.Importer{Jellyfin: sh.jf, Store: db, Logger: logger, Every: 10 * time.Minute}).Run(ctx)
@@ -284,8 +293,10 @@ func run(logger *slog.Logger) error {
 	if a := cfg.Admin; a.Enabled() {
 		o := cfg.OIDC
 		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
-			TMDB:  func() bool { return gw.tmdbSource() != nil },
-			Store: db, Provisioner: newProvisioner(cfg, sh),
+			TMDB: func() bool { return gw.tmdbSource() != nil },
+			// A new language: artwork and discovery's lists, read again now.
+			OnLanguage: func() { sh.artwork.Wake(); sh.lists.Wake() },
+			Store:      db, Provisioner: newProvisioner(cfg, sh),
 			Provider: &oidc.Provider{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: cfg.Secrets.OIDCClientSecret,
 				RedirectURL: a.RedirectURL, GroupsClaim: o.GroupsClaim, HTTP: oidc.NewClient(o.Dial)}}
 		if cn := cfg.Connector; cn.Enabled() {

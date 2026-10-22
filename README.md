@@ -235,7 +235,8 @@ watchlist are always on; the rest is switched on in the control panel.
 | Discovery | Trending, popular and upcoming titles, from TMDB | Always on; kids profiles see what their ceilings allow |
 | Requests | Seerr requests | Planned |
 
-TMDB's data (discovery, and the certifications kids profiles are held to)
+TMDB's data (discovery, the library's artwork, and the certifications kids
+profiles are held to)
 comes from TMDB itself, with the Overfin project's own key, shipped with
 Overfin as Jellyfin and Seerr ship theirs: you need no key of your own.
 Overfin asks TMDB by itself, by title, never saying who's asking; browsers
