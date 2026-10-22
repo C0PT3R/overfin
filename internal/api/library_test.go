@@ -205,9 +205,11 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"MediaSources": []map[string]any{{
 				"Id": fmt.Sprintf("%032x", 1), "Name": "1080p", "Protocol": "File", "Path": "/mnt/media/secret.mkv",
 				"SupportsTranscoding": true, "TranscodingSubProtocol": "hls",
-				"TranscodingUrl": "/videos/" + fmt.Sprintf("%032x", 1) + "/master.m3u8?ApiKey=" + token + "&MediaSourceId=x",
-				"RunTimeTicks":   72000000000,
+				"TranscodingUrl": "/videos/" + fmt.Sprintf("%032x", 1) + "/master.m3u8?ApiKey=" + token + "&MediaSourceId=x&TranscodeReasons=VideoCodecNotSupported,AudioCodecNotSupported",
+				"RunTimeTicks":   72000000000, "Container": "mkv", "Bitrate": 9258000,
 				"MediaStreams": []map[string]any{
+					{"Index": 0, "Type": "Video", "Codec": "hevc", "Profile": "Main 10", "Width": 3840, "Height": 2160, "BitDepth": 10,
+						"VideoRangeType": "HDR10Plus", "BitRate": 4601924},
 					{"Index": 1, "Type": "Audio", "Codec": "eac3", "Language": "fre", "DisplayTitle": "Français - EAC3 5.1", "Channels": 6, "IsDefault": true},
 					{"Index": 2, "Type": "Audio", "Codec": "aac", "Language": "eng", "DisplayTitle": "English - AAC 2.0", "Channels": 2},
 					{"Index": 3, "Type": "Subtitle", "Codec": "srt", "Language": "eng", "DisplayTitle": "English", "IsTextSubtitleStream": true},
@@ -672,8 +674,28 @@ func TestStartPlaybackNeverLeaksUpstream(t *testing.T) {
 		AudioTracks    []struct{ ID, Label, Language string }
 		SubtitleTracks []struct{ ID, URL string }
 		Segments       []struct{ Kind string }
+		Info           struct {
+			Reasons     []string
+			Container   string
+			BitrateKbps int
+			Video       struct {
+				Codec, Range string
+				Height       int
+				BitrateKbps  int
+			}
+			Audio struct {
+				Codec    string
+				Channels int
+			}
+		}
 	}
 	json.Unmarshal([]byte(body), &s)
+	// How it's served and what the file holds; the default audio track.
+	if in := s.Info; len(in.Reasons) != 2 || in.Reasons[1] != "AudioCodecNotSupported" || in.Container != "mkv" || in.BitrateKbps != 9258 ||
+		in.Video.Codec != "hevc" || in.Video.Range != "HDR10Plus" || in.Video.Height != 2160 || in.Video.BitrateKbps != 4601 ||
+		in.Audio.Codec != "eac3" || in.Audio.Channels != 6 {
+		t.Errorf("info: %+v", s.Info)
+	}
 	if !strings.HasPrefix(s.ID, "play_") || s.Method != "transcode" || s.Stream.Protocol != "hls" ||
 		!strings.HasPrefix(s.Stream.URL, "/api/v1/stream/") || !strings.HasSuffix(s.Stream.URL, "/master.m3u8") {
 		t.Errorf("session: %+v", s)

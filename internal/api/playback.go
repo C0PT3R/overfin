@@ -274,6 +274,51 @@ type segmentJSON struct {
 	EndMs   int64  `json:"endMs"`
 }
 
+// playbackInfoJSON is how a playback is served, for the player's
+// information: why the media server converts it (none when it plays the
+// file as it is), and what the file holds.
+type playbackInfoJSON struct {
+	Reasons     []string        `json:"reasons,omitempty"`
+	Container   string          `json:"container,omitempty"`
+	BitrateKbps int             `json:"bitrateKbps,omitempty"`
+	Video       *streamInfoJSON `json:"video,omitempty"`
+	Audio       *streamInfoJSON `json:"audio,omitempty"`
+}
+
+type streamInfoJSON struct {
+	Codec       string `json:"codec,omitempty"`
+	Profile     string `json:"profile,omitempty"`
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
+	BitDepth    int    `json:"bitDepth,omitempty"`
+	Range       string `json:"range,omitempty"`
+	BitrateKbps int    `json:"bitrateKbps,omitempty"`
+	Channels    int    `json:"channels,omitempty"`
+	Language    string `json:"language,omitempty"`
+}
+
+// infoOf describes how a playback is served: the file's video and the
+// audio track playing (index audio, -1 for the default).
+func infoOf(dec *playback.Decision, audio int) *playbackInfoJSON {
+	src := dec.Source
+	out := &playbackInfoJSON{Reasons: dec.Reasons(), Container: textclean.Plain(src.Container, 32), BitrateKbps: src.Bitrate / 1000}
+	if audio < 0 {
+		audio = defaultAudio(src)
+	}
+	for _, ms := range src.MediaStreams {
+		switch {
+		case ms.Type == "Video" && out.Video == nil:
+			out.Video = &streamInfoJSON{Codec: textclean.Plain(ms.Codec, 32), Profile: textclean.Plain(ms.Profile, 32),
+				Width: ms.Width, Height: ms.Height, BitDepth: ms.BitDepth, Range: textclean.Plain(ms.VideoRangeType, 32),
+				BitrateKbps: ms.BitRate / 1000}
+		case ms.Type == "Audio" && ms.Index == audio:
+			out.Audio = &streamInfoJSON{Codec: textclean.Plain(ms.Codec, 32), Channels: ms.Channels,
+				Language: languageTag(ms.Language), BitrateKbps: ms.BitRate / 1000}
+		}
+	}
+	return out
+}
+
 // trickplayJSON is a set of seek-bar previews (the API's Trickplay).
 type trickplayJSON struct {
 	TileWidth  int      `json:"tileWidth"`
@@ -311,6 +356,8 @@ type sessionJSON struct {
 	// Next is the episode after this one, when it's one the profile may
 	// see: the rest of the season, then the next season's.
 	Next *library.TitleSummary `json:"next,omitempty"`
+	// Info is how it's served, and what the file holds.
+	Info *playbackInfoJSON `json:"info,omitempty"`
 }
 
 var (
@@ -610,6 +657,12 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Trickplay = tp
 	}
+
+	audioIndex := -1
+	if pr.AudioStreamIndex != nil {
+		audioIndex = *pr.AudioStreamIndex
+	}
+	out.Info = infoOf(dec, audioIndex)
 
 	// How it's served and why, without anything that names or reaches the
 	// file (rule 54): what tells a needless conversion.

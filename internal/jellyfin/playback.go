@@ -82,6 +82,7 @@ type MediaSource struct {
 	DefaultAudioStreamIndex    *int
 	DefaultSubtitleStreamIndex *int
 	MediaStreams               []MediaStream
+	Bitrate                    int // bits per second, the whole file's
 }
 
 type MediaStream struct {
@@ -98,6 +99,11 @@ type MediaStream struct {
 	Width                int
 	Height               int
 	VideoRange           string
+	// For the player's information: SDR, HDR10, HDR10Plus, DOVIWithHDR10…
+	VideoRangeType string
+	Profile        string
+	BitDepth       int
+	BitRate        int // bits per second
 }
 
 // PlaybackInfo is Jellyfin's answer: the versions it can serve to this

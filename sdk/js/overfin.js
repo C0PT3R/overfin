@@ -449,6 +449,19 @@ export class Player {
   }
 
   /**
+   * Limits the bitrate (kbps; 0 or null: automatic, the server's limits
+   * only). The stream restarts at the same place; a limit below the file's
+   * means converting it.
+   */
+  setMaxBitrate(kbps) {
+    this.choice.maxBitrateKbps = kbps || undefined;
+    return this.restart();
+  }
+
+  /** The bitrate limit chosen (kbps), or 0 for automatic. */
+  get maxBitrate() { return this.choice.maxBitrateKbps || 0; }
+
+  /**
    * Shows a subtitle track, or none (null). Text tracks switch at once;
    * image-based ones are burned in, which restarts the stream.
    */

@@ -3230,6 +3230,38 @@ components:
             absent at the end. It may not be playable (no library has it).
           allOf:
             - $ref: "#/components/schemas/TitleSummary"
+        info:
+          type: object
+          description: How it's served and what the file holds, for the
+            player's information. `reasons` are the media server's reasons
+            for converting it (e.g. `AudioCodecNotSupported`,
+            `VideoRangeTypeNotSupported`); none when the file plays as it is.
+          properties:
+            reasons:
+              type: array
+              items:
+                type: string
+            container:
+              type: string
+            bitrateKbps:
+              type: integer
+            video:
+              type: object
+              properties:
+                codec: {type: string}
+                profile: {type: string}
+                width: {type: integer}
+                height: {type: integer}
+                bitDepth: {type: integer}
+                range: {type: string, description: "SDR, HDR10, HDR10Plus, HLG, DOVIWithHDR10…"}
+                bitrateKbps: {type: integer}
+            audio:
+              type: object
+              properties:
+                codec: {type: string}
+                channels: {type: integer}
+                language: {type: string}
+                bitrateKbps: {type: integer}
         queue:
           description: Where playback is in the queue. The whole queue is
             available from `GET /playback/{id}/queue`.

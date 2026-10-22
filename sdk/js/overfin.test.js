@@ -286,3 +286,17 @@ test('subtitles: the language kept, and those the server turned on shown', async
   await player.close();
   globalThis.document = realDocument;
 });
+
+test('quality: a bitrate limit restarts the stream at the same place with it', async () => {
+  const { calls } = playbackServer();
+  const player = await new Overfin().play(fakeVideo(), 'title_movie_tmdb_1', { startMs: 0, capabilities: {} });
+  player.video.currentTime = 120;
+  await player.setMaxBitrate(4000);
+  const starts = calls.filter((c) => c.method === 'POST' && c.url === '/api/v1/playback');
+  assert.equal(starts[1].body.maxBitrateKbps, 4000);
+  assert.equal(starts[1].body.startPositionMs, 120000);
+  assert.equal(player.maxBitrate, 4000);
+  await player.setMaxBitrate(0); // automatic again
+  assert.equal(calls.filter((c) => c.url === '/api/v1/playback').at(-1).body.maxBitrateKbps, undefined);
+  await player.close();
+});

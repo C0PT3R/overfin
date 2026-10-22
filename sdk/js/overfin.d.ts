@@ -239,6 +239,17 @@ export interface Playback {
   trickplay?: Trickplay;
   /** For an episode, the one after it (it may not be playable); absent at the end. */
   next?: TitleSummary;
+  /** How it's served: why the server converts it (no reasons: played as it is), and what the file holds. */
+  info?: PlaybackInfo;
+}
+
+export interface PlaybackInfo {
+  /** The media server's reasons, such as 'AudioCodecNotSupported' or 'VideoRangeTypeNotSupported'. */
+  reasons?: string[];
+  container?: string;
+  bitrateKbps?: number;
+  video?: { codec?: string; profile?: string; width?: number; height?: number; bitDepth?: number; range?: string; bitrateKbps?: number };
+  audio?: { codec?: string; channels?: number; language?: string; bitrateKbps?: number };
 }
 
 export interface Trickplay {
@@ -300,6 +311,10 @@ export class Player {
   segmentAt(ms?: number): Segment | null;
   continueHere(): Promise<unknown>;
   close(): Promise<void>;
+  /** Limits the bitrate (kbps; 0: automatic). The stream restarts at the same place. */
+  setMaxBitrate(kbps: number | null): Promise<void>;
+  /** The bitrate limit chosen (kbps), or 0 for automatic. */
+  readonly maxBitrate: number;
 }
 
 export function capabilities(): Capabilities;
