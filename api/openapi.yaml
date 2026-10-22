@@ -603,6 +603,70 @@ paths:
         "401":
           description: Expired or used link (`signin-failed`).
 
+  /me/signin:
+    get:
+      operationId: signinInfo
+      summary: How the person signed in signs in
+      description: With managed sign-in only. Their email, whether they have
+        a password, and whether codes can come by email (`codes`).
+      tags: [account]
+      responses:
+        "200":
+          description: How they sign in.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email, hasPassword, codes]
+                properties:
+                  email:
+                    type: string
+                  hasPassword:
+                    type: boolean
+                  codes:
+                    type: boolean
+
+  /me/password:
+    put:
+      operationId: setPassword
+      summary: Set or change the password
+      description: With managed sign-in only, after a fresh login (a sign-in
+        just made counts); otherwise `step-up-required`. The person's other
+        logins end.
+      tags: [account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  minLength: 10
+                  maxLength: 256
+      responses:
+        "200":
+          description: Set.
+        "400":
+          description: Too short or too long.
+        "403":
+          description: A fresh login is needed (`step-up-required`).
+    delete:
+      operationId: removePassword
+      summary: Remove the password
+      description: With managed sign-in only, after a fresh login, and only
+        when codes can come by email (otherwise 400).
+      tags: [account]
+      responses:
+        "200":
+          description: Removed.
+        "400":
+          description: This server can't send codes; the password stays.
+        "403":
+          description: A fresh login is needed (`step-up-required`).
+
   /gate:
     get:
       operationId: gate

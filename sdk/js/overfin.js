@@ -114,6 +114,16 @@ export class Overfin {
   exportData(pin) { return this.request('POST', '/me/export', pin ? { pin } : {}); }
   /** Ends this session (and the login). Resolves with { logoutUrl? }. */
   logout() { return this.request('POST', '/logout', {}); }
+  /**
+   * With managed sign-in only (404 otherwise): how the person signed in
+   * signs in. Resolves with { email, hasPassword, codes }, codes telling
+   * whether codes can come by email.
+   */
+  signinInfo() { return this.request('GET', '/me/signin'); }
+  /** Sets or changes the password; needs a fresh login (step-up). Other browsers sign in again. */
+  setPassword(password) { return this.request('PUT', '/me/password', { password }); }
+  /** Removes the password, when codes can come by email; needs a fresh login (step-up). */
+  removePassword() { return this.request('DELETE', '/me/password'); }
 
   // ---- Profiles ----------------------------------------------------------
 

@@ -129,6 +129,15 @@ func (m *Managed) Register(r *plugin.Registrar) error {
 	if err := r.HandleFunc("GET "+StepUpPath, m.stepUp); err != nil {
 		return err
 	}
+	for pattern, h := range map[string]http.HandlerFunc{
+		"GET /api/v1/me/signin":      m.signinInfo,
+		"PUT /api/v1/me/password":    m.setPassword,
+		"DELETE /api/v1/me/password": m.removePassword,
+	} {
+		if err := r.HandleFunc(pattern, h); err != nil {
+			return err
+		}
+	}
 	return r.HandleCrossSite("GET "+gatePath, http.HandlerFunc(m.gate))
 }
 
@@ -212,6 +221,83 @@ func (m *Managed) Logout(w http.ResponseWriter, r *http.Request) string {
 func (m *Managed) stepUp(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{"fresh": {"1"}, "return": {safeReturn(r.URL.Query().Get("return"))}}
 	http.Redirect(w, r, signinPath+"?"+q.Encode(), http.StatusSeeOther)
+}
+
+// ---- One's own sign-in --------------------------------------------------------------------
+
+// signinInfo says how the person signed in signs in: their email, whether
+// they have a password, and whether codes can come by email.
+func (m *Managed) signinInfo(w http.ResponseWriter, r *http.Request) {
+	_, u := m.current(r)
+	if u == nil {
+		problem.Send(w, problem.NotAuthenticated, "")
+		return
+	}
+	writeOK(w, map[string]any{"email": u.Email, "hasPassword": u.PasswordHash != "", "codes": m.mailer() != nil})
+}
+
+// setPassword sets or changes the password, after a fresh login; other
+// browsers then sign in again.
+func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
+	l, u, ok := m.freshUser(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if !decode(r, &req) {
+		m.refuse(w, r, problem.InvalidRequest, "")
+		return
+	}
+	hash, err := password.Hash(req.Password)
+	if err != nil {
+		m.refuse(w, r, problem.InvalidRequest, "passwordLength")
+		return
+	}
+	if err := m.Store.SetPassword(r.Context(), u.Subject, hash); err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	if err := m.Store.DeleteOtherLogins(r.Context(), u.Subject, l.ID); err != nil {
+		m.Logger.Error("ending other logins after a new password failed", "err", err)
+	}
+	writeOK(w, map[string]bool{"hasPassword": true})
+}
+
+// removePassword removes the password, after a fresh login, when codes can
+// come by email instead.
+func (m *Managed) removePassword(w http.ResponseWriter, r *http.Request) {
+	_, u, ok := m.freshUser(w, r)
+	if !ok {
+		return
+	}
+	if m.mailer() == nil {
+		m.refuse(w, r, problem.InvalidRequest, "keepPassword")
+		return
+	}
+	if err := m.Store.SetPassword(r.Context(), u.Subject, ""); err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	writeOK(w, map[string]bool{"hasPassword": false})
+}
+
+// freshUser is the person signed in, if they confirmed it's them in the
+// last few minutes; otherwise it answers step-up-required.
+func (m *Managed) freshUser(w http.ResponseWriter, r *http.Request) (*store.Login, *store.User, bool) {
+	l, u := m.current(r)
+	switch {
+	case u == nil:
+		problem.Send(w, problem.NotAuthenticated, "")
+		return nil, nil, false
+	case l.Fresh.IsZero() || time.Since(l.Fresh) >= m.FreshFor:
+		p := problem.New(problem.StepUpRequired, "")
+		p.StepUp, p.StepUpURL = "login", StepUpPath
+		problem.Write(w, p)
+		return nil, nil, false
+	}
+	return l, u, true
 }
 
 // ---- The page -------------------------------------------------------------------------

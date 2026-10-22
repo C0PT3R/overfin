@@ -331,6 +331,10 @@ export class Overfin {
   createAccount(): Promise<Me>;
   claimAccount(username: string, password: string): Promise<Me>;
   logout(): Promise<{ logoutUrl?: string }>;
+  /** Managed sign-in only. */
+  signinInfo(): Promise<{ email: string; hasPassword: boolean; codes: boolean }>;
+  setPassword(password: string): Promise<{ hasPassword: boolean }>;
+  removePassword(): Promise<{ hasPassword: boolean }>;
   deleteAccount(): Promise<{ history: 'deleted' | 'kept' }>;
   exportData(pin?: string): Promise<Record<string, unknown>>;
 

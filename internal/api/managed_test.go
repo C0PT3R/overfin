@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/overfin/server/internal/api"
 	"github.com/overfin/server/internal/feature"
@@ -302,5 +303,72 @@ func TestManagedSignInInvited(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	if res, err := b.Do(req); err != nil || res.StatusCode != 201 {
 		t.Fatalf("newcomer's account: %v %v", res, err)
+	}
+}
+
+// Someone signed in sets a password while their login is fresh; it ends
+// their other logins. Without email, they can't remove it.
+func TestManagedPassword(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{managed: true, store: &st})
+	ctx := context.Background()
+	u, _ := st.CreateUser(ctx, "ann@example.org", false)
+	hash, _ := password.Hash("first password!")
+	st.SetPassword(ctx, u.Subject, hash)
+	signIn := func(pw string) *http.Client {
+		b := newBrowser(srv)
+		if c, out := signinPost(t, b, srv, "/api/v1/signin", map[string]any{"email": "ann@example.org", "password": pw}); c != 200 {
+			t.Fatalf("signing in: %d %v", c, out)
+		}
+		return b
+	}
+	call := func(b *http.Client, method, path, body string) (int, map[string]any) {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res, err := b.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	other, b := signIn("first password!"), signIn("first password!")
+
+	if c, out := call(b, "GET", "/api/v1/me/signin", ""); c != 200 || out["email"] != "ann@example.org" || out["hasPassword"] != true || out["codes"] != false {
+		t.Errorf("sign-in info: %d %v", c, out)
+	}
+	if c, _ := call(b, "PUT", "/api/v1/me/password", `{"password":"short"}`); c != 400 {
+		t.Errorf("short password: %d", c)
+	}
+	if c, out := call(b, "PUT", "/api/v1/me/password", `{"password":"second password"}`); c != 200 || out["hasPassword"] != true {
+		t.Fatalf("new password: %d %v", c, out)
+	}
+	if res, _ := visit(t, other, srv, "/api/v1/me/signin", nil); res.StatusCode != 401 {
+		t.Errorf("the other browser is still in: %d", res.StatusCode)
+	}
+	if c, _ := signinPost(t, newBrowser(srv), srv, "/api/v1/signin", map[string]any{"email": "ann@example.org", "password": "first password!"}); c != 401 {
+		t.Errorf("old password still works: %d", c)
+	}
+	if c, out := call(b, "DELETE", "/api/v1/me/password", ""); c != 400 || !strings.Contains(out["detail"].(string), "mot de passe") && !strings.Contains(out["detail"].(string), "password") {
+		t.Errorf("removing it without email: %d %v", c, out)
+	}
+	// A login confirmed too long ago: confirm first.
+	stale, _ := newServerWith(t, options{managed: true, store: &st, freshFor: time.Nanosecond})
+	u, _ = st.CreateUser(ctx, "ann@example.org", false)
+	st.SetPassword(ctx, u.Subject, hash)
+	sb := newBrowser(stale)
+	signinPost(t, sb, stale, "/api/v1/signin", map[string]any{"email": "ann@example.org", "password": "first password!"})
+	req, _ := http.NewRequest("PUT", stale.URL+"/api/v1/me/password", strings.NewReader(`{"password":"third password!"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := sb.Do(req)
+	var p map[string]any
+	if err == nil {
+		json.NewDecoder(res.Body).Decode(&p)
+		res.Body.Close()
+	}
+	if err != nil || res.StatusCode != 403 || p["stepUpUrl"] != "/api/v1/step-up" {
+		t.Errorf("stale login: %v %v", res, p)
 	}
 }

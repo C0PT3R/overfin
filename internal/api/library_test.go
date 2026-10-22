@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -294,9 +295,10 @@ type options struct {
 	adminGroup string
 	// managed signs people in with Overfin's own sign-in, sending codes
 	// to mailbox (none when nil); signIn receives it.
-	managed bool
-	mailbox *mailbox
-	signIn  **api.Managed
+	managed  bool
+	mailbox  *mailbox
+	signIn   **api.Managed
+	freshFor time.Duration
 	// signUp, when set, makes the identity provider's sign-up links.
 	signUp func(ctx context.Context, previous string, uses int, until time.Time) (string, string, error)
 }
@@ -378,7 +380,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	var managed *api.Managed
 	if o.managed {
 		managed = &api.Managed{Sessions: sessions, Store: st, Provisioner: prov, CodeKey: []byte("code-key"),
-			SiteURL: "https://media.example.org", LoginLifetime: time.Hour, FreshFor: 5 * time.Minute, Logger: logger}
+			SiteURL: "https://media.example.org", LoginLifetime: time.Hour, FreshFor: cmp.Or(o.freshFor, 5*time.Minute), Logger: logger}
 		if box := o.mailbox; box != nil {
 			managed.Mail = func() api.Mailer { return box }
 		}

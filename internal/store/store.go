@@ -891,6 +891,13 @@ func (s *Store) DeleteLogin(ctx context.Context, id string) error {
 	return err
 }
 
+// DeleteOtherLogins ends someone's logins but one: after a new password,
+// other browsers sign in again.
+func (s *Store) DeleteOtherLogins(ctx context.Context, subject, keepID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM logins WHERE subject = ? AND id != ?`, subject, keepID)
+	return err
+}
+
 // DeleteExpiredLogins removes logins past their expiry.
 func (s *Store) DeleteExpiredLogins(ctx context.Context) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM logins WHERE expires_at <= ?`, s.now().Unix())
