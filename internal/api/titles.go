@@ -563,6 +563,14 @@ func (l Library) forgetTitleProgress(w http.ResponseWriter, r *http.Request) {
 		l.storeError(w, err)
 		return
 	}
+	// An episode taken out of Continue Watching takes its series out, its
+	// next episode included, until the profile watches it again.
+	if t.Ref.Kind == "episode" {
+		if err := l.Provisioner.Store.DismissContinue(ctx, p.ID, t.Ref.Series(), time.Now()); err != nil {
+			l.storeError(w, err)
+			return
+		}
+	}
 	state, err := l.userState(ctx, p, key)
 	if err != nil {
 		l.storeError(w, err)
@@ -708,4 +716,43 @@ func (l Library) nextEpisode(ctx context.Context, p *store.Profile, ep store.Tit
 		return nil, err
 	}
 	return &sums[0], nil
+}
+
+// upNext is what playing a series plays for the profile: the episode it's
+// in the middle of, and where; else the one after the last it finished;
+// else the first. Not found when no library has an episode it may see.
+func (l Library) upNext(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r) {
+		return
+	}
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	t, ok := l.visibleTitle(w, r, p)
+	if !ok {
+		return
+	}
+	if t.Ref.Kind != "series" {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	ctx := r.Context()
+	key, pos, err := l.Provisioner.Store.SeriesUpNext(ctx, p.ID, t.Ref)
+	if err != nil {
+		l.storeError(w, err)
+		return
+	}
+	var sums []library.TitleSummary
+	if key != "" {
+		if sums, err = l.titleSummaries(ctx, p, []string{key}); err != nil {
+			l.storeError(w, err)
+			return
+		}
+	}
+	if len(sums) == 0 || !sums[0].Playable {
+		problem.Send(w, problem.NotFound, "")
+		return
+	}
+	writeOK(w, map[string]any{"title": sums[0], "positionMs": pos})
 }

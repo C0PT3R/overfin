@@ -78,6 +78,9 @@ type exportProfileJSON struct {
 	SeriesCeiling    string `json:"seriesCeiling,omitempty"`
 	HasPIN           bool   `json:"hasPin"`
 	CreatedAt        string `json:"createdAt"`
+	// OutOfContinue are the series it took out of Continue Watching (by
+	// title key), and when.
+	OutOfContinue map[string]string `json:"outOfContinueWatching,omitempty"`
 	// WatchHistory is read from the media server for this download.
 	WatchHistory []exportItemJSON `json:"watchHistory"`
 	// Titles is what Overfin keeps about what the profile did with each
@@ -217,10 +220,20 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 				mods[m.Name()] = data
 			}
 		}
+		dismissed, err := a.Sessions.Store.DismissedSeries(ctx, p.ID)
+		if err != nil {
+			a.Logger.Error("reading a profile's dismissed series for an export failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
+		hidden := map[string]string{}
+		for k, at := range dismissed {
+			hidden[k] = at.Format(time.RFC3339)
+		}
 		out.Profiles = append(out.Profiles, exportProfileJSON{
 			ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, Language: p.Language, SubtitleLanguage: p.SubtitleLanguage,
 			MovieCeiling: p.MovieCeiling, SeriesCeiling: p.SeriesCeiling, HasPIN: p.HasPIN, CreatedAt: p.Created.Format(time.RFC3339),
-			WatchHistory: history, Titles: titles, Requests: requests, Modules: mods,
+			WatchHistory: history, Titles: titles, Requests: requests, Modules: mods, OutOfContinue: hidden,
 		})
 	}
 	sessions, err := a.Sessions.Store.Sessions(ctx, c.Account.ID)

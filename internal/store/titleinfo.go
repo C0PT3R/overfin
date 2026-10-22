@@ -470,14 +470,19 @@ func (s *Store) ContinueTitles(ctx context.Context, profileID, today string, lim
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	dismissed, err := s.dismissed(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
 	for i, sk := range order {
 		if i == 200 {
 			break
 		}
-		if inProgress[sk] {
+		l := lasts[sk]
+		// Taken out of Continue Watching since it was last watched.
+		if inProgress[sk] || (dismissed[sk] > 0 && dismissed[sk] >= l.at) {
 			continue
 		}
-		l := lasts[sk]
 		next, err := s.nextEpisode(ctx, profileID, l.ref, today)
 		if err != nil {
 			return nil, err

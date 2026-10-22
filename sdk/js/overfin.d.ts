@@ -378,6 +378,8 @@ export class Overfin {
   setPlayed(id: string, played?: boolean): Promise<UserState>;
   setFavorite(id: string, favorite?: boolean): Promise<UserState>;
   forgetProgress(id: string): Promise<UserState>;
+  /** What playing a series plays: the episode in progress (and where), the one after the last finished, or the first. */
+  upNext(seriesId: string): Promise<{ title: TitleSummary; positionMs: number }>;
   clearHistory(): Promise<null>;
 
   watchlist(): Promise<TitleSummary[]>;

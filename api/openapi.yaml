@@ -1237,6 +1237,33 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /titles/{titleId}/up-next:
+    parameters:
+      - $ref: "#/components/parameters/TitleId"
+    get:
+      operationId: getUpNext
+      summary: What playing a series plays
+      description: For a series, the episode the active profile is in the
+        middle of, and where; else the one after the last it finished
+        (specials only after a special); else the first. Among the episodes
+        a library has; not found when there's none.
+      tags: [titles]
+      responses:
+        "200":
+          description: The episode, and where to start.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [title, positionMs]
+                properties:
+                  title:
+                    $ref: "#/components/schemas/TitleSummary"
+                  positionMs:
+                    $ref: "#/components/schemas/Milliseconds"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /titles/{titleId}/progress:
     parameters:
       - $ref: "#/components/parameters/TitleId"

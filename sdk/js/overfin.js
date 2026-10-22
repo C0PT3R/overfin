@@ -182,6 +182,8 @@ export class Overfin {
   setFavorite(id, favorite = true) { return this.request(favorite ? 'PUT' : 'DELETE', `/titles/${enc(id)}/favorite`); }
   /** Takes a title out of Continue Watching; whether it was watched stays. Returns its new state. */
   forgetProgress(id) { return this.request('DELETE', `/titles/${enc(id)}/progress`); }
+  /** What playing a series plays: { title (an episode), positionMs }. */
+  upNext(seriesId) { return this.request('GET', `/titles/${enc(seriesId)}/up-next`); }
   /** Forgets what the active profile watched. Not for kids profiles. */
   clearHistory() { return this.request('DELETE', '/me/history'); }
 

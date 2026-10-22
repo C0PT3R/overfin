@@ -261,4 +261,18 @@ func TestPlayNextEpisode(t *testing.T) {
 	if got := next("title_series_tmdb_1399_s1_e3"); got != "title_series_tmdb_1399_s2_e1" {
 		t.Errorf("into the next season: %q", got)
 	}
+
+	// Playing the series: the episode a library has (nothing watched yet).
+	var up struct {
+		Title      struct{ ID string }
+		PositionMs int64
+	}
+	if code := get(t, srv, "/api/v1/titles/title_series_tmdb_1399/up-next", &up); code != 200 || up.Title.ID != "title_series_tmdb_1399_s1_e3" {
+		t.Errorf("up next: %d %+v", code, up)
+	}
+	for _, bad := range []string{"title_series_tmdb_1399_s1", "title_movie_tmdb_949", "title_series_tmdb_5"} {
+		if code := get(t, srv, "/api/v1/titles/"+bad+"/up-next", nil); code != 404 {
+			t.Errorf("%s: %d", bad, code)
+		}
+	}
 }
