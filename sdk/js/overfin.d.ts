@@ -237,6 +237,8 @@ export interface Playback {
   segments?: Segment[];
   /** Seek-bar previews, when the server has some: sheets of `columns` x `rows` tiles, tile n at n x `intervalMs`. */
   trickplay?: Trickplay;
+  /** For an episode, the one after it (it may not be playable); absent at the end. */
+  next?: TitleSummary;
 }
 
 export interface Trickplay {

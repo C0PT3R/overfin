@@ -215,3 +215,50 @@ func TestPlayATitle(t *testing.T) {
 		t.Errorf("both a title and a copy: %d", code)
 	}
 }
+
+// An episode's playback names the episode after it: the next of its
+// season, else the first of the next season.
+func TestPlayNextEpisode(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{store: &st})
+	ctx := context.Background()
+	now := time.Now()
+	n := func(i int) *int { return &i }
+	episode := func(e int) {
+		st.PutCatalog(ctx, []store.CatalogItem{
+			{ID: fmt.Sprintf("%032x", 2), Kind: "series", Name: "GoT", SortName: "got", TMDB: "1399"},
+			{ID: fmt.Sprintf("%032x", 1), Kind: "episode", Name: "E", SortName: "e", SeriesID: fmt.Sprintf("%032x", 2),
+				SeasonNumber: n(1), EpisodeNumber: n(e)},
+		}, 1)
+		st.RefreshTitleKeys(ctx)
+	}
+	det, _ := json.Marshal(store.TitleDetails{Seasons: []store.SeasonInfo{{Number: 1, EpisodeCount: 3}, {Number: 2, EpisodeCount: 1}}})
+	st.SetTitleDetails(ctx, store.Title{Kind: "series", TMDB: "1399", Name: "Le Trône de fer"}, det, now)
+	st.SetTitleRatings(ctx, store.RatedTitle{Kind: "series", TMDB: "1399"}, nil, "2011-04-17", "2011-04-17", now)
+	st.SetSeason(ctx, "1399", store.Season{Number: 1, Name: "Saison 1", Episodes: []store.Episode{
+		{Number: 1, AirDate: "2011-04-17"}, {Number: 2, AirDate: "2011-04-24"}, {Number: 3, Name: "Lord Snow", AirDate: "2011-05-01"}}}, now)
+	st.SetSeason(ctx, "1399", store.Season{Number: 2, Name: "Saison 2", Episodes: []store.Episode{
+		{Number: 1, Name: "Le Nord", AirDate: "2012-04-01"}}}, now)
+
+	next := func(title string) string {
+		t.Helper()
+		code, body := post(t, srv, "/api/v1/playback", `{"titleId":"`+title+`","capabilities":{}}`)
+		var pb struct{ Next *struct{ ID string } }
+		json.Unmarshal([]byte(body), &pb)
+		if code != 201 {
+			t.Fatalf("play %s: %d %s", title, code, body)
+		}
+		if pb.Next == nil {
+			return ""
+		}
+		return pb.Next.ID
+	}
+	episode(2)
+	if got := next("title_series_tmdb_1399_s1_e2"); got != "title_series_tmdb_1399_s1_e3" {
+		t.Errorf("within the season: %q", got)
+	}
+	episode(3)
+	if got := next("title_series_tmdb_1399_s1_e3"); got != "title_series_tmdb_1399_s2_e1" {
+		t.Errorf("into the next season: %q", got)
+	}
+}

@@ -3224,6 +3224,12 @@ components:
             media server made some; absent otherwise.
           allOf:
             - $ref: "#/components/schemas/Trickplay"
+        next:
+          description: For an episode, the one after it that the profile
+            may see (the rest of its season, then the next season's);
+            absent at the end. It may not be playable (no library has it).
+          allOf:
+            - $ref: "#/components/schemas/TitleSummary"
         queue:
           description: Where playback is in the queue. The whole queue is
             available from `GET /playback/{id}/queue`.

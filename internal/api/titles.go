@@ -655,3 +655,57 @@ func (l Library) requestsCovering(ctx context.Context, accountID string, titles 
 	}
 	return out, nil
 }
+
+// nextEpisode is the episode after ep that the profile may see: the next
+// ones of its season, else the first ones of the seasons after it
+// (specials only after a special); nil when there's none.
+func (l Library) nextEpisode(ctx context.Context, p *store.Profile, ep store.TitleRef) (*library.TitleSummary, error) {
+	st := l.Provisioner.Store
+	var keys []string
+	add := func(season int, after int) error {
+		numbers, err := st.SeasonEpisodes(ctx, store.TitleRef{Kind: "season", Source: ep.Source, ID: ep.ID, Season: season})
+		if err != nil {
+			return err
+		}
+		for _, n := range numbers {
+			if n > after && len(keys) < 10 {
+				keys = append(keys, store.TitleRef{Kind: "episode", Source: ep.Source, ID: ep.ID, Season: season, Episode: n}.Key())
+			}
+		}
+		return nil
+	}
+	if err := add(ep.Season, ep.Episode); err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 && ep.Season > 0 {
+		series := ep.Series()
+		infos, err := st.TitleInfos(ctx, []string{series.Key()}, today())
+		if err != nil {
+			return nil, err
+		}
+		var listed []store.SeasonInfo
+		if t := infos[series.Key()]; t != nil {
+			listed = t.Details.Seasons
+		}
+		seasons, err := st.SeriesSeasons(ctx, series, listed)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range seasons {
+			if n > ep.Season && len(keys) == 0 {
+				if err := add(n, -1); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	// The first the profile may see (one not out yet isn't shown).
+	sums, err := l.titleSummaries(ctx, p, keys)
+	if err != nil || len(sums) == 0 {
+		return nil, err
+	}
+	return &sums[0], nil
+}

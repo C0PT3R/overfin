@@ -308,6 +308,9 @@ type sessionJSON struct {
 	MaxBitrateKbps int                   `json:"maxBitrateKbps,omitempty"`
 	Segments       []segmentJSON         `json:"segments,omitempty"`
 	Trickplay      *trickplayJSON        `json:"trickplay,omitempty"`
+	// Next is the episode after this one, when it's one the profile may
+	// see: the rest of the season, then the next season's.
+	Next *library.TitleSummary `json:"next,omitempty"`
 }
 
 var (
@@ -529,6 +532,13 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(titles) == 1 {
 		out.Title = &titles[0]
+		if ref, ok := titleRef(titles[0].ID); ok && ref.Kind == "episode" {
+			next, err := l.nextEpisode(ctx, p, ref)
+			if err != nil {
+				pb.Logger.Warn("finding the next episode failed", "err", err) // a bonus: playback goes on
+			}
+			out.Next = next
+		}
 	}
 	base := "/api/v1/stream/" + s.Ticket + "/"
 	if dec.Protocol == "hls" {
