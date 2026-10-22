@@ -46,12 +46,14 @@ func TestDeviceProfile(t *testing.T) {
 			}
 		}
 	}
-	if height != "1080" || ranges["hevc"] != "SDR" || len(ranges) != 1 {
+	if height != "1080" || ranges["hevc"] != "SDR|DOVIWithSDR" || len(ranges) != 1 {
 		t.Errorf("codec profiles: %+v", p.CodecProfiles)
 	}
 	hdr := DeviceProfile(Capabilities{VideoCodecs: []string{"hevc", "av1", "h264"}, HDR: []string{"HDR10", "dolbyvision"}}, 1)
 	for _, cp := range hdr.CodecProfiles {
-		if cp.Codec != "" && cp.Conditions[0].Value != "SDR|HDR10|HDR10Plus" {
+		// Dolby Vision profile 8 plays as its HDR10 base; profile 5 ("DOVI")
+		// and anything the client names otherwise don't count.
+		if cp.Codec != "" && cp.Conditions[0].Value != "SDR|DOVIWithSDR|HDR10|HDR10Plus|DOVIWithHDR10|DOVIWithHDR10Plus|DOVIWithEL|DOVIWithELHDR10Plus" {
 			t.Errorf("%s with an HDR10 screen: %q", cp.Codec, cp.Conditions[0].Value)
 		}
 		if cp.Codec == "h264" {

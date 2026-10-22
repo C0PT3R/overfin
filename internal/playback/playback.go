@@ -108,15 +108,17 @@ func DeviceProfile(c Capabilities, maxBitrate int) jellyfin.DeviceProfile {
 	// The color ranges the screen shows, for the codecs that carry HDR:
 	// without them, Jellyfin takes the screen for standard range only and
 	// converts HDR, which means re-encoding the video. HDR10+ carries HDR10
-	// as its base. Dolby Vision is left out: browsers don't play its
-	// streams reliably.
-	ranges := "SDR"
+	// as its base. So does Dolby Vision profile 8 (most 4K releases): its
+	// HDR10, HLG or SDR base plays as such, Jellyfin removing the Dolby
+	// Vision layer where a player needs it; its copy costs nothing. Dolby
+	// Vision alone (profile 5) has no such base and is converted.
+	ranges := "SDR|DOVIWithSDR"
 	hdr := known(c.HDR, knownHDR)
 	if slices.Contains(hdr, "hdr10") {
-		ranges += "|HDR10|HDR10Plus"
+		ranges += "|HDR10|HDR10Plus|DOVIWithHDR10|DOVIWithHDR10Plus|DOVIWithEL|DOVIWithELHDR10Plus"
 	}
 	if slices.Contains(hdr, "hlg") {
-		ranges += "|HLG"
+		ranges += "|HLG|DOVIWithHLG"
 	}
 	for _, codec := range []string{"hevc", "av1", "vp9"} {
 		if slices.Contains(video, codec) {

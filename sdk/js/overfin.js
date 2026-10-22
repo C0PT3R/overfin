@@ -268,7 +268,6 @@ export function capabilities() {
   const can = (mime) => Boolean((mse && mse.isTypeSupported(mime)) || video.canPlayType(mime).replace('no', ''));
   const any = (...mimes) => mimes.some(can);
   const pick = (table) => Object.entries(table).filter(([, mimes]) => any(...[].concat(mimes))).map(([name]) => name);
-  const pixels = Math.max(screen.width, screen.height) * (globalThis.devicePixelRatio || 1);
   const { firefox, chromium, safari, mac } = browserFamily();
   // Firefox says it plays Matroska, but loads the whole file before playing
   // it, which streaming can't afford: it gets it repackaged instead.
@@ -296,7 +295,9 @@ export function capabilities() {
       ac3: 'audio/mp4; codecs="ac-3"',
       eac3: 'audio/mp4; codecs="ec-3"',
     }),
-    maxHeight: pixels >= 3000 ? 2160 : 1080,
+    // Browsers decode 4K whatever the screen: scaling it down on the server
+    // means re-encoding it. The bitrate limits still apply.
+    maxHeight: 2160,
     hdr: hdr ? ['hdr10', 'hlg'] : [],
     subtitles: ['vtt'],
     maxAudioChannels: 2,
