@@ -258,6 +258,30 @@ permissions, auto-approval and quotas. No one signs in to Seerr as them, and
 people never need Seerr itself: keep it private on your network, reachable
 by Overfin and you only.
 
+## Other apps
+
+Other apps can read some of what Overfin knows, with a key you make for
+each in the control panel's **Apps** tab (shown once, revocable). For now,
+how much each film and series is watched, for apps that weigh what to
+keep (such as Stewarr): totals per title only, never anything per person.
+They ask the control panel's address, which answers only on private
+networks:
+
+```
+GET /apps/v1/watch-stats[?since=2026-10-22T00:00:00Z]
+Authorization: Bearer ofapp_…
+```
+
+```json
+{"titles": [{"kind": "series", "tmdbId": "1399", "tvdbId": "121361", "imdbId": "tt0944947",
+  "plays": 12, "viewers": 3, "favorites": 1, "lastPlayed": "2026-10-20", "changedAt": "…"}],
+ "generatedAt": "…"}
+```
+
+`plays` are plays to the end (a series adds up its episodes), `viewers`
+the accounts that watched some of it, `favorites` the profiles that keep
+it as a favorite. With `since`, only the titles changed since then.
+
 ## Building your own client
 
 - **The API**, specified in [api/openapi.yaml](api/openapi.yaml), with its

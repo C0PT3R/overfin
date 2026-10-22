@@ -494,6 +494,47 @@ async function templatesView() {
     ...items.map(card), card(null));
 }
 
+// ---- Apps ----------------------------------------------------------------------
+
+// apps lists the keys other apps (Stewarr…) read Overfin's statistics
+// with: made here, shown once, revoked here.
+async function appsView() {
+  const { items } = await api('GET', '/admin/api/apps');
+  $('#main').classList.remove('wide');
+  const name = h('input', { type: 'text', placeholder: 'App name, e.g. Stewarr', maxlength: '64' });
+  const made = h('div', {});
+  const create = async (e) => {
+    e.preventDefault();
+    try {
+      const k = await api('POST', '/admin/api/apps', { name: name.value, scope: 'watch-stats' });
+      made.replaceChildren(h('div', { class: 'notice' },
+        h('p', {}, `The key for ${k.name}. Copy it now: it won't be shown again.`),
+        h('input', { type: 'text', value: k.key, readonly: true, onfocus: (ev) => ev.target.select() }),
+        h('p', { class: 'hint' }, 'The app sends it as "Authorization: Bearer <key>" to GET /apps/v1/watch-stats on this address.')));
+      name.value = '';
+      list.replaceChildren(...rows((await api('GET', '/admin/api/apps')).items));
+    } catch (err) {
+      made.replaceChildren(h('p', { class: 'error' }, err.message));
+    }
+  };
+  const rows = (keys) => keys.length ? keys.map((k) => h('li', {},
+    h('div', {}, h('div', { class: 'name' }, k.name), h('div', { class: 'hint' },
+      `Watch statistics · made ${day(k.createdAt)} · ${k.lastUsedAt ? `last used ${ago(k.lastUsedAt)}` : 'never used'}`)),
+    h('button', { type: 'button', class: 'danger', onclick: async () => {
+      if (!confirm(`Revoke ${k.name}'s key? The app stops getting anything.`)) return;
+      await api('DELETE', `/admin/api/apps/${k.id}`);
+      appsView();
+    } }, 'Revoke'))) : [h('li', { class: 'muted' }, 'No app has a key yet.')];
+  const list = h('ul', { class: 'items' }, ...rows(items));
+  show(h('section', {},
+    h('h2', {}, 'Apps'),
+    h('p', { class: 'hint' }, 'Other apps (such as Stewarr) can read, with a key made here, how much each film and series is watched: plays, viewers (accounts), favorites and the day last played. Totals per title only, never anything per person. They ask this address, which answers only on private networks.'),
+    list,
+    h('h3', {}, 'A new key'),
+    h('form', { class: 'toolbar', onsubmit: create }, name, h('button', { type: 'submit', class: 'primary' }, 'Make a key')),
+    made));
+}
+
 // ---- Identification ----------------------------------------------------------
 
 // identification lists every film and series of the libraries with the
@@ -626,12 +667,13 @@ async function moduleView(name) {
 
 async function route() {
   const tab = location.hash.startsWith('#/m/') ? location.hash.slice(1)
-    : { '#/users': 'users', '#/templates': 'templates', '#/identification': 'identification' }[location.hash] || 'settings';
+    : { '#/users': 'users', '#/templates': 'templates', '#/identification': 'identification', '#/apps': 'apps' }[location.hash] || 'settings';
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === tab);
   if (tab.startsWith('/m/')) return moduleView(decodeURIComponent(tab.slice(3)));
   if (tab === 'users') return users();
   if (tab === 'templates') return templatesView();
   if (tab === 'identification') return identification();
+  if (tab === 'apps') return appsView();
   $('#main').classList.remove('wide');
   const state = await api('GET', '/admin/api/features');
   state.jellyfin = await api('GET', '/admin/api/jellyfin').catch(() => null);

@@ -188,7 +188,12 @@ comes from the internet, and media files can be written by anyone.
     disk, for a few minutes and within a size limit, so a restart forgets
     it. Names and emails from the identity provider are shown live through
     its connector, the same way, never stored; only the name is handed on,
-    to the account's Seerr user (rule 47).
+    to the account's Seerr user (rule 47). The one exception to "never the
+    admins": apps the operator gives a key to (rule 58) read totals per
+    film and series (plays to the end, viewers counted by account,
+    favorites counted by profile, the day it was last played), never
+    anything per person. On a small server, a total can still point to
+    someone; the operator decides which apps get them.
 41. No analytics, no telemetry, no calls home. Metrics are aggregate counts
     with no user labels.
 42. Client IPs are used in memory (rate limiting) and never stored by Overfin.
@@ -260,7 +265,11 @@ comes from the internet, and media files can be written by anyone.
     set up, the same listener, with the same guards, serves only the setup
     page instead: it saves nothing without the one-time code from Overfin's
     log, stops answering after 10 wrong codes until a restart, and saves
-    once only; Jellyfin's key is kept sealed, like every token.
+    once only; Jellyfin's key is kept sealed, like every token. Other apps
+    (Stewarr…) read what Overfin shares with them on the same listener,
+    with the same guards, under /apps/: each with a key an admin made for
+    it in the panel, for one purpose ("watch-stats"), shown once, kept only
+    as a hash, revocable.
 
 ### Code supply
 59. No code copied or ported from other projects. Dependencies are few, chosen

@@ -186,6 +186,11 @@ func (p *Panel) Handler() http.Handler {
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}", p.signedIn(p.deleteAccount))
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}/sessions/{session}", p.signedIn(p.endSession))
 	mux.HandleFunc("POST /admin/api/profiles/{id}/unlock-pin", p.signedIn(p.unlockPIN))
+	mux.HandleFunc("GET /admin/api/apps", p.signedIn(p.appKeys))
+	mux.HandleFunc("POST /admin/api/apps", p.signedIn(p.createAppKey))
+	mux.HandleFunc("DELETE /admin/api/apps/{id}", p.signedIn(p.deleteAppKey))
+	// What apps read with their keys (no admin sign-in: the key says who).
+	mux.HandleFunc("GET /apps/v1/watch-stats", p.watchStats)
 	mux.HandleFunc("GET /admin/api/identification", p.signedIn(p.identification))
 	mux.HandleFunc("POST /admin/api/identification/search", p.signedIn(p.identificationSearch))
 	mux.HandleFunc("PUT /admin/api/identification/{id}", p.signedIn(p.identify))
