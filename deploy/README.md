@@ -57,7 +57,7 @@ After a minute or two:
    with the email you gave. Get a sign-in link (it works once, for an hour):
 
    ```sh
-   docker compose exec pocket-id /app/pocket-id one-time-access-token you@example.org
+   docker compose exec -u 1000:1000 pocket-id /app/pocket-id one-time-access-token you@example.org
    ```
 
    Open it, and add a passkey when Pocket ID asks. You're Pocket ID's admin,

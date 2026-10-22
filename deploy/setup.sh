@@ -253,7 +253,7 @@ Then, after a minute or two:
     <this machine>, then http://localhost:8081, with the setup code from
     docker compose logs overfin;
   - your sign-in link (it works once, for an hour):
-      docker compose exec pocket-id /app/pocket-id one-time-access-token $email
+      docker compose exec -u 1000:1000 pocket-id /app/pocket-id one-time-access-token $email
     open it and add a passkey;
   - https://$site : the site;
   - the control panel, later: same address as the setup page. Invite people
