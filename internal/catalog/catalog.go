@@ -45,8 +45,9 @@ type Sync struct {
 	now     func() time.Time
 }
 
-// pageSize is how many titles one request reads.
-const pageSize = 500
+// pageSize is how many titles one request reads. With their people, a
+// page of 500 took Jellyfin longer than the client waits.
+const pageSize = 100
 
 // margin is how far back changes are read again, so nothing saved during
 // the previous read is missed.
