@@ -1088,6 +1088,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ItemPage"
 
+  /items/continue:
+    get:
+      operationId: listContinueWatching
+      summary: What to continue, and what's next, together
+      description: The items started but not finished and the next episode
+        of each series in progress, in one list. A series appears once; an
+        episode started stands for it rather than its next one.
+      tags: [library]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Most recently watched first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemPage"
+
   /items/latest:
     get:
       operationId: listLatest

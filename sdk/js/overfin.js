@@ -148,6 +148,7 @@ export class Overfin {
   }
 
   async resume(limit = 12) { return (await this.request('GET', `/items/resume${toQuery({ limit })}`)).items; }
+  async continueWatching(limit = 20) { return (await this.request('GET', `/items/continue${toQuery({ limit })}`)).items; }
   async nextUp(limit = 12) { return (await this.request('GET', `/items/next-up${toQuery({ limit })}`)).items; }
   async genres(libraryId) { return (await this.request('GET', `/genres${toQuery({ library: libraryId })}`)).items; }
   async latest(libraryId, limit = 16) { return (await this.request('GET', `/items/latest${toQuery({ library: libraryId, limit })}`)).items; }

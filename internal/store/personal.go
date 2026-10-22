@@ -277,35 +277,63 @@ func (s *Store) Imported(ctx context.Context, profileID string) (bool, error) {
 	return n > 0, err
 }
 
+// inProgressRows are a profile's titles in the middle (its ID the only
+// argument): the item each was last seen as, if the index still has it,
+// else another copy of the same title (a title's state outlives its files
+// and the server they were on), else the item as kept (kinds the index
+// doesn't hold); when, its series and kind as the index knows them.
+const inProgressRows = `SELECT coalesce(a.id, b.id, pt.item_id) AS id, pt.last_played_at AS at, pt.title AS title,
+		coalesce(a.series_id, b.series_id) AS series, coalesce(a.kind, b.kind) AS kind
+	FROM profile_titles pt
+	LEFT JOIN catalog_items a ON a.id = pt.item_id
+	LEFT JOIN catalog_items b ON a.id IS NULL AND b.id =
+		(SELECT x.id FROM catalog_items x WHERE x.title_key = pt.title ORDER BY x.id LIMIT 1)
+	WHERE pt.profile_id = ? AND pt.position_ms > 0 AND coalesce(a.id, b.id, pt.item_id) IS NOT NULL`
+
 // InProgress lists the items a profile is in the middle of, the last
 // played first: Continue Watching. A title watched before and started
 // again is in the middle too. kinds, when set, keeps those the index knows
 // as one of them.
 func (s *Store) InProgress(ctx context.Context, profileID string, kinds []string, offset, limit int) ([]string, error) {
-	// The item it was last seen as, if the index still has it, else another
-	// copy of the same title (a title's state outlives its files and the
-	// server they were on), else the item as kept (kinds the index doesn't
-	// hold).
-	q := `SELECT coalesce(a.id, b.id, pt.item_id) FROM profile_titles pt
-		LEFT JOIN catalog_items a ON a.id = pt.item_id
-		LEFT JOIN catalog_items b ON a.id IS NULL AND b.id =
-			(SELECT x.id FROM catalog_items x WHERE x.title_key = pt.title ORDER BY x.id LIMIT 1)
-		WHERE pt.profile_id = ? AND pt.position_ms > 0 AND coalesce(a.id, b.id, pt.item_id) IS NOT NULL`
+	q := `SELECT id FROM (` + inProgressRows + `)`
 	args := []any{profileID}
 	if len(kinds) > 0 {
-		q += ` AND coalesce(a.kind, b.kind) IN (` + marks(len(kinds)) + `)`
+		q += ` WHERE kind IN (` + marks(len(kinds)) + `)`
 		for _, k := range kinds {
 			args = append(args, k)
 		}
 	}
-	q += ` ORDER BY pt.last_played_at DESC, pt.title LIMIT ? OFFSET ?`
+	q += ` ORDER BY at DESC, title LIMIT ? OFFSET ?`
 	return s.ids(ctx, q, append(args, limit, offset)...)
 }
 
+// nextUpCTEs define next(series, at, id): for each series a profile
+// watched an episode of (its ID the two arguments), the next episode the
+// library has that it hasn't watched (id NULL when there's none), and
+// when it last watched one. Specials (season 0) come next only after a
+// special.
+const nextUpCTEs = `watched AS (
+		SELECT e.series_id AS series, e.season_number AS sn, e.episode_number AS en, pt.last_played_at AS at,
+			row_number() OVER (PARTITION BY e.series_id
+				ORDER BY pt.last_played_at DESC, e.season_number DESC, e.episode_number DESC) AS r
+		FROM profile_titles pt
+		JOIN catalog_items e ON e.title_key = pt.title AND e.kind = 'episode'
+		WHERE pt.profile_id = ? AND pt.played = 1 AND e.series_id IS NOT NULL
+			AND e.season_number IS NOT NULL AND e.episode_number IS NOT NULL
+	), next AS (
+		SELECT w.series, w.at, (SELECT n.id FROM catalog_items n
+			WHERE n.kind = 'episode' AND n.series_id = w.series
+				AND (n.season_number > w.sn OR (n.season_number = w.sn AND n.episode_number > w.en))
+				AND (n.season_number > 0 OR w.sn = 0)
+				AND NOT EXISTS (SELECT 1 FROM profile_titles x
+					WHERE x.profile_id = ? AND x.title = n.title_key AND x.played = 1)
+			ORDER BY n.season_number, n.episode_number, n.id LIMIT 1) AS id
+		FROM watched w WHERE w.r = 1
+	)`
+
 // NextUp lists, for each series a profile watched an episode of, the next
 // episode the library has that it hasn't watched, the series watched last
-// first. seriesID, when set, keeps that series only. Specials (season 0)
-// come next only after a special.
+// first. seriesID, when set, keeps that series only.
 func (s *Store) NextUp(ctx context.Context, profileID, seriesID string, offset, limit int) ([]string, error) {
 	filter := ""
 	args := []any{profileID, profileID}
@@ -313,26 +341,23 @@ func (s *Store) NextUp(ctx context.Context, profileID, seriesID string, offset, 
 		filter = ` AND series = ?`
 		args = append(args, seriesID)
 	}
-	q := `WITH watched AS (
-			SELECT e.series_id AS series, e.season_number AS sn, e.episode_number AS en, pt.last_played_at AS at,
-				row_number() OVER (PARTITION BY e.series_id
-					ORDER BY pt.last_played_at DESC, e.season_number DESC, e.episode_number DESC) AS r
-			FROM profile_titles pt
-			JOIN catalog_items e ON e.title_key = pt.title AND e.kind = 'episode'
-			WHERE pt.profile_id = ? AND pt.played = 1 AND e.series_id IS NOT NULL
-				AND e.season_number IS NOT NULL AND e.episode_number IS NOT NULL
-		), next AS (
-			SELECT w.series, w.at, (SELECT n.id FROM catalog_items n
-				WHERE n.kind = 'episode' AND n.series_id = w.series
-					AND (n.season_number > w.sn OR (n.season_number = w.sn AND n.episode_number > w.en))
-					AND (n.season_number > 0 OR w.sn = 0)
-					AND NOT EXISTS (SELECT 1 FROM profile_titles x
-						WHERE x.profile_id = ? AND x.title = n.title_key AND x.played = 1)
-				ORDER BY n.season_number, n.episode_number, n.id LIMIT 1) AS id
-			FROM watched w WHERE w.r = 1
-		)
-		SELECT id FROM next WHERE id IS NOT NULL` + filter + ` ORDER BY at DESC, id LIMIT ? OFFSET ?`
+	q := `WITH ` + nextUpCTEs + ` SELECT id FROM next WHERE id IS NOT NULL` + filter + ` ORDER BY at DESC, id LIMIT ? OFFSET ?`
 	return s.ids(ctx, q, append(args, limit, offset)...)
+}
+
+// ContinueWatching lists what a profile is in the middle of and the next
+// episode of each series it follows, together, the last watched first. A
+// series shows once: an episode in the middle stands for it, rather than
+// its next one.
+func (s *Store) ContinueWatching(ctx context.Context, profileID string, offset, limit int) ([]string, error) {
+	q := `WITH ` + nextUpCTEs + `, resume AS (` + inProgressRows + `)
+		SELECT id FROM (
+			SELECT id, at FROM resume
+			UNION ALL
+			SELECT id, at FROM next WHERE id IS NOT NULL
+				AND series NOT IN (SELECT series FROM resume WHERE series IS NOT NULL)
+		) ORDER BY at DESC, id LIMIT ? OFFSET ?`
+	return s.ids(ctx, q, profileID, profileID, profileID, limit, offset)
 }
 
 func (s *Store) ids(ctx context.Context, q string, args ...any) ([]string, error) {

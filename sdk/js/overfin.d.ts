@@ -326,6 +326,8 @@ export class Overfin {
   pages(query?: ItemQuery): AsyncGenerator<ItemPage>;
   resume(limit?: number): Promise<ItemSummary[]>;
   nextUp(limit?: number): Promise<ItemSummary[]>;
+  /** Started titles and each followed series' next episode, together. */
+  continueWatching(limit?: number): Promise<ItemSummary[]>;
   /** A library's genres (every library's without one), for filters. */
   genres(libraryId?: string): Promise<Genre[]>;
   latest(libraryId: string, limit?: number): Promise<ItemSummary[]>;

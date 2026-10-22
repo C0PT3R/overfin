@@ -51,15 +51,16 @@ func (Library) Name() string { return "library" }
 
 func (l Library) Register(r *plugin.Registrar) error {
 	for pattern, h := range map[string]http.HandlerFunc{
-		"GET /api/v1/libraries":     l.libraries,
-		"GET /api/v1/items":         l.items,
-		"GET /api/v1/items/resume":  l.resume,
-		"GET /api/v1/items/next-up": l.nextUp,
-		"GET /api/v1/items/latest":  l.latest,
-		"GET /api/v1/genres":        l.genres,
-		"GET /api/v1/items/{id}":    l.item,
-		"GET /api/v1/people/{id}":   l.person,
-		"GET /api/v1/images/{id}":   l.image,
+		"GET /api/v1/libraries":      l.libraries,
+		"GET /api/v1/items":          l.items,
+		"GET /api/v1/items/resume":   l.resume,
+		"GET /api/v1/items/next-up":  l.nextUp,
+		"GET /api/v1/items/continue": l.continueWatching,
+		"GET /api/v1/items/latest":   l.latest,
+		"GET /api/v1/genres":         l.genres,
+		"GET /api/v1/items/{id}":     l.item,
+		"GET /api/v1/people/{id}":    l.person,
+		"GET /api/v1/images/{id}":    l.image,
 		// What the profile does with titles (rule 40).
 		"PUT /api/v1/items/{id}/played":      l.markPlayed,
 		"DELETE /api/v1/items/{id}/played":   l.unmarkPlayed,
@@ -448,6 +449,21 @@ func (l Library) resume(w http.ResponseWriter, r *http.Request) {
 	kinds := r.URL.Query()["kind"]
 	l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
 		return l.Provisioner.Store.InProgress(ctx, p.ID, kinds, offset, limit)
+	})
+}
+
+// continueWatching is what the profile is in the middle of and what's next
+// in the series it follows, together, from Overfin's own data (rule 40).
+func (l Library) continueWatching(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r, "limit", "cursor") {
+		return
+	}
+	p := l.active(w, r)
+	if p == nil {
+		return
+	}
+	l.idPage(w, r, p, func(ctx context.Context, offset, limit int) ([]string, error) {
+		return l.Provisioner.Store.ContinueWatching(ctx, p.ID, offset, limit)
 	})
 }
 
