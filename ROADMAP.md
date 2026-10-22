@@ -29,6 +29,15 @@ servers. The apps hold the experience, and nothing else.
   until it's used needs no switch, and an outside service is on once it's
   configured.
 - **Overfin over Jellyfin.** Overfin owns people; Jellyfin plays media.
+- **TMDB describes titles, everywhere.** Everything people see about a
+  title, its text (name, overview, genres, cast, episode names) and its
+  images, comes from TMDB, in the language set in the panel. Nothing shown
+  comes from Jellyfin's metadata or images, not even as a fallback.
+- **A title is a title, in the library or not.** A film, a series, a season
+  or an episode is the same thing whether a library has it, a peer has it,
+  or nobody does: the same page, and the same things to do with it
+  (watched, favorite, watchlist). Only the main action differs: play it
+  where there's a copy, request it where there's none.
 
 ## Done
 
@@ -336,8 +345,8 @@ own do), so a title looks the same wherever it is.
      TMDB, kept by title key and refreshed in the background (five months
      at most), in the language set in the panel (which also gives
      discovery's text). Items carry it wherever they're shown, Jellyfin's
-     own images only where TMDB has none, and an image is served only to a
-     profile that may see a title it belongs to. Jellyfin's image fetchers
+     own images only where TMDB has none (milestone 5 removes that), and an
+     image is served only to a profile that may see a title it belongs to. Jellyfin's image fetchers
      can then be off. Next: people's photos.
 2. ~~Storage and import~~ Done: each profile's data (positions,
    watched, play counts, last played, favorites) is kept by title (a film
@@ -402,7 +411,47 @@ own do), so a title looks the same wherever it is.
    other copies, so switching to another Jellyfin server keeps everyone's
    place.
 
-## Milestone 5: Federation
+## Milestone 5: Titles, not files
+
+Until now the API had two kinds of things: library items (Jellyfin's, by
+its IDs) and catalog titles (TMDB's, for discovery), with their own pages
+and their own buttons. A title is one thing; a copy of it in a library is
+only one way to watch it. This milestone makes the title what everything is
+about, and copies its sources. Federation (milestone 6) builds on it: a
+peer's copy is one more source.
+
+1. **TMDB's data for every title.** The keeper that fetched the library's
+   artwork keeps everything TMDB says about each film and series the
+   library has, in the panel's language: name, year, overview, genres,
+   runtime, cast with their photos, certifications, seasons, and each
+   episode's name, overview, air date and still. Titles not in a library get
+   the same when someone opens them, and a series' season when someone
+   browses it. All of it is kept within TMDB's terms (five months), like
+   discovery's. Files matched only by an IMDb or TVDB ID are found on TMDB
+   by that ID.
+2. **Titles in the API.** One kind of ID for titles across the public API
+   (a film, a series, a season, an episode, by TMDB's IDs and numbers),
+   with the same shape wherever a title is listed, and its availability:
+   in a library, partly (a series with some episodes), or not. A title's
+   page lists its seasons, a season's page its episodes, in a library or
+   not. Watched, favorites and the watchlist are on titles; playback asks
+   for a title, and Overfin picks the copy. Copies keep their own IDs, used
+   only to play one. The routes on library items and on catalog titles go
+   away: before 1.0, the API changes once rather than carrying both.
+3. **Nothing from Jellyfin's metadata.** Library pages, listings, people and
+   search answer from TMDB's data; Jellyfin's text and images are no longer
+   read for what people see. Files TMDB doesn't know (home videos, a film
+   not identified) are listed by their file's name, without images, so what
+   needs identifying shows.
+4. **The site follows.** One title page for everything; posters show, when
+   hovered or focused, a play button where there's a copy and a request
+   button where there's none; series not in a library can be browsed season
+   by season; "Next up" shows the next episode even when it's missing, to
+   request.
+5. **Requests**, through Seerr, as designed below: the request button on a
+   title, a season or an episode with no copy.
+
+## Milestone 6: Federation
 
 A milestone of its own: the largest piece of work on the roadmap.
 
