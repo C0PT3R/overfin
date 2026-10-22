@@ -210,6 +210,22 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{
 			{"Type": "Intro", "StartTicks": 50000000, "EndTicks": 900000000},
 		}})
+	case r.URL.Path == "/UserViews":
+		// Two libraries: films (0xf1) and music (0xf2).
+		json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{
+			{"Id": fmt.Sprintf("%032x", 0xf1), "Name": "Films", "Type": "CollectionFolder", "CollectionType": "movies"},
+			{"Id": fmt.Sprintf("%032x", 0xf2), "Name": "Music", "Type": "CollectionFolder", "CollectionType": "music"},
+		}})
+	case strings.HasPrefix(r.URL.Path, "/Items/") && strings.HasSuffix(r.URL.Path, "/Ancestors"):
+		// Items 6 and up are in the music library, the others in films.
+		n, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/Items/"), "/Ancestors"), 16, 64)
+		lib := 0xf1
+		if n >= 6 {
+			lib = 0xf2
+		}
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"Id": fmt.Sprintf("%032x", lib), "Type": "CollectionFolder"}, {"Id": fmt.Sprintf("%032x", 0xff), "Type": "AggregateFolder"},
+		})
 	case strings.HasPrefix(r.URL.Path, "/Items/"):
 		w.WriteHeader(http.StatusNotFound) // not visible to this user
 	default:

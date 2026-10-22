@@ -14,15 +14,15 @@ func TestIndexQuery(t *testing.T) {
 		"kind=season&parent=item_0123":          {true, true},
 		"":                                      {false, false}, // any kind
 		"kind=musicAlbum":                       {false, false},
-		"kind=movie&person=person_1":            {false, false},
-		"kind=movie&sort=random":                {false, false},
-		"kind=movie&sort=lastPlayed":            {false, false},
+		"kind=movie&person=person_1":            {true, true},
+		"kind=movie&sort=random":                {true, true},
+		"kind=movie&sort=lastPlayed":            {false, true}, // the profile's own data
 		// What the profile did: Overfin's once it has the profile's data.
 		"kind=movie&played=false":        {false, true},
 		"kind=episode&inProgress=true":   {false, true},
 		"kind=series&favorite=true":      {false, true},
-		"kind=series&played=true":        {false, false}, // every episode: not counted yet
-		"kind=movie,season&inProgress=1": {false, false},
+		"kind=series&played=true":        {false, true},  // every episode
+		"kind=movie,season&inProgress=1": {false, false}, // "movie,season" isn't one kind
 	} {
 		q, _ := url.ParseQuery(query)
 		for i, imported := range []bool{false, true} {

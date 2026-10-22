@@ -10,6 +10,7 @@ import (
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/images"
+	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/pin"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -62,6 +63,10 @@ type profileJSON struct {
 	MovieCeiling   string `json:"movieCeiling,omitempty"`
 	SeriesCeiling  string `json:"seriesCeiling,omitempty"`
 	CeilingsNeeded bool   `json:"ceilingsNeeded,omitempty"`
+	// Libraries, when present, are the only libraries the profile gets;
+	// absent, it gets every library. BlockedTags are hidden from it.
+	Libraries   *[]string `json:"libraries,omitempty"`
+	BlockedTags []string  `json:"blockedTags,omitempty"`
 }
 
 type meJSON struct {
@@ -146,7 +151,16 @@ func decode(r *http.Request, v any) bool {
 }
 
 func toProfileJSON(p *store.Profile) profileJSON {
-	return profileJSON{ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, HasPIN: p.HasPIN,
+	out := profileJSON{ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, HasPIN: p.HasPIN,
 		MovieCeiling: p.MovieCeiling, SeriesCeiling: p.SeriesCeiling,
-		CeilingsNeeded: p.Kind == "kids" && (p.MovieCeiling == "" || p.SeriesCeiling == "")}
+		CeilingsNeeded: p.Kind == "kids" && (p.MovieCeiling == "" || p.SeriesCeiling == ""),
+		BlockedTags:    p.BlockedTags}
+	if p.Libraries != nil {
+		libs := make([]string, 0, len(p.Libraries))
+		for _, id := range p.Libraries {
+			libs = append(libs, library.LibraryPrefix+id)
+		}
+		out.Libraries = &libs
+	}
+	return out
 }

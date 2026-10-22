@@ -21,11 +21,10 @@ import (
 // see is left out (which also brings each item's progress), and the total
 // is Jellyfin's own count for the profile (rule 56).
 //
-// What the index can't answer yet goes to Jellyfin as before: personal
-// filters before the profile's data is Overfin's, a person's titles,
-// shuffling, last played, and item kinds it doesn't index. Kids profiles'
-// listings keep only what their ceiling allows, and their totals are
-// Overfin's own count.
+// What the index can't answer goes to Jellyfin as before: personal
+// filters and last played before the profile's data is Overfin's, and item
+// kinds it doesn't index (music, books…). A limited profile's listings
+// keep only what it may see, and their totals are Overfin's own count.
 
 var indexKinds = []string{"movie", "series", "season", "episode"}
 
@@ -33,12 +32,8 @@ var indexKinds = []string{"movie", "series", "season", "episode"}
 // imported says whether the profile's own data is Overfin's yet (else
 // personal filters go to Jellyfin).
 func indexQuery(q url.Values, imported bool) (store.ListQuery, bool) {
-	for _, other := range []string{"person", "seed"} {
-		if q.Has(other) {
-			return store.ListQuery{}, false
-		}
-	}
-	personal := q.Has("played") || q.Has("favorite") || q.Has("inProgress")
+	// What the profile did is Overfin's once its data is imported.
+	personal := q.Has("played") || q.Has("favorite") || q.Has("inProgress") || q.Get("sort") == "lastPlayed"
 	if personal && !imported {
 		return store.ListQuery{}, false
 	}
@@ -46,8 +41,11 @@ func indexQuery(q url.Values, imported bool) (store.ListQuery, bool) {
 	if lq.Sort == "" {
 		lq.Sort = "name"
 	}
-	if !slices.Contains([]string{"name", "premiereDate", "addedAt", "communityRating"}, lq.Sort) {
+	if !slices.Contains([]string{"name", "premiereDate", "addedAt", "communityRating", "lastPlayed", "random"}, lq.Sort) {
 		return store.ListQuery{}, false
+	}
+	if s := q.Get("person"); s != "" {
+		lq.PersonID, _ = library.Unwrap(library.PersonPrefix, s)
 	}
 	if len(q["kind"]) == 0 {
 		return store.ListQuery{}, false // any kind: some the index doesn't have
@@ -70,15 +68,6 @@ func indexQuery(q url.Values, imported bool) (store.ListQuery, bool) {
 		lq.ParentID, _ = library.Unwrap(library.ItemPrefix, s)
 	}
 	if personal {
-		// Watched and in progress mean "every episode" for a series or a
-		// season, which the index doesn't count yet: those go to Jellyfin.
-		if q.Has("played") || q.Has("inProgress") {
-			for _, k := range lq.Kinds {
-				if k == "series" || k == "season" {
-					return store.ListQuery{}, false
-				}
-			}
-		}
 		for param, dst := range map[string]**bool{"played": &lq.Played, "favorite": &lq.Favorite} {
 			if s := q.Get(param); s != "" {
 				b, _ := strconv.ParseBool(s) // checked by parseItemQuery
@@ -132,7 +121,7 @@ func (l Library) indexPage(w http.ResponseWriter, r *http.Request, p *store.Prof
 		l.upstreamError(w, err)
 		return
 	}
-	if offset == 0 && lq.Ceiling != nil {
+	if offset == 0 && lq.Access != nil {
 		total, err := l.Provisioner.Store.CountCatalog(ctx, lq)
 		if err != nil {
 			l.storeError(w, err)
@@ -157,12 +146,14 @@ func (l Library) indexPage(w http.ResponseWriter, r *http.Request, p *store.Prof
 // profile may not see is left out.
 func (l Library) itemsByID(ctx context.Context, p *store.Profile, ids []string) ([]library.ItemSummary, error) {
 	out := []library.ItemSummary{}
-	ids, err := l.allowedIDs(ctx, p, ids)
-	if err != nil || len(ids) == 0 {
-		return out, err
+	if len(ids) == 0 {
+		return out, nil
 	}
 	page, err := l.Jellyfin.Items(ctx, auth(p), p.JellyfinUserID, jellyfin.ItemQuery{IDs: ids, Limit: len(ids)})
 	if err != nil {
+		return nil, err
+	}
+	if page.Items, err = l.keep(ctx, p, page.Items); err != nil {
 		return nil, err
 	}
 	seen := map[string]library.ItemSummary{}

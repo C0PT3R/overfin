@@ -40,6 +40,9 @@ type Library struct {
 	Logger      *slog.Logger
 	// Discovery, when set, serves the catalog's TMDB images (tmdb_…).
 	Discovery *Discovery
+	// Folders remembers which library items the index doesn't have are in,
+	// for profiles limited to some libraries.
+	Folders *FolderCache
 }
 
 func (Library) Name() string { return "library" }
@@ -124,6 +127,10 @@ func (l Library) libraries(w http.ResponseWriter, r *http.Request) {
 	raw, err := l.Jellyfin.Libraries(r.Context(), auth(p), p.JellyfinUserID)
 	if err != nil {
 		l.upstreamError(w, err)
+		return
+	}
+	if raw, err = l.keep(r.Context(), p, raw); err != nil {
+		l.storeError(w, err)
 		return
 	}
 	out := []library.Library{}
@@ -214,18 +221,23 @@ func (l Library) items(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	if jq.SortBy == "random" {
-		l.randomPage(w, r, p, jq)
+	a, err := l.access(r.Context(), p)
+	if err != nil {
+		l.storeError(w, err)
 		return
 	}
-	imported := (q.Has("played") || q.Has("favorite") || q.Has("inProgress")) && l.personalReady(r, p)
-	if lq, ok := indexQuery(q, imported); ok && l.indexReady(r) {
-		var err error
-		lq.ProfileID = p.ID // for personal filters
-		if lq.Ceiling, err = l.ceiling(r.Context(), p); err != nil {
-			l.storeError(w, err)
-			return
+	lq, indexed := indexQuery(q, l.personalReady(r, p))
+	indexed = indexed && l.indexReady(r)
+	lq.ProfileID, lq.Access = p.ID, a // for personal filters and sorts; what it may see
+	if jq.SortBy == "random" {
+		var from *store.ListQuery
+		if indexed {
+			from = &lq
 		}
+		l.randomPage(w, r, p, jq, from)
+		return
+	}
+	if indexed {
 		l.indexPage(w, r, p, lq, jq)
 		return
 	}
@@ -240,8 +252,10 @@ func (l Library) items(w http.ResponseWriter, r *http.Request) {
 // lose the shuffle. Instead, Overfin orders the matching IDs by
 // HMAC(seed, id): the same seed always gives the same order. The seed comes
 // from the URL, or is picked here and returned, so the site can put it in
-// the URL and a reload shows the same shuffle.
-func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Profile, jq jellyfin.ItemQuery) {
+// the URL and a reload shows the same shuffle. The IDs come from the
+// index when lq is set (which leaves out what the profile may not see),
+// from Jellyfin otherwise.
+func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Profile, jq jellyfin.ItemQuery, lq *store.ListQuery) {
 	q := r.URL.Query()
 	limit, ok := parseLimit(q.Get("limit"))
 	if !ok {
@@ -271,25 +285,49 @@ func (l Library) randomPage(w http.ResponseWriter, r *http.Request, p *store.Pro
 		seed = newSeed()
 	}
 
-	ids, err := l.Jellyfin.ItemIDs(r.Context(), auth(p), p.JellyfinUserID, jq)
-	if err != nil {
-		l.upstreamError(w, err)
-		return
-	}
-	if ids, err = l.allowedIDs(r.Context(), p, ids); err != nil {
-		l.storeError(w, err)
-		return
+	ctx := r.Context()
+	var ids []string
+	var err error
+	// Jellyfin's list may hold what Overfin hides from a limited profile,
+	// found only page by page: no total then.
+	counted := true
+	if lq != nil {
+		lq.Sort, lq.Offset, lq.Limit = "name", 0, -1
+		if ids, err = l.Provisioner.Store.ListCatalog(ctx, *lq); err != nil {
+			l.storeError(w, err)
+			return
+		}
+	} else {
+		if ids, err = l.Jellyfin.ItemIDs(ctx, auth(p), p.JellyfinUserID, jq); err != nil {
+			l.upstreamError(w, err)
+			return
+		}
+		a, err := l.access(ctx, p)
+		if err == nil {
+			ids, err = l.prefilter(ctx, a, ids)
+		}
+		if err != nil {
+			l.storeError(w, err)
+			return
+		}
+		counted = a == nil
 	}
 	shuffle(ids, seed)
 
 	out := itemPage{Items: []library.ItemSummary{}, Seed: seed}
 	total := len(ids)
-	out.TotalCount = &total
+	if counted {
+		out.TotalCount = &total
+	}
 	if start < total {
 		pageIDs := ids[start:min(start+limit, total)]
-		raw, err := l.Jellyfin.ItemsByID(r.Context(), auth(p), p.JellyfinUserID, pageIDs)
+		raw, err := l.Jellyfin.ItemsByID(ctx, auth(p), p.JellyfinUserID, pageIDs)
 		if err != nil {
 			l.upstreamError(w, err)
+			return
+		}
+		if raw, err = l.keep(ctx, p, raw); err != nil {
+			l.storeError(w, err)
 			return
 		}
 		byID := make(map[string]*jellyfin.RawItem, len(raw))
@@ -417,15 +455,15 @@ func (l Library) latest(w http.ResponseWriter, r *http.Request) {
 		l.upstreamError(w, err)
 		return
 	}
+	if raw, err = l.keep(r.Context(), p, raw); err != nil {
+		l.storeError(w, err)
+		return
+	}
 	out := []library.ItemSummary{}
 	for i := range raw {
 		if s, ok := library.Summary(&raw[i]); ok {
 			out = append(out, s)
 		}
-	}
-	if out, err = l.allowedItems(r.Context(), p, out); err != nil {
-		l.storeError(w, err)
-		return
 	}
 	if err := l.withStates(r.Context(), p, out); err != nil {
 		l.storeError(w, err)
@@ -464,7 +502,10 @@ func (l Library) image(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := images.Viewer{ProfileID: p.ID, UserID: p.JellyfinUserID, Auth: auth(p)}
-	if p.Kind == "kids" {
+	if a, err := l.access(r.Context(), p); err != nil {
+		l.storeError(w, err)
+		return
+	} else if a != nil {
 		v.May = func(ctx context.Context, it *jellyfin.RawItem) (bool, error) { return l.mayOpen(ctx, p, it) }
 	}
 	data, contentType, err := l.Images.Image(r.Context(), v, ref, size)
@@ -529,9 +570,16 @@ func (l Library) page(w http.ResponseWriter, r *http.Request, p *store.Profile,
 		l.upstreamError(w, err)
 		return
 	}
+	// What the profile may not see is left out; the next page starts
+	// after everything Jellyfin gave.
+	kept, err := l.keep(r.Context(), p, res.Items)
+	if err != nil {
+		l.storeError(w, err)
+		return
+	}
 	out := itemPage{Items: []library.ItemSummary{}}
-	for i := range res.Items {
-		if s, ok := library.Summary(&res.Items[i]); ok {
+	for i := range kept {
+		if s, ok := library.Summary(&kept[i]); ok {
 			out.Items = append(out.Items, s)
 		}
 	}
@@ -544,15 +592,14 @@ func (l Library) page(w http.ResponseWriter, r *http.Request, p *store.Profile,
 		}
 	}
 	// Jellyfin counts with the profile's own token, so hidden items are
-	// already excluded (rule 56); not what Overfin hides from kids, whose
-	// pages have no total.
-	if !res.NoCount && p.Kind != "kids" {
-		total := res.TotalRecordCount
-		out.TotalCount = &total
-	}
-	if out.Items, err = l.allowedItems(r.Context(), p, out.Items); err != nil {
+	// already excluded (rule 56); not what Overfin hides from a limited
+	// profile, whose pages have no total.
+	if a, err := l.access(r.Context(), p); err != nil {
 		l.storeError(w, err)
 		return
+	} else if !res.NoCount && a == nil {
+		total := res.TotalRecordCount
+		out.TotalCount = &total
 	}
 	if err := l.withStates(r.Context(), p, out.Items); err != nil {
 		l.storeError(w, err)

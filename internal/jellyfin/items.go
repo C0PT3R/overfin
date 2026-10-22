@@ -31,6 +31,7 @@ type RawItem struct {
 	OriginalTitle           string
 	Taglines                []string
 	Genres                  []string
+	Tags                    []string
 	Studios                 []NameID
 	People                  []Person
 	Chapters                []Chapter
@@ -103,7 +104,7 @@ type ItemPage struct {
 
 // Fields asked for in lists, and additionally on detail pages.
 const (
-	summaryFields = "PrimaryImageAspectRatio,ChildCount,OriginalTitle"
+	summaryFields = "PrimaryImageAspectRatio,ChildCount,OriginalTitle,Tags"
 	detailFields  = summaryFields + ",Overview,Genres,Studios,People,Chapters,ProviderIds,Taglines,Width,Height"
 )
 
@@ -325,4 +326,23 @@ func (c *Client) ItemsByID(ctx context.Context, a Auth, userID string, ids []str
 		return nil, err
 	}
 	return out.Items, nil
+}
+
+// LibraryOf returns the library (its Jellyfin ID) an item is in, from the
+// item's ancestors, as the user sees them; "" when it's in none.
+func (c *Client) LibraryOf(ctx context.Context, a Auth, userID, itemID string) (string, error) {
+	id, err := NormalizeID(itemID)
+	if err != nil {
+		return "", err
+	}
+	var out []RawItem
+	if err := c.get(ctx, "ancestors", "/Items/"+id+"/Ancestors", a, url.Values{"userId": {userID}}, &out); err != nil {
+		return "", err
+	}
+	for _, it := range out {
+		if it.Type == "CollectionFolder" {
+			return NormalizeID(it.Id)
+		}
+	}
+	return "", nil
 }

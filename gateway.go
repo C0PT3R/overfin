@@ -47,6 +47,8 @@ type shared struct {
 	jf        *jellyfin.Client
 	images    *images.Pipeline
 	tickets   *playback.Tickets
+	// folders remembers which library items the index doesn't hold are in.
+	folders *api.FolderCache
 	// jellyfinSaved: Jellyfin's settings are the setup page's, in the
 	// database, not the configuration's, so the panel may change them.
 	jellyfinSaved bool
@@ -124,7 +126,8 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		// end by themselves.
 		checker.UnlockAfter = 15 * time.Minute
 	}
-	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor, Logger: logger}
+	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor,
+		Folders: sh.folders, Logger: logger}
 	// Discovery, when Seerr is connected. The library hands it the
 	// catalog's TMDB images.
 	var disc *api.Discovery

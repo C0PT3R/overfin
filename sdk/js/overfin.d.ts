@@ -33,6 +33,10 @@ export interface Profile {
   seriesCeiling?: string;
   /** A kids profile without ceilings yet: it sees nothing until its owner picks them. */
   ceilingsNeeded?: boolean;
+  /** The only libraries the profile gets (their IDs); absent, every library. */
+  libraries?: string[];
+  /** Tags hidden from the profile. */
+  blockedTags?: string[];
 }
 
 export interface RatingLevel {
@@ -295,13 +299,16 @@ export class Overfin {
 
   profiles(): Promise<Profile[]>;
   profile(id: string): Promise<Profile>;
-  createProfile(profile: { name: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; language?: string }): Promise<Profile>;
-  updateProfile(id: string, changes: { name?: string; language?: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; pin?: string }): Promise<Profile>;
+  createProfile(profile: { name: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; language?: string; libraries?: string[] | null; blockedTags?: string[] | null }): Promise<Profile>;
+  /** `libraries: null` gives every library again; `blockedTags: null` hides no tag. */
+  updateProfile(id: string, changes: { name?: string; language?: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; libraries?: string[] | null; blockedTags?: string[] | null; pin?: string }): Promise<Profile>;
   deleteProfile(id: string): Promise<null>;
   activateProfile(id: string, pin?: string): Promise<Profile>;
   setPin(id: string, pin: string, ownerPin?: string): Promise<null>;
   removePin(id: string): Promise<null>;
   ratings(): Promise<Ratings>;
+  /** The library's tags, to hide some from a profile (owner only). */
+  tags(): Promise<string[]>;
   sessions(): Promise<Session[]>;
   endSession(id: string): Promise<null>;
   endOtherSessions(): Promise<null>;

@@ -131,6 +131,9 @@ comes from the internet, and media files can be written by anyone.
     be within the ceiling. A missing, unknown, unrated or expired rating means
     the request is refused. Everywhere in the catalog (search, discover, lists,
     title details, images, playback), titles above the ceiling are hidden.
+    The same holds for the libraries a profile gets and the tags hidden from
+    it, for any profile: Overfin applies them, not Jellyfin, and what it
+    can't place in a library is hidden from a profile limited to some.
 29. Every entry of a play queue is checked against the active profile, when the
     queue is set and again when it advances.
 30. Stream tickets are short-lived and bound to the session that created them.

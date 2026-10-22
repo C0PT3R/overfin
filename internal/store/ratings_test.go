@@ -45,7 +45,7 @@ func TestRatings(t *testing.T) {
 	s.SetTitleRatings(ctx, RatedTitle{"series", "10"}, map[string][]string{"US": {"TV-Y"}}, now)
 
 	allowed := func(c Ceiling) []string {
-		got, err := s.ListCatalog(ctx, ListQuery{Sort: "name", Ceiling: &c, Limit: 50})
+		got, err := s.ListCatalog(ctx, ListQuery{Sort: "name", Access: &Access{Ceiling: &c}, Limit: 50})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,12 +64,12 @@ func TestRatings(t *testing.T) {
 			t.Errorf("%+v: %v", c, got)
 		}
 	}
-	if n, err := s.CountCatalog(ctx, ListQuery{Ceiling: &Ceiling{"US", "PG", "TV-Y"}}); err != nil || n != 3 {
+	if n, err := s.CountCatalog(ctx, ListQuery{Access: &Access{Ceiling: &Ceiling{"US", "PG", "TV-Y"}}}); err != nil || n != 3 {
 		t.Errorf("count: %d %v", n, err)
 	}
-	got, err := s.AllowedItems(ctx, Ceiling{"US", "PG", "TV-Y"}, []string{id(1), id(8), "ffffffffffffffffffffffffffffffff"})
-	if err != nil || len(got) != 1 || !got[id(8)] {
-		t.Errorf("items: %v %v", got, err)
+	got, indexed, err := s.AllowedItems(ctx, Access{Ceiling: &Ceiling{"US", "PG", "TV-Y"}}, []string{id(1), id(8), "ffffffffffffffffffffffffffffffff"})
+	if err != nil || len(got) != 1 || !got[id(8)] || len(indexed) != 2 {
+		t.Errorf("items: %v %v %v", got, indexed, err)
 	}
 	if ok, err := s.TitleAllowed(ctx, Ceiling{"US", "PG", "TV-Y"}, "movie", "1"); err != nil || !ok {
 		t.Errorf("title 1: %v %v", ok, err)

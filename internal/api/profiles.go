@@ -2,15 +2,19 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/overfin/server/internal/images"
+	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/pin"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -47,6 +51,7 @@ func (p Profiles) Register(r *plugin.Registrar) error {
 		"PUT /api/v1/profiles/{id}/pin":       p.setPIN,
 		"DELETE /api/v1/profiles/{id}/pin":    p.removePIN,
 		"GET /api/v1/ratings":                 p.ratings,
+		"GET /api/v1/tags":                    p.tags,
 		"GET /api/v1/sessions":                p.sessions,
 		"DELETE /api/v1/sessions":             p.endOtherSessions,
 		"DELETE /api/v1/sessions/{id}":        p.endSession,
@@ -98,9 +103,87 @@ type profileRequest struct {
 	// certifications, on the ratings country's scales.
 	MovieCeiling  *string `json:"movieCeiling"`
 	SeriesCeiling *string `json:"seriesCeiling"`
+	// Libraries are the only libraries the profile gets (null: every
+	// library); BlockedTags, the tags hidden from it (null: none).
+	Libraries   optionalList `json:"libraries"`
+	BlockedTags optionalList `json:"blockedTags"`
 	// PIN is the owner's PIN, needed to change a profile's limits when the
 	// owner has one.
 	PIN string `json:"pin"`
+}
+
+// optionalList is a list a request may leave out (Set false), set to null
+// (Set, Value nil) or set to a list.
+type optionalList struct {
+	Set   bool
+	Value []string
+}
+
+func (o *optionalList) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	if string(b) == "null" {
+		o.Value = nil
+		return nil
+	}
+	o.Value = []string{}
+	return json.Unmarshal(b, &o.Value)
+}
+
+// accessFrom checks the libraries and hidden tags a request gives, from
+// pr's (nil for a new profile), and returns them as the store keeps them;
+// ok is false when they're invalid. The libraries must be among those the
+// owner gets.
+func (p Profiles) accessFrom(ctx context.Context, c *Caller, pr *store.Profile, req profileRequest) (libs, tags []string, ok bool, err error) {
+	if pr != nil {
+		libs, tags = pr.Libraries, pr.BlockedTags
+	}
+	if req.Libraries.Set {
+		if req.Libraries.Value == nil {
+			libs = nil
+		} else {
+			if len(req.Libraries.Value) > 100 {
+				return nil, nil, false, nil
+			}
+			raw, err := p.Provisioner.Jellyfin.Libraries(ctx, auth(c.Profile), c.Profile.JellyfinUserID)
+			if err != nil {
+				return nil, nil, false, err
+			}
+			known := map[string]bool{}
+			for _, l := range raw {
+				if id, err := jellyfin.NormalizeID(l.Id); err == nil {
+					known[id] = true
+				}
+			}
+			libs = []string{}
+			for _, v := range req.Libraries.Value {
+				id, good := library.Unwrap(library.LibraryPrefix, v)
+				if !good || !known[id] {
+					return nil, nil, false, nil
+				}
+				if !slices.Contains(libs, id) {
+					libs = append(libs, id)
+				}
+			}
+		}
+	}
+	if req.BlockedTags.Set {
+		tags = nil
+		if req.BlockedTags.Value != nil {
+			if len(req.BlockedTags.Value) > 50 {
+				return nil, nil, false, nil
+			}
+			tags = []string{}
+			for _, t := range req.BlockedTags.Value {
+				if t == "" || len(t) > 128 || textclean.Plain(t, 128) != t {
+					return nil, nil, false, nil
+				}
+				if !slices.ContainsFunc(tags, func(o string) bool { return strings.EqualFold(o, t) }) {
+					tags = append(tags, t)
+				}
+			}
+		}
+	}
+	return libs, tags, true, nil
 }
 
 var languageTagRe = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
@@ -176,6 +259,32 @@ func (p Profiles) ratings(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, out)
 }
 
+// tags lists the library's tags, for the owner choosing which to hide from
+// a profile.
+func (p Profiles) tags(w http.ResponseWriter, r *http.Request) {
+	if !onlyParams(w, r) {
+		return
+	}
+	c := p.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	if !c.IsOwner() {
+		problem.Send(w, problem.OwnerOnly, "")
+		return
+	}
+	tags, err := p.Store.CatalogTags(r.Context())
+	if err != nil {
+		p.Logger.Error("listing tags failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	writeOK(w, map[string]any{"items": tags})
+}
+
 func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 	var req profileRequest
 	if !decode(r, &req) || req.Name == nil || !validName(*req.Name) || req.PIN != "" ||
@@ -204,6 +313,16 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 	np := store.NewProfile{Name: *req.Name, Kind: kind}
 	if req.Language != nil {
 		np.Language = *req.Language
+	}
+	if libs, tags, ok, err := p.accessFrom(r.Context(), c, nil, req); err != nil {
+		p.Logger.Error("listing libraries failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	} else if !ok {
+		problem.Send(w, problem.InvalidRequest, "unknown library or invalid tag")
+		return
+	} else {
+		np.Libraries, np.BlockedTags = libs, tags
 	}
 	if kids {
 		np.MovieCeiling, np.SeriesCeiling = *req.MovieCeiling, *req.SeriesCeiling
@@ -235,7 +354,8 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	var req profileRequest
 	if !decode(r, &req) ||
-		(req.Name == nil && req.Language == nil && req.Kind == nil && req.MovieCeiling == nil && req.SeriesCeiling == nil) ||
+		(req.Name == nil && req.Language == nil && req.Kind == nil && req.MovieCeiling == nil && req.SeriesCeiling == nil &&
+			!req.Libraries.Set && !req.BlockedTags.Set) ||
 		(req.Name != nil && !validName(*req.Name)) ||
 		(req.Language != nil && *req.Language != "" && !languageTagRe.MatchString(*req.Language)) ||
 		(req.Kind != nil && *req.Kind != "standard" && *req.Kind != "kids") {
@@ -259,7 +379,7 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	}
 	// Limits first: they can fail on the PIN, and nothing else should
 	// change then.
-	if req.Kind != nil || req.MovieCeiling != nil || req.SeriesCeiling != nil {
+	if req.Kind != nil || req.MovieCeiling != nil || req.SeriesCeiling != nil || req.Libraries.Set || req.BlockedTags.Set {
 		if !p.changeLimits(w, r, c, pr, req) {
 			return
 		}
@@ -287,8 +407,9 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 }
 
 // changeLimits makes a profile a kids profile, changes its ceilings, or
-// makes it a standard profile again. Only the owner can, with the owner's PIN
-// if there is one. It writes the problem and returns false on failure.
+// makes it a standard profile again, and changes the libraries it gets and
+// the tags hidden from it. Only the owner can, with the owner's PIN if
+// there is one. It writes the problem and returns false on failure.
 // Overfin holds kids profiles to their ceilings itself: Jellyfin isn't told.
 func (p Profiles) changeLimits(w http.ResponseWriter, r *http.Request, c *Caller, pr *store.Profile, req profileRequest) bool {
 	ctx := r.Context()
@@ -321,10 +442,23 @@ func (p Profiles) changeLimits(w http.ResponseWriter, r *http.Request, c *Caller
 		problem.Send(w, problem.InvalidRequest, "unknown rating")
 		return false
 	}
+	libs, tags, ok, err := p.accessFrom(ctx, c, pr, req)
+	if err != nil {
+		p.Logger.Error("listing libraries failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return false
+	} else if !ok {
+		problem.Send(w, problem.InvalidRequest, "unknown library or invalid tag")
+		return false
+	}
 	if !p.checkPIN(w, ctx, c.Account.ID, c.Owner.ID, req.PIN) {
 		return false
 	}
 	if err := p.Store.SetKind(ctx, c.Account.ID, pr.ID, kind, movie, series); err != nil {
+		problem.Send(w, problem.NotFound, "")
+		return false
+	}
+	if err := p.Store.SetProfileAccess(ctx, c.Account.ID, pr.ID, libs, tags); err != nil {
 		problem.Send(w, problem.NotFound, "")
 		return false
 	}

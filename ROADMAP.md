@@ -326,9 +326,10 @@ own do), so a title looks the same wherever it is.
      the profile, on the first page only. Personal filters (watched,
      favorites, in progress) are answered from it too, with Overfin's own
      data (step 2), and so are kids profiles' listings, with only what
-     their ceilings allow and Overfin's own count (step 3). Still through
-     Jellyfin: a person's titles, shuffling, last played, "watched" for a
-     whole series or season, and kinds the index doesn't hold (music,
+     their ceilings allow and Overfin's own count (step 3). ~~A person's
+     titles, shuffling, last played, "watched" for a whole series or
+     season~~ Done, from the index (it keeps each title's people and tags
+     too). Still through Jellyfin: kinds the index doesn't hold (music,
      books), which are checked page by page.
 2. ~~Storage and import~~ Done: each profile's data (positions,
    watched, play counts, last played, favorites) is kept by title (a film
@@ -364,8 +365,12 @@ own do), so a title looks the same wherever it is.
    asks operators for a TMDB key; without Seerr, kids profiles see nothing):
    the operator picks the ratings country, each kids profile has a film
    ceiling and a series ceiling on that country's scales, and every
-   certification a title has there must be within it. Libraries per profile
-   and blocked tags are still to do.
+   certification a title has there must be within it. *Libraries and hidden
+   tags: done.* The owner picks, for each other profile, the libraries it
+   gets and the tags hidden from it (a title's own, or its series' or
+   season's), with the owner's PIN like the ratings. Titles the index holds
+   are checked there; for the others (music, books), their library is asked
+   of Jellyfin once and remembered.
 4. **One Jellyfin account.** With nothing personal and no rules left in
    Jellyfin, its users are interchangeable: one ordinary account (never an
    administrator) with every library serves everyone, local users and peers

@@ -300,14 +300,14 @@ func (d Discovery) place(ctx context.Context, p *store.Profile, titles []store.T
 		if err != nil {
 			return nil, err
 		}
+		if page.Items, err = d.Library.keep(ctx, p, page.Items); err != nil {
+			return nil, err
+		}
 		var found []library.ItemSummary
 		for i := range page.Items {
 			if s, ok := library.Summary(&page.Items[i]); ok {
 				found = append(found, s)
 			}
-		}
-		if found, err = d.Library.allowedItems(ctx, p, found); err != nil {
-			return nil, err
 		}
 		if err := d.Library.withStates(ctx, p, found); err != nil {
 			return nil, err

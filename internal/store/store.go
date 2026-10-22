@@ -188,8 +188,12 @@ type Profile struct {
 	// certifications, on the ratings country's scales; empty until chosen.
 	MovieCeiling  string
 	SeriesCeiling string
-	HasPIN        bool
-	Created       time.Time
+	// Libraries, when not nil, are the only libraries the profile gets
+	// (by Jellyfin ID); BlockedTags are hidden from it.
+	Libraries   []string
+	BlockedTags []string
+	HasPIN      bool
+	Created     time.Time
 }
 
 // NewOwner describes the owner profile created with an account.
@@ -234,10 +238,11 @@ func insertProfile(ctx context.Context, tx *sql.Tx, box *seal.Box, p *Profile, n
 	sealed := box.Seal([]byte(p.JellyfinToken), p.ID)
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO profiles (id, account_id, name, kind, owner, jellyfin_user_id,
-			jellyfin_username, jellyfin_token, language, movie_ceiling, series_ceiling, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			jellyfin_username, jellyfin_token, language, movie_ceiling, series_ceiling, libraries, blocked_tags, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.AccountID, p.Name, p.Kind, boolInt(p.Owner), p.JellyfinUserID,
-		p.JellyfinUsername, sealed, nullable(p.Language), nullable(p.MovieCeiling), nullable(p.SeriesCeiling), now.Unix())
+		p.JellyfinUsername, sealed, nullable(p.Language), nullable(p.MovieCeiling), nullable(p.SeriesCeiling),
+		jsonList(p.Libraries), jsonList(p.BlockedTags), now.Unix())
 	if err != nil {
 		return fmt.Errorf("store: creating profile: %w", err)
 	}
@@ -285,7 +290,7 @@ func (s *Store) Profiles(ctx context.Context, accountID string) ([]*Profile, err
 
 const profileSelect = `
 	SELECT id, account_id, name, kind, owner, jellyfin_user_id, jellyfin_username,
-		jellyfin_token, language, movie_ceiling, series_ceiling, pin_hash IS NOT NULL, created_at
+		jellyfin_token, language, movie_ceiling, series_ceiling, libraries, blocked_tags, pin_hash IS NOT NULL, created_at
 	FROM profiles`
 
 // scanner is what *sql.Row and *sql.Rows have in common.
@@ -296,9 +301,10 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	var owner int
 	var sealed []byte
 	var language, movie, series sql.NullString
+	var libraries, tags *string
 	var created int64
 	err := sc.Scan(&p.ID, &p.AccountID, &p.Name, &p.Kind, &owner, &p.JellyfinUserID,
-		&p.JellyfinUsername, &sealed, &language, &movie, &series, &p.HasPIN, &created)
+		&p.JellyfinUsername, &sealed, &language, &movie, &series, &libraries, &tags, &p.HasPIN, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -314,6 +320,7 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	p.JellyfinToken = string(token)
 	p.Language = language.String
 	p.MovieCeiling, p.SeriesCeiling = movie.String, series.String
+	p.Libraries, p.BlockedTags = scanList(libraries), scanList(tags)
 	p.Created = time.Unix(created, 0).UTC()
 	return &p, nil
 }
@@ -435,6 +442,8 @@ type NewProfile struct {
 	Language         string
 	MovieCeiling     string
 	SeriesCeiling    string
+	Libraries        []string // nil: every library
+	BlockedTags      []string
 	JellyfinUserID   string
 	JellyfinUsername string
 	JellyfinToken    string
@@ -464,6 +473,7 @@ func (s *Store) AddProfile(ctx context.Context, accountID string, np NewProfile,
 		ID: ids.New(ids.Profile), AccountID: accountID, Name: np.Name, Kind: np.Kind,
 		JellyfinUserID: np.JellyfinUserID, JellyfinUsername: np.JellyfinUsername, JellyfinToken: np.JellyfinToken,
 		Language: np.Language, MovieCeiling: np.MovieCeiling, SeriesCeiling: np.SeriesCeiling,
+		Libraries: np.Libraries, BlockedTags: np.BlockedTags,
 	}
 	if err := insertProfile(ctx, tx, s.box, p, s.now().UTC()); err != nil {
 		return nil, err

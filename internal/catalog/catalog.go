@@ -362,6 +362,16 @@ func convert(raw jellyfin.RawItem) (store.CatalogItem, bool) {
 			it.Studios = append(it.Studios, name)
 		}
 	}
+	for _, tag := range raw.Tags {
+		if name := textclean.Plain(tag, 128); name != "" && len(it.Tags) < 50 {
+			it.Tags = append(it.Tags, name)
+		}
+	}
+	for _, p := range raw.People {
+		if pid, err := jellyfin.NormalizeID(p.Id); err == nil && len(it.People) < 100 && !slices.Contains(it.People, pid) {
+			it.People = append(it.People, pid)
+		}
+	}
 	it.PrimaryTag = matching(imageTag, raw.ImageTags["Primary"])
 	it.ThumbTag = matching(imageTag, raw.ImageTags["Thumb"])
 	if len(raw.BackdropImageTags) > 0 {

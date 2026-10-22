@@ -59,7 +59,8 @@ yet.
   optional PIN. Kids profiles have ceilings, one for films and one for
   series, on Overfin's own ratings from TMDB in the country the operator
   picks: titles above them, or with no rating there, are hidden everywhere,
-  even from direct links, and can't be played.
+  even from direct links, and can't be played. The account's owner can
+  also give any profile only some libraries, and hide tags from it.
 - People can download what's held about them and delete their account.
 
 **Watching** (through the API, the SDK and overfin-web)

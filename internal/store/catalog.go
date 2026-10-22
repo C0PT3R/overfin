@@ -106,6 +106,9 @@ type CatalogItem struct {
 	CommunityRating *float64
 	Genres          []string
 	Studios         []string
+	// Tags are Jellyfin's tags; People, the Jellyfin IDs of who's in it.
+	Tags   []string
+	People []string
 }
 
 // PutCatalog adds or updates titles, marking them seen by the full pass
@@ -144,9 +147,11 @@ func (s *Store) PutCatalog(ctx context.Context, items []CatalogItem, pass int64)
 			nullString(it.LibraryID), added, nullString(it.PremiereDate), it.CommunityRating); err != nil {
 			return err
 		}
-		// Genres and studios, replaced as a whole.
-		for table, names := range map[string][]string{"catalog_genres": it.Genres, "catalog_studios": it.Studios} {
-			column := map[string]string{"catalog_genres": "genre", "catalog_studios": "studio"}[table]
+		// Genres, studios, tags and people, replaced as a whole.
+		for table, names := range map[string][]string{"catalog_genres": it.Genres, "catalog_studios": it.Studios,
+			"catalog_tags": it.Tags, "catalog_people": it.People} {
+			column := map[string]string{"catalog_genres": "genre", "catalog_studios": "studio",
+				"catalog_tags": "tag", "catalog_people": "person_id"}[table]
 			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE item_id = ?`, it.ID); err != nil {
 				return err
 			}
@@ -395,9 +400,13 @@ type ListQuery struct {
 	Played     *bool
 	Favorite   *bool
 	InProgress bool
-	// Ceiling, when set, keeps only what it allows (kids profiles).
-	Ceiling *Ceiling
-	// Sort is "name", "premiereDate", "addedAt" or "communityRating".
+	// PersonID, when set, lists the titles that person is in.
+	PersonID string
+	// Access, when set, keeps only what the profile may see.
+	Access *Access
+	// Sort is "name", "premiereDate", "addedAt", "communityRating" or
+	// "lastPlayed" (by the profile's ProfileID). A Limit below 0 lists
+	// everything, for shuffling.
 	Sort       string
 	Descending bool
 	Offset     int
@@ -415,6 +424,13 @@ var listOrder = map[string]string{
 // missing a sort value comes last, whichever the order.
 func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) {
 	order, ok := listOrder[q.Sort]
+	var orderArgs []any
+	if q.Sort == "lastPlayed" {
+		// When the profile last played the title, or any of its episodes.
+		order, ok = `(SELECT max(x.last_played_at) FROM profile_titles x JOIN catalog_items e ON x.title = e.title_key
+			WHERE x.profile_id = ? AND (e.id = catalog_items.id OR e.series_id = catalog_items.id OR e.season_id = catalog_items.id))`, true
+		orderArgs = []any{q.ProfileID, q.ProfileID}
+	}
 	if !ok {
 		return nil, fmt.Errorf("store: unknown sort %q", q.Sort)
 	}
@@ -425,6 +441,7 @@ func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) 
 	}
 	query := `SELECT id FROM catalog_items WHERE ` + strings.Join(where, " AND ") +
 		` ORDER BY ` + order + ` IS NULL, ` + order + ` ` + dir + `, sort_name COLLATE NOCASE, id LIMIT ? OFFSET ?`
+	args = append(args, orderArgs...)
 	return s.ids(ctx, query, append(args, q.Limit, q.Offset)...)
 }
 
@@ -471,12 +488,19 @@ func (q ListQuery) where() ([]string, []any) {
 	mine := func(cond string) string {
 		return "EXISTS (SELECT 1 FROM profile_titles x WHERE x.profile_id = ? AND x.title = catalog_items.title_key AND " + cond + ")"
 	}
+	// A series' or a season's episodes.
+	const episodes = `FROM catalog_items e WHERE e.kind = 'episode'
+		AND (e.series_id = catalog_items.id OR e.season_id = catalog_items.id)`
 	if q.Played != nil {
-		cond := mine("x.played = 1")
+		// A series or a season is watched once all its episodes are.
+		cond := `(CASE WHEN catalog_items.kind IN ('series', 'season') THEN
+			EXISTS (SELECT 1 ` + episodes + `) AND NOT EXISTS (SELECT 1 ` + episodes + `
+				AND NOT EXISTS (SELECT 1 FROM profile_titles x WHERE x.profile_id = ? AND x.title = e.title_key AND x.played = 1))
+			ELSE ` + mine("x.played = 1") + ` END)`
 		if !*q.Played {
 			cond = "NOT " + cond
 		}
-		where, args = append(where, cond), append(args, q.ProfileID)
+		where, args = append(where, cond), append(args, q.ProfileID, q.ProfileID)
 	}
 	if q.Favorite != nil {
 		cond := mine("x.favorite = 1")
@@ -486,7 +510,16 @@ func (q ListQuery) where() ([]string, []any) {
 		where, args = append(where, cond), append(args, q.ProfileID)
 	}
 	if q.InProgress {
-		where, args = append(where, mine("x.position_ms > 0")), append(args, q.ProfileID)
+		// A series or a season, when one of its episodes is.
+		cond := `(CASE WHEN catalog_items.kind IN ('series', 'season') THEN
+			EXISTS (SELECT 1 ` + episodes + ` AND EXISTS (SELECT 1 FROM profile_titles x
+				WHERE x.profile_id = ? AND x.title = e.title_key AND x.position_ms > 0))
+			ELSE ` + mine("x.position_ms > 0") + ` END)`
+		where, args = append(where, cond), append(args, q.ProfileID, q.ProfileID)
+	}
+	if q.PersonID != "" {
+		where, args = append(where, `EXISTS (SELECT 1 FROM catalog_people x
+			WHERE x.item_id = catalog_items.id AND x.person_id = ?)`), append(args, q.PersonID)
 	}
 	if q.YearFrom > 0 {
 		where, args = append(where, "year >= ?"), append(args, q.YearFrom)
@@ -494,8 +527,8 @@ func (q ListQuery) where() ([]string, []any) {
 	if q.YearTo > 0 {
 		where, args = append(where, "year <= ?"), append(args, q.YearTo)
 	}
-	if q.Ceiling != nil {
-		cond, a := q.Ceiling.itemAllowed("catalog_items")
+	if q.Access != nil {
+		cond, a := q.Access.itemAllowed("catalog_items")
 		where, args = append(where, cond), append(args, a...)
 	}
 	return where, args

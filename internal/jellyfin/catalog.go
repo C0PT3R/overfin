@@ -9,7 +9,7 @@ import (
 )
 
 // catalogFields are the fields the catalog's index asks for.
-const catalogFields = "ProviderIds,SortName,ParentId,Genres,Studios,DateCreated"
+const catalogFields = "ProviderIds,SortName,ParentId,Genres,Studios,DateCreated,Tags,People"
 
 // CatalogTypes are the item types Overfin's catalog indexes, for now.
 var CatalogTypes = []string{"Movie", "Series", "Season", "Episode"}

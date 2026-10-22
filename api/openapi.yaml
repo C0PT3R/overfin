@@ -600,6 +600,28 @@ paths:
                     items:
                       $ref: "#/components/schemas/RatingLevel"
 
+  /tags:
+    get:
+      operationId: listTags
+      summary: List the library's tags, to hide some from a profile
+      description: Owner profile only.
+      tags: [profiles]
+      responses:
+        "200":
+          description: The tags, sorted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: string
+        "403":
+          $ref: "#/components/responses/OwnerOnly"
+
   /profiles/{profileId}:
     parameters:
       - $ref: "#/components/parameters/ProfileId"
@@ -2312,6 +2334,21 @@ components:
           description: A kids profile without ceilings (they were never
             picked, or the ratings country changed). It sees nothing until
             the owner picks them.
+        libraries:
+          type: [array, "null"]
+          description: The only libraries the profile gets, by ID; absent or
+            null, every library. Owner only; changing it needs the owner's
+            PIN when there is one.
+          items:
+            type: string
+            examples: [lib_0123456789abcdef0123456789abcdef]
+        blockedTags:
+          type: [array, "null"]
+          description: Tags hidden from the profile (a title's own, or its
+            series' or season's), matched regardless of case; null, none.
+            Owner only, like `libraries`.
+          items:
+            type: string
 
     RatingLevel:
       type: object
@@ -2347,6 +2384,21 @@ components:
           type: string
           description: Required for a kids profile, refused for any other;
             one of the series' names from `GET /ratings`.
+        libraries:
+          type: [array, "null"]
+          description: The only libraries the profile gets, by ID; absent or
+            null, every library. Owner only; changing it needs the owner's
+            PIN when there is one.
+          items:
+            type: string
+            examples: [lib_0123456789abcdef0123456789abcdef]
+        blockedTags:
+          type: [array, "null"]
+          description: Tags hidden from the profile (a title's own, or its
+            series' or season's), matched regardless of case; null, none.
+            Owner only, like `libraries`.
+          items:
+            type: string
 
     ProfileUpdate:
       description: Only the fields sent are changed.
@@ -2367,9 +2419,25 @@ components:
           type: string
         seriesCeiling:
           type: string
+        libraries:
+          type: [array, "null"]
+          description: The only libraries the profile gets, by ID; absent or
+            null, every library. Owner only; changing it needs the owner's
+            PIN when there is one.
+          items:
+            type: string
+            examples: [lib_0123456789abcdef0123456789abcdef]
+        blockedTags:
+          type: [array, "null"]
+          description: Tags hidden from the profile (a title's own, or its
+            series' or season's), matched regardless of case; null, none.
+            Owner only, like `libraries`.
+          items:
+            type: string
         pin:
           description: The owner profile's PIN, required when changing the
-            ceilings or `kind` while the owner profile has one.
+            ceilings, the libraries, the hidden tags or `kind` while the
+            owner profile has one.
           $ref: "#/components/schemas/Pin"
 
     TransferCode:

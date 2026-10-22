@@ -234,29 +234,6 @@ func (c Ceiling) itemAllowed(table string) (string, []any) {
 			ELSE (SELECT ser.tmdb FROM catalog_items ser WHERE ser.id = `+table+`.series_id AND ser.kind = 'series') END)`)
 }
 
-// AllowedItems says which of the library's items (by Jellyfin ID) the
-// ceiling allows; items the index doesn't have are not.
-func (s *Store) AllowedItems(ctx context.Context, c Ceiling, itemIDs []string) (map[string]bool, error) {
-	out := map[string]bool{}
-	cond, args := c.itemAllowed("i")
-	for start := 0; start < len(itemIDs); start += 500 {
-		chunk := itemIDs[start:min(start+500, len(itemIDs))]
-		q := `SELECT id FROM catalog_items i WHERE id IN (` + marks(len(chunk)) + `) AND ` + cond
-		a := make([]any, 0, len(chunk)+len(args))
-		for _, id := range chunk {
-			a = append(a, id)
-		}
-		allowed, err := s.ids(ctx, q, append(a, args...)...)
-		if err != nil {
-			return nil, err
-		}
-		for _, id := range allowed {
-			out[id] = true
-		}
-	}
-	return out, nil
-}
-
 // TitleAllowed says whether the ceiling allows a TMDB title (movie,
 // series).
 func (s *Store) TitleAllowed(ctx context.Context, c Ceiling, kind, tmdb string) (bool, error) {
