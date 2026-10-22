@@ -44,8 +44,10 @@ type Library struct {
 	// Service is Overfin's one Jellyfin account, which serves everyone.
 	Service *provision.Service
 	// Titles, when set, fetches from TMDB what a title's page needs and
-	// the catalog doesn't have yet.
+	// the catalog doesn't have yet, and searches it.
 	Titles *catalog.Titles
+	// Searches, when set, limits how often each account searches.
+	Searches *SearchLimiter
 }
 
 func (Library) Name() string { return "library" }
@@ -61,6 +63,7 @@ func (l Library) Register(r *plugin.Registrar) error {
 		"GET /api/v1/titles/continue": l.continueTitles,
 		"GET /api/v1/titles/{id}":     l.title,
 		"GET /api/v1/people/{id}":     l.person,
+		"POST /api/v1/search":         l.search,
 		// What the profile does with titles (rule 40).
 		"PUT /api/v1/titles/{id}/played":      l.markTitlePlayed,
 		"DELETE /api/v1/titles/{id}/played":   l.unmarkTitlePlayed,

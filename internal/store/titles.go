@@ -39,18 +39,19 @@ func (s *Store) PutTitles(ctx context.Context, titles []Title, at time.Time) err
 	}
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO catalog_titles
-		(kind, tmdb, name, year, overview, poster, backdrop, status, seen_at, sort_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(kind, tmdb, name, year, overview, poster, backdrop, status, seen_at, sort_name, search_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (kind, tmdb) DO UPDATE SET name = excluded.name, year = excluded.year,
 			overview = excluded.overview, poster = excluded.poster, backdrop = excluded.backdrop,
-			status = excluded.status, seen_at = excluded.seen_at, sort_name = excluded.sort_name`)
+			status = excluded.status, seen_at = excluded.seen_at, sort_name = excluded.sort_name,
+			search_name = excluded.search_name`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, t := range titles {
 		if _, err := stmt.ExecContext(ctx, t.Kind, t.TMDB, t.Name, nullInt(t.Year), t.Overview,
-			nullString(t.Poster), nullString(t.Backdrop), t.Status, at.Unix(), SortName(t.Name)); err != nil {
+			nullString(t.Poster), nullString(t.Backdrop), t.Status, at.Unix(), SortName(t.Name), Fold(t.Name)); err != nil {
 			return err
 		}
 	}

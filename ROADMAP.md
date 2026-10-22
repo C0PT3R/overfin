@@ -451,8 +451,9 @@ peer's copy is one more source.
    not identified) are listed by their file's name, without images, so what
    needs identifying shows. *Done for titles and listings:* pages, images,
    cast photos, and the names, years, genres, dates and ratings lists sort
-   and filter by. Next: people's pages, from TMDB (until then a cast isn't
-   linked), and search.
+   and filter by. *Done for people and search:* people's pages from TMDB
+   (a cast leads to them), and `POST /search`: the libraries by TMDB's
+   names (accents aside), TMDB for the rest and for people.
 4. **The site follows.** One title page for everything; posters show, when
    hovered or focused, a play button where there's a copy and a request
    button where there's none; series not in a library can be browsed season

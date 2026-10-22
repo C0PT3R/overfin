@@ -39,6 +39,14 @@ func (f *fakeTitles) Person(_ context.Context, id int) (*tmdb.PersonFull, error)
 	return nil, tmdb.ErrNotFound
 }
 
+func (f *fakeTitles) Release(context.Context, string, int) (*tmdb.Release, error) {
+	return nil, tmdb.ErrNotFound
+}
+
+func (f *fakeTitles) Search(context.Context, string) ([]tmdb.Title, []tmdb.PersonHit, error) {
+	return nil, nil, nil
+}
+
 func (f *fakeTitles) Find(_ context.Context, kind, source, id string) (int, error) {
 	if kind == "movie" && source == "imdb" && id == "tt0000042" {
 		return 42, nil

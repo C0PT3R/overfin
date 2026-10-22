@@ -1328,16 +1328,17 @@ paths:
 
   /search:
     post:
-      x-status: planned
       operationId: search
-      summary: Search the library and, when enabled, the TMDB catalog
-      description: |
-        Terms travel in the body so they stay out of URLs and logs. Results
-        come in labeled sections; a site can show them together or apart, or
-        ask for only one with `sources`. The `catalog` section exists only
-        when the operator has enabled the TMDB catalog, and its titles carry
-        request status only when requests are enabled too.
-      tags: [library]
+      summary: Search titles, in a library or not, and people
+      description: >-
+        Terms travel in the body so they stay out of URLs and logs. The
+        libraries are searched by TMDB's names (a file TMDB doesn't know,
+        by its own), accents and case aside; TMDB, for titles no library
+        has and for people. Titles follow the same rules as everywhere
+        (what the profile may see, the titles shown); those a library has
+        come first. Fewer than two letters find nothing. Rate-limited per
+        account (`rate-limited`).
+      tags: [titles]
       requestBody:
         required: true
         content:
@@ -2769,38 +2770,30 @@ components:
       properties:
         query:
           type: string
-          minLength: 1
           maxLength: 200
-        sources:
-          type: array
-          description: Which sections to return. Default is all available.
-          items:
-            type: string
-            enum: [library, catalog]
-        kind:
-          type: array
-          maxItems: 10
-          items:
-            $ref: "#/components/schemas/ItemKind"
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 50
-          default: 20
 
     SearchResults:
       type: object
+      required: [titles, people]
       properties:
-        library:
+        titles:
           type: array
           items:
             $ref: "#/components/schemas/TitleSummary"
-        catalog:
-          description: Present only when the TMDB catalog is enabled and
-            asked for.
+        people:
           type: array
           items:
-            $ref: "#/components/schemas/TitleSummary"
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              department:
+                type: string
+              image:
+                $ref: "#/components/schemas/ImageRef"
 
     CatalogList:
       description: A list defined by the operator, such as "Christmas

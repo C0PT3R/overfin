@@ -124,6 +124,8 @@ export class Overfin {
   async libraries() { return (await this.request('GET', '/libraries')).items; }
   /** A title's page, in a library or not: a series with its seasons, a season with its episodes. */
   title(id) { return this.request('GET', `/titles/${enc(id)}`); }
+  /** Searches titles (in a library or not) and people; the terms travel in the body. */
+  search(query) { return this.request('POST', '/search', { query }); }
   /** A person's page, from TMDB, with the titles they're in. */
   person(id) { return this.request('GET', `/people/${enc(id)}`); }
 

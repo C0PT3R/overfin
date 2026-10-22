@@ -337,7 +337,8 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 	}
 	return &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
 		images: images.New(jf, 64<<20), tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache(),
-		service: &provision.Service{}}, nil
+		searches: &api.SearchLimiter{PerMinute: 30},
+		service:  &provision.Service{}}, nil
 }
 
 // runRecovery runs -recover-tokens. It needs Jellyfin: from the

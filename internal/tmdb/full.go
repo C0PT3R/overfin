@@ -324,3 +324,47 @@ func (c *Client) Person(ctx context.Context, id int) (*PersonFull, error) {
 
 // maxCredits bounds a person's credits.
 const maxCredits = 500
+
+// PersonHit is a person a search found.
+type PersonHit struct {
+	ID         int
+	Name       string
+	Profile    string // a TMDB image path, or ""
+	Department string
+}
+
+// Search finds films, series and people whose names match query, in
+// TMDB's order of relevance, in the client's language (its first page).
+func (c *Client) Search(ctx context.Context, query string) ([]Title, []PersonHit, error) {
+	var raw struct {
+		Results []struct {
+			rawTitle
+			ProfilePath        string `json:"profile_path"`
+			KnownForDepartment string `json:"known_for_department"`
+		} `json:"results"`
+	}
+	q := c.withLanguage(url.Values{"query": {query}, "include_adult": {"false"}})
+	if err := c.get(ctx, "/search/multi", q, &raw); err != nil {
+		return nil, nil, err
+	}
+	var titles []Title
+	var people []PersonHit
+	for _, r := range raw.Results {
+		switch r.MediaType {
+		case "movie", "tv":
+			kind := map[string]string{"movie": "movie", "tv": "series"}[r.MediaType]
+			if t, ok := r.title(kind); ok {
+				titles = append(titles, t)
+			}
+		case "person":
+			p := PersonHit{ID: r.ID, Name: textclean.Plain(r.Name, 300), Department: textclean.Plain(r.KnownForDepartment, 60)}
+			if imagePath.MatchString(r.ProfilePath) {
+				p.Profile = r.ProfilePath
+			}
+			if ValidID(p.ID) && p.Name != "" {
+				people = append(people, p)
+			}
+		}
+	}
+	return titles, people, nil
+}

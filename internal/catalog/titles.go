@@ -20,6 +20,8 @@ type TitleSource interface {
 	// Find is the TMDB ID an IMDb or TVDB ID names.
 	Find(ctx context.Context, kind, source, id string) (int, error)
 	Person(ctx context.Context, id int) (*tmdb.PersonFull, error)
+	Release(ctx context.Context, kind string, tmdbID int) (*tmdb.Release, error)
+	Search(ctx context.Context, query string) ([]tmdb.Title, []tmdb.PersonHit, error)
 }
 
 // Titles keeps what TMDB says about every film and series the library has,
@@ -96,6 +98,9 @@ func (a *Titles) Once(ctx context.Context) error {
 	src := a.Source()
 	if src == nil {
 		return nil
+	}
+	if err := a.Store.FillSearchNames(ctx); err != nil {
+		return err
 	}
 	if err := a.find(ctx, src); err != nil {
 		return err
@@ -330,4 +335,54 @@ func (a *Titles) FetchPerson(ctx context.Context, tmdbID string) error {
 		p.Credits = append(p.Credits, store.PersonCredit{Kind: t.Kind, TMDB: key.TMDB, Role: c.Role, Crew: c.Crew})
 	}
 	return a.Store.SetPerson(ctx, p, titles, a.clock())
+}
+
+// Search asks TMDB for films, series and people matching query, keeps the
+// titles (and the people, for their photos), and fetches now the release
+// of those whose isn't known yet, so whether they're out can be judged.
+func (a *Titles) Search(ctx context.Context, query string) ([]store.Title, []store.PersonHit, error) {
+	src := a.Source()
+	if src == nil {
+		return nil, nil, tmdb.ErrNotFound
+	}
+	found, people, err := src.Search(ctx, query)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := a.clock()
+	titles := make([]store.Title, 0, len(found))
+	for _, t := range found {
+		titles = append(titles, store.Title{Kind: t.Kind, TMDB: strconv.Itoa(t.TMDBID), Name: t.Name, Year: t.Year,
+			Overview: t.Overview, Poster: t.Poster, Backdrop: t.Backdrop})
+	}
+	if err := a.Store.PutTitles(ctx, titles, now); err != nil {
+		return nil, nil, err
+	}
+	for i, t := range titles {
+		if i == 10 {
+			break // the rest at the ratings keeper's next pass
+		}
+		_, _, known, err := a.Store.TitleRelease(ctx, t.Kind, t.TMDB)
+		if err != nil {
+			return nil, nil, err
+		}
+		if known {
+			continue
+		}
+		r, err := src.Release(ctx, t.Kind, found[i].TMDBID)
+		if errors.Is(err, tmdb.ErrNotFound) {
+			r, err = &tmdb.Release{}, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := a.Store.SetTitleRatings(ctx, store.RatedTitle{Kind: t.Kind, TMDB: t.TMDB}, r.Ratings, r.Released, r.AtHome, now); err != nil {
+			return nil, nil, err
+		}
+	}
+	hits := make([]store.PersonHit, 0, len(people))
+	for _, p := range people {
+		hits = append(hits, store.PersonHit{TMDB: strconv.Itoa(p.ID), Name: p.Name, Profile: p.Profile, Department: p.Department})
+	}
+	return titles, hits, a.Store.PutPeopleHits(ctx, hits, now)
 }

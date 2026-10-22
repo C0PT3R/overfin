@@ -70,6 +70,8 @@ type shared struct {
 	ratings *ratings.Keeper
 	// titles keeps what TMDB says about the library's titles, in the background.
 	titles *catalog.Titles
+	// searches limits searches per account, across reloads.
+	searches *api.SearchLimiter
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -142,7 +144,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		checker.UnlockAfter = 15 * time.Minute
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor,
-		Folders: sh.folders, Service: sh.service, Titles: sh.titles, Logger: logger}
+		Folders: sh.folders, Service: sh.service, Titles: sh.titles, Searches: sh.searches, Logger: logger}
 	// Discovery, when there's a source for TMDB's data.
 	var disc *api.Discovery
 	if sh.source() != nil {

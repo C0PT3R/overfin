@@ -59,6 +59,15 @@ func fakeTMDB(t *testing.T) *Client {
 					{"id":9,"media_type":"tv","name":"SNL","first_air_date":"1975-10-11","character":"Host"},
 					{"id":3,"media_type":"person","name":"?"}],
 					"crew":[{"id":5,"media_type":"movie","title":"North Star","release_date":"2025-01-01","job":"Director"}]}}`)
+		case "/3/search/multi":
+			if r.URL.Query().Get("query") != "evasion" || r.URL.Query().Get("include_adult") != "false" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			io.WriteString(w, `{"results":[{"id":1,"media_type":"movie","title":"Évasion","release_date":"2013-10-18"},
+				{"id":2,"media_type":"tv","name":"Prison Break","first_air_date":"2005-08-29"},
+				{"id":3,"media_type":"person","name":"Sly","profile_path":"/sly1234567.jpg","known_for_department":"Acting"},
+				{"id":4,"media_type":"collection","name":"?"}]}`)
 		case "/3/find/tt0944947":
 			if r.URL.Query().Get("external_source") != "imdb_id" {
 				w.WriteHeader(http.StatusBadRequest)
@@ -162,6 +171,11 @@ func TestClient(t *testing.T) {
 		len(person.Credits) != 3 || person.Credits[0].Title.Kind != "movie" || person.Credits[0].Role != "Natasha" ||
 		person.Credits[1].Title.Kind != "series" || !person.Credits[2].Crew || person.Credits[2].Role != "Director" {
 		t.Errorf("person: %+v %v", person, err)
+	}
+	titles, people, err := c.Search(ctx, "evasion")
+	if err != nil || len(titles) != 2 || titles[0].Name != "Évasion" || titles[1].Kind != "series" ||
+		len(people) != 1 || people[0].Profile != "/sly1234567.jpg" {
+		t.Errorf("search: %+v %+v %v", titles, people, err)
 	}
 	if id, err := c.Find(ctx, "series", "imdb", "tt0944947"); err != nil || id != 1399 {
 		t.Errorf("find a series: %d %v", id, err)
