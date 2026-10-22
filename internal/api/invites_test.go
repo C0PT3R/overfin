@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/invites"
@@ -112,5 +114,66 @@ func TestInvites(t *testing.T) {
 	items, _ := list["items"].([]any)
 	if len(items) != 1 || items[0].(map[string]any)["uses"] != 1.0 || items[0].(map[string]any)["label"] != "Bob" {
 		t.Errorf("invitations: %v", list)
+	}
+}
+
+// With an identity provider that makes sign-up links, an invitation leads
+// there: the same link each time, for the uses left until it expires; once
+// it's used up, to the site.
+func TestInviteSignUpLinks(t *testing.T) {
+	type call struct {
+		previous string
+		uses     int
+		days     int
+	}
+	var calls []call
+	usedUp := false
+	signUp := func(_ context.Context, previous string, uses int, until time.Time) (string, string, error) {
+		calls = append(calls, call{previous, uses, int(time.Until(until).Hours()+1) / 24})
+		switch {
+		case previous == "":
+			return "https://auth.example.org/st/tok1", "t1", nil
+		case usedUp:
+			return "", previous, nil
+		}
+		return "https://auth.example.org/st/tok1", previous, nil
+	}
+	var tmpl string
+	panel := http.NewServeMux()
+	srv, _ := newServerWith(t, options{modules: []feature.Feature{invites.Feature{}}, template: &tmpl, admin: panel, signUp: signUp})
+	admin := func(method, path string, body any) map[string]any {
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		panel.ServeHTTP(rec, httptest.NewRequest(method, "/admin/api/modules/invites"+path, bytes.NewReader(b)))
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return out
+	}
+	it := admin("POST", "/templates", map[string]any{"name": "Family", "accountTemplate": tmpl,
+		"accessDays": 0, "validDays": 10, "maxUses": 3})
+	link, _ := admin("POST", "/invites", map[string]any{"template": it["id"], "label": "Them"})["link"].(string)
+	noFollow := &http.Client{Transport: srv.Client().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	open := func() string {
+		res, err := noFollow.Get(srv.URL + link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.Header.Get("Location")
+	}
+	if to := open(); to != "https://auth.example.org/st/tok1" {
+		t.Errorf("first opening: to %q", to)
+	}
+	if to := open(); to != "https://auth.example.org/st/tok1" {
+		t.Errorf("second opening: to %q", to)
+	}
+	usedUp = true
+	if to := open(); to != "/" {
+		t.Errorf("used up: to %q", to)
+	}
+	want := []call{{"", 3, 10}, {"t1", 3, 10}, {"t1", 3, 10}}
+	if fmt.Sprint(calls) != fmt.Sprint(want) {
+		t.Errorf("calls %v, want %v", calls, want)
 	}
 }

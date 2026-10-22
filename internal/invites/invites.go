@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -106,14 +107,39 @@ func (a admin) open(w http.ResponseWriter, r *http.Request) {
 	})
 	// Where the identity provider makes sign-up links, the person goes
 	// there to make their account first.
-	link, err := a.h.SignUpLink(r.Context())
+	link, err := a.signUpLink(r.Context(), inv)
 	if err != nil {
-		a.h.Logger().Error("making a sign-up link failed; sending the person to log in", "err", err)
+		a.h.Logger().Error("getting the invitation's sign-up link failed; sending the person to log in", "err", err)
 	}
 	if link == "" {
 		link = "/"
 	}
 	http.Redirect(w, r, link, http.StatusSeeOther)
+}
+
+// signUps keeps two people opening the same invitation at once from
+// getting two sign-up links.
+var signUps sync.Mutex
+
+// signUpLink is the invitation's sign-up link at the identity provider,
+// for its uses left: the same one each time, while it works.
+func (a admin) signUpLink(ctx context.Context, inv *invite) (string, error) {
+	signUps.Lock()
+	defer signUps.Unlock()
+	var previous string
+	if err := a.db.QueryRowContext(ctx, `SELECT signup_token_id FROM invites WHERE id = ?`, inv.ID).Scan(&previous); err != nil {
+		return "", err
+	}
+	link, id, err := a.h.SignUpLink(ctx, previous, inv.MaxUses-inv.Uses, time.Unix(inv.expires, 0))
+	if err != nil {
+		return "", err
+	}
+	if id != previous {
+		if _, err := a.db.ExecContext(ctx, `UPDATE invites SET signup_token_id = ? WHERE id = ?`, id, inv.ID); err != nil {
+			return "", err
+		}
+	}
+	return link, nil
 }
 
 // NewAccount shapes a new account by the visitor's invitation, or refuses

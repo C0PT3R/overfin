@@ -289,6 +289,8 @@ type options struct {
 	directory connector.Directory
 	// tmdb, when set, is TMDB for the pages fetched when opened.
 	tmdb catalog.TitleSource
+	// signUp, when set, makes the identity provider's sign-up links.
+	signUp func(ctx context.Context, previous string, uses int, until time.Time) (string, string, error)
 }
 
 func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
@@ -403,7 +405,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}
 	for _, m := range o.modules {
 		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: moduleDB(m), Logger: logger,
-			Settings: o.settings[m.Info().Name], Admin: o.admin})
+			Settings: o.settings[m.Info().Name], Admin: o.admin, SignUp: o.signUp})
 	}
 	st.SetForgetter(testForgetter{modules: all, dbs: dbs})
 	if o.dbs != nil {

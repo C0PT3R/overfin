@@ -517,7 +517,7 @@ func unrestrictKids(ctx context.Context, db *store.Store, prov func() *provision
 func setUpPocketID(ctx context.Context, cfg *config.Config, logger *slog.Logger) {
 	cn, o := cfg.Connector, cfg.OIDC
 	p := &connector.PocketID{BaseURL: cn.URL, Key: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
-	client := connector.Client{ID: o.ClientID, Name: "Overfin", Secret: cfg.Secrets.OIDCClientSecret}
+	client := connector.Client{ID: o.ClientID, Name: "Overfin", Secret: cfg.Secrets.OIDCClientSecret, LaunchURL: siteURL(cfg)}
 	for _, u := range []string{o.RedirectURL, cfg.Admin.RedirectURL} {
 		if u != "" {
 			client.CallbackURLs = append(client.CallbackURLs, u)

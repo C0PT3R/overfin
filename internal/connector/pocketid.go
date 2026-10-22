@@ -139,6 +139,8 @@ type Client struct {
 	Secret string
 	// CallbackURLs are where Pocket ID may send people back to.
 	CallbackURLs []string
+	// LaunchURL, when set, is the app's address, on Pocket ID's "My apps".
+	LaunchURL string
 }
 
 // Setup makes sure Pocket ID has the client (made, or its name and
@@ -147,6 +149,9 @@ type Client struct {
 func (p *PocketID) Setup(ctx context.Context, c Client, groups []string) error {
 	body := map[string]any{"id": c.ID, "name": c.Name, "callbackURLs": c.CallbackURLs, "isPublic": false,
 		"pkceEnabled": true, "skipConsent": true}
+	if c.LaunchURL != "" {
+		body["launchURL"] = c.LaunchURL
+	}
 	var existing struct{ ID string }
 	err := p.do(ctx, http.MethodGet, "/api/oidc/clients/"+url.PathEscape(c.ID), nil, &existing)
 	switch {
@@ -242,32 +247,73 @@ func (p *PocketID) groupID(ctx context.Context, name string) (string, error) {
 	return "", nil
 }
 
-// SignupToken makes a sign-up token for one person, valid for ttl, whose
-// account joins the groups (by name; they must exist). People use it at
-// Pocket ID's /st/<token>.
-func (p *PocketID) SignupToken(ctx context.Context, ttl time.Duration, groups []string) (string, error) {
+// SignupToken is a sign-up token in Pocket ID, used at its /st/<Token>.
+type SignupToken struct {
+	ID, Token string
+	// UsedUp: as many people signed up with it as it allows.
+	UsedUp bool
+}
+
+// NewSignupToken makes a sign-up token for uses people (100 at most), valid
+// for ttl (31 days at most), whose accounts join the groups (by name; they
+// must exist).
+func (p *PocketID) NewSignupToken(ctx context.Context, uses int, ttl time.Duration, groups []string) (SignupToken, error) {
+	uses = min(max(uses, 1), 100)
+	ttl = min(ttl, 31*24*time.Hour)
+	if ttl < time.Minute {
+		return SignupToken{}, errors.New("connector: a sign-up token must last a minute at least")
+	}
 	ids := []string{}
 	for _, name := range groups {
 		id, err := p.groupID(ctx, name)
 		if err != nil {
-			return "", err
+			return SignupToken{}, err
 		}
 		if id == "" {
-			return "", fmt.Errorf("connector: Pocket ID has no group %q", name)
+			return SignupToken{}, fmt.Errorf("connector: Pocket ID has no group %q", name)
 		}
 		ids = append(ids, id)
 	}
-	var res struct {
-		Token string `json:"token"`
-	}
-	body := map[string]any{"ttl": int(ttl.Seconds()), "usageLimit": 1, "userGroupIds": ids}
+	var res struct{ ID, Token string }
+	body := map[string]any{"ttl": int(ttl.Seconds()), "usageLimit": uses, "userGroupIds": ids}
 	if err := p.do(ctx, http.MethodPost, "/api/signup-tokens", body, &res); err != nil {
-		return "", fmt.Errorf("making a sign-up token: %w", err)
+		return SignupToken{}, fmt.Errorf("making a sign-up token: %w", err)
 	}
-	if res.Token == "" {
-		return "", errors.New("connector: Pocket ID gave no sign-up token")
+	if res.ID == "" || res.Token == "" {
+		return SignupToken{}, errors.New("connector: Pocket ID gave no sign-up token")
 	}
-	return res.Token, nil
+	return SignupToken{ID: res.ID, Token: res.Token}, nil
+}
+
+// FindSignupToken returns the sign-up token with that ID, or ErrNotFound
+// when Pocket ID no longer has it (expired, or deleted).
+func (p *PocketID) FindSignupToken(ctx context.Context, id string) (SignupToken, error) {
+	for page := 1; page <= 100; page++ {
+		var res struct {
+			Data []struct {
+				ID         string `json:"id"`
+				Token      string `json:"token"`
+				UsageLimit int    `json:"usageLimit"`
+				UsageCount int    `json:"usageCount"`
+			} `json:"data"`
+			Pagination struct {
+				TotalPages int `json:"totalPages"`
+			} `json:"pagination"`
+		}
+		q := url.Values{"pagination[page]": {strconv.Itoa(page)}, "pagination[limit]": {"100"}}
+		if err := p.do(ctx, http.MethodGet, "/api/signup-tokens?"+q.Encode(), nil, &res); err != nil {
+			return SignupToken{}, fmt.Errorf("listing sign-up tokens: %w", err)
+		}
+		for _, t := range res.Data {
+			if t.ID == id {
+				return SignupToken{ID: t.ID, Token: t.Token, UsedUp: t.UsageCount >= t.UsageLimit}, nil
+			}
+		}
+		if page >= res.Pagination.TotalPages || len(res.Data) == 0 {
+			break
+		}
+	}
+	return SignupToken{}, ErrNotFound
 }
 
 // Signups is Pocket ID's sign-up setting: "disabled", "withToken" or

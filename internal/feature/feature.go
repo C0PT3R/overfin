@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 // Module is one feature grafted onto the core.
@@ -92,10 +93,15 @@ type Host interface {
 	// SiteURL is the site's address, e.g. "https://example.org", for links
 	// to it; empty when the core doesn't know it.
 	SiteURL() string
-	// SignUpLink is a link where one person can make their account at the
-	// identity provider, valid for a day; empty when the provider has no
-	// such links (people then sign up as it lets them).
-	SignUpLink(ctx context.Context) (string, error)
+	// SignUpLink is the link where people make their account at the
+	// identity provider, for an invitation that has uses left until a time.
+	// previous is the ID it returned last time for that invitation (empty
+	// the first time): that link is given again while it works, and a new
+	// one is made only once it has expired, so no more people sign up than
+	// the invitation allows. The link is empty when the previous one is
+	// used up, or when the provider has no such links (people then sign up
+	// as it lets them).
+	SignUpLink(ctx context.Context, previous string, uses int, until time.Time) (link, id string, err error)
 	// DB is the module's own database: its tables, and nothing else. The
 	// core's data is reached through the host, never directly.
 	DB() *sql.DB

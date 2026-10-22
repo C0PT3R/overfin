@@ -49,9 +49,11 @@ func TestPocketIDPeople(t *testing.T) {
 	}
 }
 
-// SignupToken: groups by name become their IDs; one use, the TTL in
-// seconds; a missing group is an error, not a token without it.
-func TestPocketIDSignupToken(t *testing.T) {
+// Sign-up tokens: groups by name become their IDs; uses and TTL within
+// Pocket ID's limits; a missing group is an error, not a token without it.
+// A token is found again by its ID, used up or not; a gone one is
+// ErrNotFound.
+func TestPocketIDSignupTokens(t *testing.T) {
 	var got map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -60,21 +62,35 @@ func TestPocketIDSignupToken(t *testing.T) {
 		case r.URL.Path == "/api/signup-tokens" && r.Method == http.MethodPost:
 			json.NewDecoder(r.Body).Decode(&got)
 			io.WriteString(w, `{"id":"t1","token":"abc123"}`)
+		case r.URL.Path == "/api/signup-tokens" && r.URL.Query().Get("pagination[page]") == "1":
+			io.WriteString(w, `{"data":[{"id":"t0","token":"old","usageLimit":2,"usageCount":2}],"pagination":{"totalPages":2}}`)
+		case r.URL.Path == "/api/signup-tokens":
+			io.WriteString(w, `{"data":[{"id":"t1","token":"abc123","usageLimit":3,"usageCount":1}],"pagination":{"totalPages":2}}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer srv.Close()
 	p := &PocketID{BaseURL: srv.URL, Key: "k", HTTP: srv.Client()}
-	token, err := p.SignupToken(context.Background(), 24*time.Hour, []string{"members"})
-	if err != nil || token != "abc123" {
-		t.Fatalf("token %q, %v", token, err)
+	ctx := context.Background()
+	tok, err := p.NewSignupToken(ctx, 500, 90*24*time.Hour, []string{"members"})
+	if err != nil || tok != (SignupToken{ID: "t1", Token: "abc123"}) {
+		t.Fatalf("token %+v, %v", tok, err)
 	}
-	if fmt.Sprint(got) != "map[ttl:86400 usageLimit:1 userGroupIds:[g1]]" {
+	if fmt.Sprint(got) != "map[ttl:2.6784e+06 usageLimit:100 userGroupIds:[g1]]" {
 		t.Errorf("sent %v", got)
 	}
-	if _, err := p.SignupToken(context.Background(), time.Hour, []string{"nobody"}); err == nil {
+	if _, err := p.NewSignupToken(ctx, 1, time.Hour, []string{"nobody"}); err == nil {
 		t.Error("a missing group gave a token")
+	}
+	if tok, err := p.FindSignupToken(ctx, "t1"); err != nil || tok.UsedUp || tok.Token != "abc123" {
+		t.Errorf("t1: %+v, %v", tok, err)
+	}
+	if tok, err := p.FindSignupToken(ctx, "t0"); err != nil || !tok.UsedUp {
+		t.Errorf("t0: %+v, %v", tok, err)
+	}
+	if _, err := p.FindSignupToken(ctx, "gone"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("gone: %v", err)
 	}
 }
 

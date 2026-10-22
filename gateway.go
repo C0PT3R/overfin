@@ -611,9 +611,9 @@ func restartOnly(old, new *config.Config) []string {
 	return changed
 }
 
-// signUp makes one-person sign-up links at Pocket ID, valid for a day, whose
-// accounts join the group the site requires; nil with other providers.
-func signUp(cfg *config.Config) func(ctx context.Context) (string, error) {
+// signUp makes invitations' sign-up links at Pocket ID, whose accounts join
+// the group the site requires; nil with other providers.
+func signUp(cfg *config.Config) func(ctx context.Context, previous string, uses int, until time.Time) (string, string, error) {
 	cn := cfg.Connector
 	if cn.Kind != "pocketid" || !cfg.OIDC.Enabled() {
 		return nil
@@ -623,12 +623,26 @@ func signUp(cfg *config.Config) func(ctx context.Context) (string, error) {
 	if g := cfg.Identity.RequiredGroup; g != "" {
 		groups = append(groups, g)
 	}
-	return func(ctx context.Context) (string, error) {
-		token, err := p.SignupToken(ctx, 24*time.Hour, groups)
-		if err != nil {
-			return "", err
+	// Pocket ID's issuer is its public address, where people go.
+	link := func(t connector.SignupToken) string {
+		return strings.TrimSuffix(cfg.OIDC.Issuer, "/") + "/st/" + url.PathEscape(t.Token)
+	}
+	return func(ctx context.Context, previous string, uses int, until time.Time) (string, string, error) {
+		if previous != "" {
+			t, err := p.FindSignupToken(ctx, previous)
+			switch {
+			case err == nil && t.UsedUp:
+				return "", t.ID, nil
+			case err == nil:
+				return link(t), t.ID, nil
+			case !errors.Is(err, connector.ErrNotFound):
+				return "", "", err
+			}
 		}
-		// Pocket ID's issuer is its public address, where people go.
-		return strings.TrimSuffix(cfg.OIDC.Issuer, "/") + "/st/" + url.PathEscape(token), nil
+		t, err := p.NewSignupToken(ctx, uses, time.Until(until), groups)
+		if err != nil {
+			return "", "", err
+		}
+		return link(t), t.ID, nil
 	}
 }

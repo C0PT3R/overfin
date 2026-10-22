@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/overfin/server/internal/creation"
 	"github.com/overfin/server/internal/feature"
@@ -39,9 +40,9 @@ type Mount struct {
 	Peers []Mount
 	// SiteURL is the site's address, when known.
 	SiteURL string
-	// SignUp makes a one-person sign-up link at the identity provider; nil
-	// when it has none.
-	SignUp func(ctx context.Context) (string, error)
+	// SignUp is feature.Host's SignUpLink; nil when the identity provider
+	// has no sign-up links.
+	SignUp func(ctx context.Context, previous string, uses int, until time.Time) (link, id string, err error)
 }
 
 func (m Mount) Name() string { return m.Module.Info().Name }
@@ -62,11 +63,11 @@ func (h *host) Setting(key string) string { return h.mount.Settings[key] }
 
 func (h *host) SiteURL() string { return h.mount.SiteURL }
 
-func (h *host) SignUpLink(ctx context.Context) (string, error) {
+func (h *host) SignUpLink(ctx context.Context, previous string, uses int, until time.Time) (string, string, error) {
 	if h.mount.SignUp == nil {
-		return "", nil
+		return "", "", nil
 	}
-	return h.mount.SignUp(ctx)
+	return h.mount.SignUp(ctx, previous, uses, until)
 }
 
 func (h *host) Templates(ctx context.Context) ([]feature.AccountTemplate, error) {
