@@ -12,18 +12,27 @@
 <header><strong>Overfin</strong> <span class="muted">setup</span></header>
 <main>
 <section id="form">
-  <h2>Connect Jellyfin</h2>
-  <p class="muted">The setup code is in Overfin's log (with Docker: <code>docker compose logs overfin</code>).
+  <h2>Set up Overfin</h2>
+  <p class="muted">The setup code is in Overfin's log (with Docker: <code>docker logs overfin</code>).
   Everything is tested before it's saved.</p>
   <div class="row"><label for="code">Setup code</label><input id="code" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX"></div>
-  <div class="row"><label for="url">Jellyfin's address, as Overfin reaches it<div class="hint">For example http://192.168.1.10:8096. Not localhost: in a container, that's Overfin itself.</div></label><input id="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.10:8096"></div>
-  <div class="row"><label for="key">A Jellyfin API key<div class="hint">In Jellyfin's dashboard, under API Keys.</div></label><input id="key" type="password" autocomplete="off"></div>
+  <div id="jellyfin" hidden>
+    <h3>Jellyfin</h3>
+    <div class="row"><label for="url">Jellyfin's address, as Overfin reaches it<div class="hint">For example http://192.168.1.10:8096. Not localhost: in a container, that's Overfin itself.</div></label><input id="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.10:8096"></div>
+    <div class="row"><label for="key">A Jellyfin API key<div class="hint">In Jellyfin's dashboard, under API Keys.</div></label><input id="key" type="password" autocomplete="off"></div>
+  </div>
+  <div id="admin" hidden>
+    <h3>You, the first admin</h3>
+    <div class="row"><label for="email">Your email<div class="hint">You sign in with it.</div></label><input id="email" type="email" autocomplete="username" spellcheck="false"></div>
+    <div class="row"><label for="password">A password<div class="hint">At least 10 characters.</div></label><input id="password" type="password" autocomplete="new-password"></div>
+  </div>
   <div class="bar"><button id="save" class="primary" type="button">Test and save</button><span id="status"></span></div>
 </section>
 <section id="done" hidden>
   <h2>Done</h2>
   <p id="summary"></p>
-  <p>Overfin is starting. In a few seconds, <a href="/admin/">reload this page</a> to sign in to the control panel.</p>
+  <p id="next-panel">Overfin is starting. In a few seconds, <a href="/admin/">reload this page</a> to sign in to the control panel.</p>
+  <p id="next-site" hidden>Overfin is starting. In a few seconds, <a href="/">sign in</a>.</p>
 </section>
 </main>
 </body>

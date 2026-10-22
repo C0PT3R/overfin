@@ -22,9 +22,11 @@ listen = ":8080"
 [jellyfin]
 # Where Overfin reaches Jellyfin. Keeping Jellyfin off the internet is
 # recommended (exposing both works, but they manage people differently: see
-# SECURITY.md, Deployment). With OVERFIN_JELLYFIN_ADMIN_KEY, or neither: then the control
-# panel's setup page asks for both, with a one-time code from the log, tests
-# them and keeps them in the database (the key sealed).
+# SECURITY.md, Deployment). With OVERFIN_JELLYFIN_ADMIN_KEY, or neither: then the setup
+# page asks for both, with a one-time code from the log, tests them and keeps
+# them in the database (the key sealed). It's at /admin/ on the site's own
+# address with managed sign-in (where it also makes the first admin), and on
+# the control panel's.
 url = "http://192.0.2.10:8096"
 
 [identity]

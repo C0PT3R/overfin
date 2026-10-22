@@ -193,48 +193,75 @@ func run(logger *slog.Logger) error {
 	}
 
 	// Jellyfin: set in the configuration, saved by the setup page, or asked
-	// for now.
+	// for now; with managed sign-in, the first admin too.
 	jellyfinSaved := cfg.Jellyfin.URL == ""
+	haveJellyfin := !jellyfinSaved
 	if jellyfinSaved {
 		url, key, ok, err := db.Jellyfin(ctx)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			if adminSrv == nil {
-				return errors.New("no Jellyfin set up: set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY, " +
-					"or switch on the control panel ([admin]) and use its setup page")
-			}
-			saved := make(chan [2]string, 1)
+		haveJellyfin = ok
+		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+	}
+	managed := cfg.Identity.Mode == "managed"
+	haveAdmin := true
+	if managed {
+		if haveAdmin, err = db.HasAdmin(ctx); err != nil {
+			return err
+		}
+	}
+	if !haveJellyfin || !haveAdmin {
+		if !managed && adminSrv == nil {
+			return errors.New("no Jellyfin set up: set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY, " +
+				"or switch on the control panel ([admin]) and use its setup page")
+		}
+		done := make(chan struct{})
+		setup := &admin.Setup{Code: admin.NewSetupCode(), Logger: logger, Done: func() { close(done) }}
+		if !haveJellyfin {
 			// The page tests, then saves, one request at a time: the save
 			// keeps the server ID its test just found.
 			var serverID string
-			setup := &admin.Setup{Code: admin.NewSetupCode(), Logger: logger,
-				Test: func(ctx context.Context, url, key string) (string, error) {
-					found, err := testJellyfin(ctx, url, key)
-					serverID = found.serverID
-					return found.summary, err
-				},
-				Save: func(ctx context.Context, url, key string) error {
-					if err := db.SetJellyfin(ctx, url, key, serverID); err != nil {
-						return err
-					}
-					saved <- [2]string{url, key}
-					return nil
-				}}
-			panel.set(setup.Handler())
-			logger.Warn("Overfin isn't set up yet: open the control panel's address to connect Jellyfin, with this one-time code",
-				"code", setup.Code, "panel", cfg.Admin.Listen)
-			select {
-			case v := <-saved:
-				url, key = v[0], v[1]
-			case err := <-errc:
-				return err
-			case <-ctx.Done():
-				return shutdown()
+			setup.Test = func(ctx context.Context, url, key string) (string, error) {
+				found, err := testJellyfin(ctx, url, key)
+				serverID = found.serverID
+				return found.summary, err
+			}
+			setup.Save = func(ctx context.Context, url, key string) error {
+				if err := db.SetJellyfin(ctx, url, key, serverID); err != nil {
+					return err
+				}
+				cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+				return nil
 			}
 		}
-		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+		if !haveAdmin {
+			setup.FirstAdmin = func(ctx context.Context, email, hash string) error {
+				u, err := db.CreateUser(ctx, email, true)
+				if err != nil {
+					return err
+				}
+				return db.SetPassword(ctx, u.Subject, hash)
+			}
+		}
+		where := []any{"code", setup.Code}
+		if adminSrv != nil {
+			panel.set(setup.Handler())
+			where = append(where, "panel", cfg.Admin.Listen)
+		}
+		if managed {
+			site.set(setup.PublicHandler())
+			where = append(where, "site", addr)
+		}
+		logger.Warn("Overfin isn't set up yet: open its address (/admin/) and finish setting it up with this one-time code", where...)
+		select {
+		case <-done:
+		case err := <-errc:
+			return err
+		case <-ctx.Done():
+			return shutdown()
+		}
+		site.set(settingUp)
 	}
 
 	sh, err := newShared(cfg, db, moduleDBs, k, logger)

@@ -27,7 +27,7 @@ nav { display: flex; gap: .2rem; margin-left: 1rem; }
 nav a { color: var(--muted); text-decoration: none; padding: .3em .7em; border-radius: 6px; }
 nav a.active { color: var(--text); background: var(--bg); }
 h3 { font-size: .95rem; margin: 1rem 0 .2rem; color: var(--muted); }
-input[type=search], input:not([type]), input[type=password], input[type=datetime-local] { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .35em .6em; }
+input[type=search], input:not([type]), input[type=password], input[type=email], input[type=datetime-local] { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .35em .6em; }
 input.search { width: 100%; margin-top: .4rem; }
 button.danger { color: var(--danger); border-color: var(--danger); }
 .pill { font-size: .75rem; padding: .1em .5em; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
