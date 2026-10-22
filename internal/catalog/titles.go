@@ -340,14 +340,15 @@ func (a *Titles) FetchPerson(ctx context.Context, tmdbID string) error {
 // Search asks TMDB for films, series and people matching query, keeps the
 // titles (and the people, for their photos), and fetches now the release
 // of those whose isn't known yet, so whether they're out can be judged.
-func (a *Titles) Search(ctx context.Context, query string) ([]store.Title, []store.PersonHit, error) {
+// peopleFirst says TMDB ranked a person above every title.
+func (a *Titles) Search(ctx context.Context, query string) (_ []store.Title, _ []store.PersonHit, peopleFirst bool, err error) {
 	src := a.Source()
 	if src == nil {
-		return nil, nil, tmdb.ErrNotFound
+		return nil, nil, false, tmdb.ErrNotFound
 	}
 	found, people, err := src.Search(ctx, query)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	now := a.clock()
 	titles := make([]store.Title, 0, len(found))
@@ -356,7 +357,7 @@ func (a *Titles) Search(ctx context.Context, query string) ([]store.Title, []sto
 			Overview: t.Overview, Poster: t.Poster, Backdrop: t.Backdrop})
 	}
 	if err := a.Store.PutTitles(ctx, titles, now); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	for i, t := range titles {
 		if i == 10 {
@@ -364,7 +365,7 @@ func (a *Titles) Search(ctx context.Context, query string) ([]store.Title, []sto
 		}
 		_, _, known, err := a.Store.TitleRelease(ctx, t.Kind, t.TMDB)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if known {
 			continue
@@ -374,15 +375,16 @@ func (a *Titles) Search(ctx context.Context, query string) ([]store.Title, []sto
 			r, err = &tmdb.Release{}, nil
 		}
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if err := a.Store.SetTitleRatings(ctx, store.RatedTitle{Kind: t.Kind, TMDB: t.TMDB}, r.Ratings, r.Released, r.AtHome, now); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 	}
 	hits := make([]store.PersonHit, 0, len(people))
 	for _, p := range people {
 		hits = append(hits, store.PersonHit{TMDB: strconv.Itoa(p.ID), Name: p.Name, Profile: p.Profile, Department: p.Department})
+		peopleFirst = peopleFirst || p.First
 	}
-	return titles, hits, a.Store.PutPeopleHits(ctx, hits, now)
+	return titles, hits, peopleFirst, a.Store.PutPeopleHits(ctx, hits, now)
 }

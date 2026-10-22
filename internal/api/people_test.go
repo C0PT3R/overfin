@@ -42,7 +42,7 @@ func (f *fakePeople) Search(_ context.Context, q string) ([]tmdb.Title, []tmdb.P
 		{TMDBID: 20, Kind: "movie", Name: "Évasion 2", Year: 2013},
 		{TMDBID: 949, Kind: "movie", Name: "Évasion", Year: 2013},
 		{TMDBID: 21, Kind: "movie", Name: "Évasion 3", Year: 2099},
-	}, []tmdb.PersonHit{{ID: 1245, Name: "Sly", Profile: "/sly1234567.jpg"}}, nil
+	}, []tmdb.PersonHit{{ID: 1245, Name: "Sly", Profile: "/sly1234567.jpg", First: q != "evasion 2"}}, nil
 }
 
 func (f *fakePeople) Person(_ context.Context, id int) (*tmdb.PersonFull, error) {
@@ -121,6 +121,7 @@ func TestSearch(t *testing.T) {
 			ID    string
 			Image *struct{ URL string }
 		}
+		PeopleFirst bool
 	}
 	code, body := post(t, srv, "/api/v1/search", `{"query":"evasion"}`)
 	json.Unmarshal([]byte(body), &res)
@@ -130,6 +131,18 @@ func TestSearch(t *testing.T) {
 	}
 	if len(res.People) != 1 || res.People[0].ID != "person_tmdb_1245" || res.People[0].Image == nil {
 		t.Errorf("people: %+v", res.People)
+	}
+	// TMDB ranked a person first, but a library title has that very name:
+	// titles first. Without such a title, and TMDB ranking a person first:
+	// people first; otherwise not.
+	if res.PeopleFirst {
+		t.Error("people first despite the library's Évasion")
+	}
+	for q, want := range map[string]bool{"evasio": true, "evasion 2": false} {
+		_, body := post(t, srv, "/api/v1/search", `{"query":"`+q+`"}`)
+		if got := strings.Contains(body, `"peopleFirst":true`); got != want {
+			t.Errorf("%s: people first %v", q, got)
+		}
 	}
 	// Too short: nothing, and TMDB isn't asked; too long: refused.
 	searched := src.searched

@@ -2794,6 +2794,12 @@ components:
                 type: string
               image:
                 $ref: "#/components/schemas/ImageRef"
+        peopleFirst:
+          type: boolean
+          description: The search looks like a person's name (TMDB ranked a
+            person above every title, and no library title has that very
+            name), so people are best shown before titles. Absent when
+            false.
 
     CatalogList:
       description: A list defined by the operator, such as "Christmas

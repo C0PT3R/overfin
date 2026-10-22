@@ -10,6 +10,7 @@ import (
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/store"
 )
 
 // Search finds titles, in a library or not, and people (POST /search). The
@@ -28,6 +29,10 @@ type searchResults struct {
 	// ranks them.
 	Titles []library.TitleSummary `json:"titles"`
 	People []searchPerson         `json:"people"`
+	// PeopleFirst: the search looks like a person's name (TMDB ranked a
+	// person first, and no library title has that very name), so people
+	// are best shown before titles.
+	PeopleFirst bool `json:"peopleFirst,omitempty"`
 }
 
 // SearchLimiter allows each account a number of searches a minute.
@@ -96,7 +101,8 @@ func (l Library) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if l.Titles != nil {
-		titles, people, err := l.Titles.Search(ctx, query)
+		titles, people, first, err := l.Titles.Search(ctx, query)
+		out.PeopleFirst = first
 		if err != nil {
 			l.Logger.Warn("searching TMDB failed", "err", err) // the library's results still
 		}
@@ -120,6 +126,9 @@ func (l Library) search(w http.ResponseWriter, r *http.Request) {
 	for _, t := range all {
 		if t.Availability != "missing" {
 			out.Titles = append(out.Titles, t)
+			if store.Fold(t.Name) == store.Fold(query) {
+				out.PeopleFirst = false
+			}
 		}
 	}
 	for _, t := range all {

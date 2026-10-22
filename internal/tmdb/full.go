@@ -331,6 +331,8 @@ type PersonHit struct {
 	Name       string
 	Profile    string // a TMDB image path, or ""
 	Department string
+	// First: TMDB ranked them above every title.
+	First bool
 }
 
 // Search finds films, series and people whose names match query, in
@@ -349,7 +351,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]Title, []PersonHit
 	}
 	var titles []Title
 	var people []PersonHit
-	for _, r := range raw.Results {
+	for i, r := range raw.Results {
 		switch r.MediaType {
 		case "movie", "tv":
 			kind := map[string]string{"movie": "movie", "tv": "series"}[r.MediaType]
@@ -357,7 +359,8 @@ func (c *Client) Search(ctx context.Context, query string) ([]Title, []PersonHit
 				titles = append(titles, t)
 			}
 		case "person":
-			p := PersonHit{ID: r.ID, Name: textclean.Plain(r.Name, 300), Department: textclean.Plain(r.KnownForDepartment, 60)}
+			p := PersonHit{ID: r.ID, Name: textclean.Plain(r.Name, 300), Department: textclean.Plain(r.KnownForDepartment, 60),
+				First: i == 0}
 			if imagePath.MatchString(r.ProfilePath) {
 				p.Profile = r.ProfilePath
 			}

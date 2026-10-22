@@ -319,7 +319,7 @@ export class Overfin {
   /** A title's page, in a library or not. */
   title(id: string): Promise<Title>;
   person(id: string): Promise<Person>;
-  search(query: string): Promise<{ titles: TitleSummary[]; people: { id: string; name: string; department?: string; image?: ImageRef }[] }>;
+  search(query: string): Promise<{ titles: TitleSummary[]; people: { id: string; name: string; department?: string; image?: ImageRef }[]; peopleFirst?: boolean }>;
   /** A library's titles; kind is required. */
   titles(query?: TitleQuery): Promise<TitlePage>;
   pages(query?: TitleQuery): AsyncGenerator<TitlePage>;
