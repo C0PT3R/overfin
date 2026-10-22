@@ -39,6 +39,9 @@ type Mount struct {
 	Peers []Mount
 	// SiteURL is the site's address, when known.
 	SiteURL string
+	// SignUp makes a one-person sign-up link at the identity provider; nil
+	// when it has none.
+	SignUp func(ctx context.Context) (string, error)
 }
 
 func (m Mount) Name() string { return m.Module.Info().Name }
@@ -58,6 +61,13 @@ func (h *host) DB() *sql.DB { return h.mount.DB }
 func (h *host) Setting(key string) string { return h.mount.Settings[key] }
 
 func (h *host) SiteURL() string { return h.mount.SiteURL }
+
+func (h *host) SignUpLink(ctx context.Context) (string, error) {
+	if h.mount.SignUp == nil {
+		return "", nil
+	}
+	return h.mount.SignUp(ctx)
+}
 
 func (h *host) Templates(ctx context.Context) ([]feature.AccountTemplate, error) {
 	ts, err := h.mount.Library.Provisioner.Store.Templates(ctx)

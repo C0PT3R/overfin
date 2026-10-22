@@ -533,6 +533,9 @@ func setUpPocketID(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 		err := p.Setup(ctx, client, groups)
 		if err == nil {
 			logger.Info("Pocket ID is set up for Overfin", "client", client.ID, "groups", groups)
+			if s, err := p.Signups(ctx); err == nil && s == "disabled" {
+				logger.Warn("Pocket ID's sign-ups are disabled, so invitation links can't work: set ALLOW_USER_SIGNUPS=withToken there")
+			}
 			return
 		}
 		logger.Warn("setting up Pocket ID failed; trying again", "err", err, "in", wait)

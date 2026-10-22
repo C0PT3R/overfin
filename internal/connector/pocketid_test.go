@@ -2,12 +2,14 @@ package connector
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // People: every page, by user ID; the display name, else first and last
@@ -44,5 +46,34 @@ func TestPocketIDPeople(t *testing.T) {
 	bad := &PocketID{BaseURL: srv.URL, Key: "wrong", HTTP: srv.Client()}
 	if err := bad.Check(context.Background()); !errors.Is(err, ErrPocketIDKey) {
 		t.Errorf("wrong key: %v", err)
+	}
+}
+
+// SignupToken: groups by name become their IDs; one use, the TTL in
+// seconds; a missing group is an error, not a token without it.
+func TestPocketIDSignupToken(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/user-groups":
+			io.WriteString(w, `{"data":[{"id":"g-other","name":"members-old"},{"id":"g1","name":"members"}]}`)
+		case r.URL.Path == "/api/signup-tokens" && r.Method == http.MethodPost:
+			json.NewDecoder(r.Body).Decode(&got)
+			io.WriteString(w, `{"id":"t1","token":"abc123"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	p := &PocketID{BaseURL: srv.URL, Key: "k", HTTP: srv.Client()}
+	token, err := p.SignupToken(context.Background(), 24*time.Hour, []string{"members"})
+	if err != nil || token != "abc123" {
+		t.Fatalf("token %q, %v", token, err)
+	}
+	if fmt.Sprint(got) != "map[ttl:86400 usageLimit:1 userGroupIds:[g1]]" {
+		t.Errorf("sent %v", got)
+	}
+	if _, err := p.SignupToken(context.Background(), time.Hour, []string{"nobody"}); err == nil {
+		t.Error("a missing group gave a token")
 	}
 }

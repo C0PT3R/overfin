@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/overfin/server/internal/upstream"
 )
@@ -214,20 +215,72 @@ func (p *PocketID) ensureSecret(ctx context.Context, c Client) error {
 
 // ensureGroup makes a group unless Pocket ID has one of that name.
 func (p *PocketID) ensureGroup(ctx context.Context, name string) error {
-	var res struct {
-		Data []struct{ Name string } `json:"data"`
-	}
-	q := url.Values{"search": {name}, "pagination[limit]": {"100"}}
-	if err := p.do(ctx, http.MethodGet, "/api/user-groups?"+q.Encode(), nil, &res); err != nil {
-		return fmt.Errorf("listing groups: %w", err)
-	}
-	for _, g := range res.Data {
-		if g.Name == name {
-			return nil
-		}
+	id, err := p.groupID(ctx, name)
+	if err != nil || id != "" {
+		return err
 	}
 	if err := p.do(ctx, http.MethodPost, "/api/user-groups", map[string]string{"name": name, "friendlyName": name}, nil); err != nil {
 		return fmt.Errorf("making the group %q: %w", name, err)
 	}
 	return nil
+}
+
+// groupID is the ID of the group of that name; empty when there's none.
+func (p *PocketID) groupID(ctx context.Context, name string) (string, error) {
+	var res struct {
+		Data []struct{ ID, Name string } `json:"data"`
+	}
+	q := url.Values{"search": {name}, "pagination[limit]": {"100"}}
+	if err := p.do(ctx, http.MethodGet, "/api/user-groups?"+q.Encode(), nil, &res); err != nil {
+		return "", fmt.Errorf("listing groups: %w", err)
+	}
+	for _, g := range res.Data {
+		if g.Name == name {
+			return g.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// SignupToken makes a sign-up token for one person, valid for ttl, whose
+// account joins the groups (by name; they must exist). People use it at
+// Pocket ID's /st/<token>.
+func (p *PocketID) SignupToken(ctx context.Context, ttl time.Duration, groups []string) (string, error) {
+	ids := []string{}
+	for _, name := range groups {
+		id, err := p.groupID(ctx, name)
+		if err != nil {
+			return "", err
+		}
+		if id == "" {
+			return "", fmt.Errorf("connector: Pocket ID has no group %q", name)
+		}
+		ids = append(ids, id)
+	}
+	var res struct {
+		Token string `json:"token"`
+	}
+	body := map[string]any{"ttl": int(ttl.Seconds()), "usageLimit": 1, "userGroupIds": ids}
+	if err := p.do(ctx, http.MethodPost, "/api/signup-tokens", body, &res); err != nil {
+		return "", fmt.Errorf("making a sign-up token: %w", err)
+	}
+	if res.Token == "" {
+		return "", errors.New("connector: Pocket ID gave no sign-up token")
+	}
+	return res.Token, nil
+}
+
+// Signups is Pocket ID's sign-up setting: "disabled", "withToken" or
+// "open". Its sign-up page refuses tokens when it's "disabled".
+func (p *PocketID) Signups(ctx context.Context) (string, error) {
+	var res []struct{ Key, Value string }
+	if err := p.do(ctx, http.MethodGet, "/api/application-configuration", nil, &res); err != nil {
+		return "", err
+	}
+	for _, c := range res {
+		if c.Key == "allowUserSignups" {
+			return c.Value, nil
+		}
+	}
+	return "", nil
 }

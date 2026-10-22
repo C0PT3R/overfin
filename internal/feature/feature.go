@@ -92,6 +92,10 @@ type Host interface {
 	// SiteURL is the site's address, e.g. "https://example.org", for links
 	// to it; empty when the core doesn't know it.
 	SiteURL() string
+	// SignUpLink is a link where one person can make their account at the
+	// identity provider, valid for a day; empty when the provider has no
+	// such links (people then sign up as it lets them).
+	SignUpLink(ctx context.Context) (string, error)
 	// DB is the module's own database: its tables, and nothing else. The
 	// core's data is reached through the host, never directly.
 	DB() *sql.DB

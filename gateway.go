@@ -169,7 +169,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		info := m.Info()
 		if cfg.Plugins.Enabled(info.Name) {
 			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: sh.moduleDBs[info.Name], Logger: logger, Admin: b.admin,
-				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg)})
+				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg), SignUp: signUp(cfg)})
 			b.tabs = append(b.tabs, admin.Tab{Name: info.Name, Description: info.Description, UI: info.AdminUI})
 		}
 	}
@@ -609,4 +609,26 @@ func restartOnly(old, new *config.Config) []string {
 		changed = append(changed, "OVERFIN_SECRET_KEY")
 	}
 	return changed
+}
+
+// signUp makes one-person sign-up links at Pocket ID, valid for a day, whose
+// accounts join the group the site requires; nil with other providers.
+func signUp(cfg *config.Config) func(ctx context.Context) (string, error) {
+	cn := cfg.Connector
+	if cn.Kind != "pocketid" || !cfg.OIDC.Enabled() {
+		return nil
+	}
+	p := &connector.PocketID{BaseURL: cn.URL, Key: cfg.Secrets.ConnectorToken, HTTP: oidc.NewClient(cn.Dial)}
+	var groups []string
+	if g := cfg.Identity.RequiredGroup; g != "" {
+		groups = append(groups, g)
+	}
+	return func(ctx context.Context) (string, error) {
+		token, err := p.SignupToken(ctx, 24*time.Hour, groups)
+		if err != nil {
+			return "", err
+		}
+		// Pocket ID's issuer is its public address, where people go.
+		return strings.TrimSuffix(cfg.OIDC.Issuer, "/") + "/st/" + url.PathEscape(token), nil
+	}
 }

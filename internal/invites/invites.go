@@ -83,7 +83,8 @@ func (Feature) Setup(h feature.Host) error {
 // ---- The link and the account gate ------------------------------------------
 
 // open is where an invitation link leads: it keeps the code in a cookie and
-// sends the person on to the site, which has them log in.
+// sends the person on to make their account at the identity provider, or to
+// the site, which has them log in.
 func (a admin) open(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	inv, err := usable(r.Context(), a.db, code)
@@ -103,7 +104,16 @@ func (a admin) open(w http.ResponseWriter, r *http.Request) {
 		// Lax: it must survive the trip through the identity provider.
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	// Where the identity provider makes sign-up links, the person goes
+	// there to make their account first.
+	link, err := a.h.SignUpLink(r.Context())
+	if err != nil {
+		a.h.Logger().Error("making a sign-up link failed; sending the person to log in", "err", err)
+	}
+	if link == "" {
+		link = "/"
+	}
+	http.Redirect(w, r, link, http.StatusSeeOther)
 }
 
 // NewAccount shapes a new account by the visitor's invitation, or refuses
