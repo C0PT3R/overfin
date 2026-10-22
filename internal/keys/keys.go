@@ -17,6 +17,7 @@ type Keys struct {
 	LogID           []byte // keyed hash of user IDs in logs
 	TokenEncryption []byte // encrypts upstream tokens at rest
 	PIN             []byte // keyed hash of profile PINs
+	SigninCode      []byte // keyed hash of sign-in codes sent by email
 	// Check identifies the secret key without revealing it: stored in the
 	// database, it tells a wrong key at startup.
 	Check []byte
@@ -31,6 +32,7 @@ const (
 	labelLogID  = "overfin log-id v1"
 	labelToken  = "overfin token-encryption v1"
 	labelPIN    = "overfin pin v1"
+	labelCode   = "overfin signin-code v1"
 	labelCheck  = "overfin key-check v1"
 )
 
@@ -55,6 +57,9 @@ func Derive(secret []byte) (*Keys, error) {
 		return nil, err
 	}
 	if k.PIN, err = derive(labelPIN); err != nil {
+		return nil, err
+	}
+	if k.SigninCode, err = derive(labelCode); err != nil {
 		return nil, err
 	}
 	if k.Check, err = derive(labelCheck); err != nil {
