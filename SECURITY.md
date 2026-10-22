@@ -21,7 +21,8 @@ network security expert. So the rules come in two kinds:
     HTTPS; without it, browsers refuse both, so they go without.
   - **The control panel** (rule 58) is on the site, for admins who confirm
     it's them, with Overfin's own sign-in; it can be kept to private
-    addresses; with an identity provider, it has its own private listener.
+    addresses, or moved to a private listener of its own, off the site
+    entirely; with an identity provider, it has its own private listener.
   - **Jellyfin and Seerr** are best kept off the internet (Deployment,
     below); exposing them is the operator's choice.
 
@@ -299,8 +300,11 @@ comes from the internet, and media files can be written by anyone.
       marked admin, who confirmed a fresh login (rule 21) in the last five
       minutes; their panel session ends as soon as they sign out of the
       site or stop being admins. `admin.private` keeps it to private
-      addresses, with the guard below. In the panel, admins can't take the
-      admin mark from themselves or remove themselves.
+      addresses, with the guard below. With `admin.listen` instead, it's
+      only on a listener of its own, with the guard below, which also
+      serves the sign-in, so admins sign in there, and the site has no
+      panel at all; so does the setup page. In the panel, admins can't take
+      the admin mark from themselves or remove themselves.
     - With an identity provider, it's on its own listener, off by default,
       which answers only clients with private addresses (loopback, private
       ranges, unique-local IPv6) and refuses any request a proxy relays for

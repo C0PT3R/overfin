@@ -512,3 +512,20 @@ func TestNoFileAndHTTPS(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedPanelListener(t *testing.T) {
+	vars := goodEnv()
+	if _, err := Load(writeFile(t, "[jellyfin]\nurl = \"http://192.0.2.10:8096\"\n[admin]\nlisten = \":8081\"\n"), env(vars)); err != nil {
+		t.Errorf("managed, panel on its own listener: %v", err)
+	}
+	for file, want := range map[string]string{
+		"[admin]\nlisten = \":8081\"\nprivate = true\n":     "don't go together",
+		"[admin]\nlisten = \"198.51.100.7:8081\"\n":         "private address",
+		"[admin]\nlisten = \":8081\"\ngroup = \"admins\"\n": "takes only listen",
+	} {
+		_, err := Load(writeFile(t, file), env(vars))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", file, err, want)
+		}
+	}
+}

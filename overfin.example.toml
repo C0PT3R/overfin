@@ -116,6 +116,10 @@ username = ""                   # with OVERFIN_MAIL_PASSWORD
 # address, for admins, who confirm it's them before going in; nothing to set
 # here, except, to keep it to private addresses (LAN, VPN):
 # private = true
+# or, to take it off the site entirely, onto a listener of its own that
+# answers private addresses only (admins sign in there, at
+# http://<that address>/admin/):
+# listen = ":8081"
 #
 # With an identity provider (oidc or forwardauth mode):
 # Overfin's control panel, on its own listener: never on the internet. It

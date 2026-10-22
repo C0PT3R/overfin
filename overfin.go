@@ -298,7 +298,7 @@ func run(logger *slog.Logger) error {
 			panel.set(setup.Handler())
 			where = append(where, "panel", cfg.Admin.Listen)
 		}
-		if managed {
+		if managed && adminSrv == nil {
 			site.set(setup.PublicHandler())
 			where = append(where, "site", cmp.Or(cfg.Site.URL, addr))
 		}
@@ -422,11 +422,17 @@ func run(logger *slog.Logger) error {
 		}
 		p.Images = sh.images
 		p.OnRetitled = sh.titles.Wake
-		if managed {
+		switch {
+		case managed && a.Enabled():
+			// Only on its own listener, private, which serves the site's
+			// sign-in too: admins sign in there, on that address.
+			p.Provider, p.SiteAdmin, p.Directory, p.People, p.Mail = nil, gw.SiteAdmin, admin.Users{Store: db}, gw, gw
+			panel.set(admin.PrivateOnly(withPanel(gw, p.SiteHandler(false))))
+		case managed:
 			// At /admin/ on the site, for its admins.
 			p.Provider, p.SiteAdmin, p.Directory, p.People, p.Mail = nil, gw.SiteAdmin, admin.Users{Store: db}, gw, gw
 			site.set(withPanel(gw, p.SiteHandler(a.Private)))
-		} else {
+		default:
 			panel.set(p.Handler())
 		}
 	}

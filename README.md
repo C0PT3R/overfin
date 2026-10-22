@@ -249,7 +249,10 @@ sign-in link, valid a day (with Docker: `docker exec overfin /overfin
 
 With Overfin's own sign-in, it's at `/admin/` on the site, for admins, who
 confirm it's them before going in. `[admin] private = true` keeps it to
-private addresses (LAN, VPN).
+private addresses (LAN, VPN); `[admin] listen = ":8081"` takes it off the
+site entirely, onto a listener of its own for private addresses only
+(publish that port on your LAN address only), where admins sign in at
+`http://<that address>:8081/admin/`.
 
 With an identity provider, it has a listener of its own instead, never on
 the internet: publish its port on the server's `127.0.0.1` only, and reach

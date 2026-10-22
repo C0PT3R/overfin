@@ -253,6 +253,9 @@ func (p *Panel) handler() http.Handler {
 
 // ---- Guards -----------------------------------------------------------------
 
+// PrivateOnly is privateOnly, for a listener serving more than the panel.
+func PrivateOnly(next http.Handler) http.Handler { return privateOnly(next) }
+
 // privateOnly refuses clients that aren't on a private address, and requests
 // relayed for one that isn't: whatever path the operator chose (LAN, VPN,
 // SSH tunnel), the panel never answers the internet.

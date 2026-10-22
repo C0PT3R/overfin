@@ -299,8 +299,10 @@ type Admin struct {
 	// TLSCert and TLSKey, when set, serve the panel over HTTPS.
 	TLSCert string `toml:"tls_cert"`
 	TLSKey  string `toml:"tls_key"`
-	// Private, with managed sign-in (where the panel is at /admin/ on the
-	// site's address), keeps the panel to private addresses: LAN, VPN.
+	// Private, with managed sign-in and no Listen (the panel is then at
+	// /admin/ on the site's address), keeps the panel to private
+	// addresses: LAN, VPN. With managed sign-in and Listen, the panel is
+	// only on that listener, which also serves the sign-in.
 	Private bool `toml:"private"`
 }
 
@@ -792,9 +794,18 @@ func (c *Config) validate() error {
 	c.settleModules(add)
 
 	if a := c.Admin; c.Identity.Mode == "managed" {
-		if a.Listen != "" || a.Group != "" || a.RedirectURL != "" || a.TLSCert != "" || a.TLSKey != "" {
-			add("with managed sign-in, the control panel is at /admin/ on the site's address, for admins: " +
-				"[admin] takes only private = true, to keep it to private addresses")
+		if a.Group != "" || a.RedirectURL != "" || a.TLSCert != "" || a.TLSKey != "" {
+			add("with managed sign-in, [admin] takes only listen (the panel on a private listener of its own) " +
+				"or private = true (the panel on the site, for private addresses only)")
+		}
+		if a.Listen != "" && a.Private {
+			add("admin.listen and admin.private don't go together: with listen, the panel is only on its own listener, " +
+				"which is always private")
+		}
+		if host, _, err := net.SplitHostPort(a.Listen); a.Listen != "" && err != nil {
+			add("admin.listen must be host:port, e.g. \":8081\"")
+		} else if ip, err := netip.ParseAddr(host); a.Listen != "" && host != "" && (err != nil || !PrivateAddr(ip)) {
+			add("admin.listen must be a private address, or none (\":8081\"): the panel is never on the internet")
 		}
 	} else if a.Private {
 		add("admin.private is for managed sign-in; the panel's own listener is always private")
