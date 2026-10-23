@@ -102,6 +102,9 @@ type profileRequest struct {
 	Name     *string `json:"name"`
 	Kind     *string `json:"kind"`
 	Language *string `json:"language"`
+	// Theme is the profile's look: "light", "dark", or "" to follow the
+	// device. Each profile may change its own.
+	Theme *string `json:"theme"`
 	// MovieCeiling and SeriesCeiling are a kids profile's highest allowed
 	// certifications, on the ratings country's scales.
 	MovieCeiling  *string `json:"movieCeiling"`
@@ -357,8 +360,9 @@ func (p Profiles) create(w http.ResponseWriter, r *http.Request) {
 func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	var req profileRequest
 	if !decode(r, &req) ||
-		(req.Name == nil && req.Language == nil && req.Kind == nil && req.MovieCeiling == nil && req.SeriesCeiling == nil &&
-			!req.Libraries.Set && !req.BlockedTags.Set) ||
+		(req.Name == nil && req.Language == nil && req.Theme == nil && req.Kind == nil && req.MovieCeiling == nil &&
+			req.SeriesCeiling == nil && !req.Libraries.Set && !req.BlockedTags.Set) ||
+		(req.Theme != nil && *req.Theme != "" && *req.Theme != "light" && *req.Theme != "dark") ||
 		(req.Name != nil && !validName(*req.Name)) ||
 		(req.Language != nil && *req.Language != "" && !languageTagRe.MatchString(*req.Language)) ||
 		(req.Kind != nil && *req.Kind != "standard" && *req.Kind != "kids") {
@@ -376,7 +380,11 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotFound, "")
 		return
 	}
-	if !c.IsOwner() {
+	// A profile's own look is its own business; the rest is the owner's.
+	ownLook := req.Theme != nil && req.Name == nil && req.Language == nil && req.Kind == nil &&
+		req.MovieCeiling == nil && req.SeriesCeiling == nil && !req.Libraries.Set && !req.BlockedTags.Set &&
+		c.Profile != nil && c.Profile.ID == pr.ID
+	if !c.IsOwner() && !ownLook {
 		problem.Send(w, problem.OwnerOnly, "")
 		return
 	}
@@ -398,6 +406,12 @@ func (p Profiles) update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Language != nil {
 		if err := p.Store.SetProfileLanguage(ctx, c.Account.ID, id, *req.Language); err != nil {
+			problem.Send(w, problem.NotFound, "")
+			return
+		}
+	}
+	if req.Theme != nil {
+		if err := p.Store.SetProfileTheme(ctx, c.Account.ID, id, *req.Theme); err != nil {
 			problem.Send(w, problem.NotFound, "")
 			return
 		}

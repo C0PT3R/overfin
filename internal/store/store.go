@@ -240,6 +240,8 @@ type Profile struct {
 	// SubtitleLanguage is the language it last chose for subtitles; ""
 	// for none.
 	SubtitleLanguage string
+	// Theme is its look: "light" or "dark"; "" follows the device.
+	Theme string
 }
 
 // NewOwner describes the owner profile created with an account.
@@ -333,7 +335,7 @@ func (s *Store) Profiles(ctx context.Context, accountID string) ([]*Profile, err
 const profileSelect = `
 	SELECT id, account_id, name, kind, owner, jellyfin_user_id, jellyfin_username,
 		jellyfin_token, language, movie_ceiling, series_ceiling, libraries, blocked_tags, pin_hash IS NOT NULL, created_at,
-		subtitle_language
+		subtitle_language, theme
 	FROM profiles`
 
 // scanner is what *sql.Row and *sql.Rows have in common.
@@ -343,11 +345,11 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 	var p Profile
 	var owner int
 	var sealed []byte
-	var language, movie, series, jfUser, jfName, subtitles sql.NullString
+	var language, movie, series, jfUser, jfName, subtitles, theme sql.NullString
 	var libraries, tags *string
 	var created int64
 	err := sc.Scan(&p.ID, &p.AccountID, &p.Name, &p.Kind, &owner, &jfUser,
-		&jfName, &sealed, &language, &movie, &series, &libraries, &tags, &p.HasPIN, &created, &subtitles)
+		&jfName, &sealed, &language, &movie, &series, &libraries, &tags, &p.HasPIN, &created, &subtitles, &theme)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -364,7 +366,7 @@ func (s *Store) scanProfile(sc scanner) (*Profile, error) {
 		p.JellyfinToken = string(token)
 	}
 	p.Owner = owner == 1
-	p.Language, p.SubtitleLanguage = language.String, subtitles.String
+	p.Language, p.SubtitleLanguage, p.Theme = language.String, subtitles.String, theme.String
 	p.MovieCeiling, p.SeriesCeiling = movie.String, series.String
 	p.Libraries, p.BlockedTags = scanList(libraries), scanList(tags)
 	p.Created = time.Unix(created, 0).UTC()
@@ -556,6 +558,20 @@ func (s *Store) RenameProfile(ctx context.Context, accountID, profileID, name st
 func (s *Store) SetProfileLanguage(ctx context.Context, accountID, profileID, language string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET language = ? WHERE id = ? AND account_id = ?`,
 		nullable(language), profileID, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetProfileTheme sets a profile's look: "light", "dark", or "" to follow
+// the device.
+func (s *Store) SetProfileTheme(ctx context.Context, accountID, profileID, theme string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET theme = ? WHERE id = ? AND account_id = ?`,
+		nullable(theme), profileID, accountID)
 	if err != nil {
 		return err
 	}

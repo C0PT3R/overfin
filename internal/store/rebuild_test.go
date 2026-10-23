@@ -30,9 +30,14 @@ func TestProfilesRebuildKeepsReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The columns profiles got since, back.
-	later, _ := migrations.ReadFile("migrations/031_subtitle_language.sql")
-	if err := s.apply(ctx, "031 again", string(later), 31); err != nil {
-		t.Fatal(err)
+	for _, m := range []struct {
+		file string
+		n    int
+	}{{"031_subtitle_language.sql", 31}, {"040_profile_theme.sql", 40}} {
+		later, _ := migrations.ReadFile("migrations/" + m.file)
+		if err := s.apply(ctx, m.file+" again", string(later), m.n); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if got, err := s.Profile(ctx, acct.ID, prof.ID); err != nil || got.JellyfinToken != prof.JellyfinToken || got.Name != prof.Name {

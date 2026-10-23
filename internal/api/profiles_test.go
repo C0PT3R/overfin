@@ -341,3 +341,39 @@ func TestCurrentPlaybackIsPerProfile(t *testing.T) {
 		t.Errorf("another profile's playback: %d %s", code, body)
 	}
 }
+
+// Each profile picks its own look; only the owner changes another's.
+func TestProfileTheme(t *testing.T) {
+	srv, _ := newServer(t)
+	_, me := getAs(t, srv, subject, "/api/v1/me")
+	var m struct{ ActiveProfile struct{ ID string } }
+	json.Unmarshal([]byte(me), &m)
+	main := m.ActiveProfile.ID
+	_, body := post(t, srv, "/api/v1/profiles", `{"name":"Partner"}`)
+	var partner struct{ ID string }
+	json.Unmarshal([]byte(body), &partner)
+
+	if code, _ := put(t, srv, "PATCH", "/api/v1/profiles/"+main, `{"theme":"blue"}`); code != http.StatusBadRequest {
+		t.Errorf("unknown theme: %d", code)
+	}
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+main, `{"theme":"light"}`); code != 200 || !strings.Contains(body, `"theme":"light"`) {
+		t.Errorf("owner's own: %d %s", code, body)
+	}
+	post(t, srv, "/api/v1/profiles/"+partner.ID+"/activate", `{}`)
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+partner.ID, `{"theme":"dark"}`); code != 200 || !strings.Contains(body, `"theme":"dark"`) {
+		t.Errorf("partner's own: %d %s", code, body)
+	}
+	if code, _ := put(t, srv, "PATCH", "/api/v1/profiles/"+main, `{"theme":""}`); code != http.StatusForbidden {
+		t.Errorf("partner changed the owner's: %d", code)
+	}
+	if code, _ := put(t, srv, "PATCH", "/api/v1/profiles/"+partner.ID, `{"theme":"","name":"P2"}`); code != http.StatusForbidden {
+		t.Errorf("partner renamed itself with its theme: %d", code)
+	}
+	if _, me := getAs(t, srv, subject, "/api/v1/me"); !strings.Contains(me, `"theme":"dark"`) {
+		t.Errorf("me: %s", me)
+	}
+	// Back to the device's.
+	if code, body := put(t, srv, "PATCH", "/api/v1/profiles/"+partner.ID, `{"theme":""}`); code != 200 || strings.Contains(body, `"theme"`) {
+		t.Errorf("device: %d %s", code, body)
+	}
+}

@@ -41,6 +41,8 @@ export interface Profile {
   libraries?: string[];
   /** Tags hidden from the profile. */
   blockedTags?: string[];
+  /** The profile's look; absent, it follows the device. */
+  theme?: 'light' | 'dark';
 }
 
 export interface RatingLevel {
@@ -357,7 +359,8 @@ export class Overfin {
   profile(id: string): Promise<Profile>;
   createProfile(profile: { name: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; language?: string; libraries?: string[] | null; blockedTags?: string[] | null }): Promise<Profile>;
   /** `libraries: null` gives every library again; `blockedTags: null` hides no tag. */
-  updateProfile(id: string, changes: { name?: string; language?: string; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; libraries?: string[] | null; blockedTags?: string[] | null; pin?: string }): Promise<Profile>;
+  /** Each profile may change its own `theme` (`''` follows the device); the rest is the owner's. */
+  updateProfile(id: string, changes: { name?: string; language?: string; theme?: '' | 'light' | 'dark'; kind?: 'standard' | 'kids'; movieCeiling?: string; seriesCeiling?: string; libraries?: string[] | null; blockedTags?: string[] | null; pin?: string }): Promise<Profile>;
   deleteProfile(id: string): Promise<null>;
   activateProfile(id: string, pin?: string): Promise<Profile>;
   setPin(id: string, pin: string, ownerPin?: string): Promise<null>;

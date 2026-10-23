@@ -73,6 +73,8 @@ type profileJSON struct {
 	// absent, it gets every library. BlockedTags are hidden from it.
 	Libraries   *[]string `json:"libraries,omitempty"`
 	BlockedTags []string  `json:"blockedTags,omitempty"`
+	// Theme is its look: "light" or "dark"; absent, it follows the device.
+	Theme string `json:"theme,omitempty"`
 }
 
 type meJSON struct {
@@ -198,7 +200,7 @@ func toProfileJSON(p *store.Profile) profileJSON {
 	out := profileJSON{ID: p.ID, Name: p.Name, Kind: p.Kind, Owner: p.Owner, HasPIN: p.HasPIN,
 		MovieCeiling: p.MovieCeiling, SeriesCeiling: p.SeriesCeiling,
 		CeilingsNeeded: p.Kind == "kids" && (p.MovieCeiling == "" || p.SeriesCeiling == ""),
-		BlockedTags:    p.BlockedTags}
+		BlockedTags:    p.BlockedTags, Theme: p.Theme}
 	if p.Libraries != nil {
 		libs := make([]string, 0, len(p.Libraries))
 		for _, id := range p.Libraries {

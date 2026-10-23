@@ -2753,6 +2753,10 @@ components:
             Owner only, like `libraries`.
           items:
             type: string
+        theme:
+          type: string
+          description: The profile's look; absent, it follows the device.
+          enum: [light, dark]
 
     RatingLevel:
       type: object
@@ -2838,6 +2842,11 @@ components:
             Owner only, like `libraries`.
           items:
             type: string
+        theme:
+          type: string
+          description: The profile's look; "" follows the device. Each profile
+            may change its own; only the owner changes another's.
+          enum: ["", light, dark]
         pin:
           description: The owner profile's PIN, required when changing the
             ceilings, the libraries, the hidden tags or `kind` while the
