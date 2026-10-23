@@ -1,12 +1,14 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -18,16 +20,20 @@ import (
 	"github.com/overfin/server/internal/password"
 )
 
-// Setup is the first-run setup page, served until Overfin is set up: on
+// Setup is the first-run setup wizard, served until Overfin is set up: on
 // the control panel's address, and with managed sign-in on the site's own
-// too. It asks for what's missing: Overfin's own Jellyfin (SECURITY.md
-// rule 67), which it sets up if it's fresh, and otherwise shows, then takes
-// only when its administrator hands it over; and with managed sign-in the
-// first admin's email and password. Only someone with the one-time code
-// from Overfin's log can use it, so nobody else can claim a fresh install.
+// too. One step per screen, each saved as it's done, for what's missing:
+// the default language; Overfin's own Jellyfin (SECURITY.md rule 67), which
+// it sets up if it's fresh, and otherwise shows, then takes only when its
+// administrator hands it over; TMDB's key; and with managed sign-in the
+// first admin. Only someone with the one-time code from Overfin's log can
+// use it, so nobody else can claim a fresh install.
 type Setup struct {
 	// Code is the one-time code Overfin printed in its log (NewSetupCode).
 	Code string
+	// Language, when set, asks for the default language (a lang.Choices
+	// tag), and saves it.
+	Language func(ctx context.Context, tag string) error
 	// Jellyfin takes one step towards Overfin's Jellyfin, and saves it once
 	// it's Overfin's (Done). Its error says what's wrong in plain words, and
 	// is shown as is. Nil when Jellyfin is set up already.
@@ -35,20 +41,36 @@ type Setup struct {
 	// FixedURL is Jellyfin's address when the configuration file sets it:
 	// the page doesn't ask for it then.
 	FixedURL string
-	// Language, when set, also asks for the default language (a
-	// lang.Choices tag), and saves it.
-	Language func(ctx context.Context, tag string) error
-	// FirstAdmin, when set, also asks for the first admin's email and
-	// password, and makes them (with the password's hash).
+	// TMDB, when set, offers TMDB's key: it tests and saves one, and says
+	// so. The step may be skipped.
+	TMDB func(ctx context.Context, key string) (string, error)
+	// FirstAdmin, when set, asks for the first admin's email and password,
+	// and makes them (with the password's hash).
 	FirstAdmin func(ctx context.Context, email, passwordHash string) error
-	// Done runs once everything is saved; Overfin then finishes starting.
+	// Done runs once the wizard is finished; Overfin then finishes
+	// starting.
 	Done   func()
 	Logger *slog.Logger
 
 	mu       sync.Mutex
+	steps    []string        // the wizard's steps, fixed on first use
+	saved    map[string]bool // the steps done
 	failures int
 	done     bool
 }
+
+// The wizard's steps, in order; those with nothing to ask are left out.
+const (
+	stepCode     = "code"
+	stepLanguage = "language"
+	stepJellyfin = "jellyfin"
+	stepTMDB     = "tmdb"
+	stepAdmin    = "admin"
+	stepDone     = "done"
+)
+
+// optional are the steps that may be skipped.
+var optional = map[string]bool{stepTMDB: true}
 
 // Problem is what's wrong, in plain words for the operator, shown as is.
 // Other errors are logged, and the page only says it failed.
@@ -140,113 +162,248 @@ func (s *Setup) handler(public bool) http.Handler {
 	mux.HandleFunc("GET /admin/api/setup", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		out := map[string]any{"jellyfin": s.Jellyfin != nil, "fixedUrl": s.FixedURL, "admin": s.FirstAdmin != nil, "site": public}
+		type step struct {
+			ID       string `json:"id"`
+			Done     bool   `json:"done"`
+			Optional bool   `json:"optional,omitempty"`
+		}
+		var steps []step
+		for _, id := range s.stepList() {
+			steps = append(steps, step{id, s.saved[id], optional[id]})
+		}
+		out := map[string]any{"steps": steps, "fixedUrl": s.FixedURL, "site": public, "finished": s.done}
 		if s.Language != nil {
 			out["languages"] = lang.Choices
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
-	mux.HandleFunc("POST /admin/api/setup", s.save)
+	mux.HandleFunc("POST /admin/api/setup/code", s.step(func(w http.ResponseWriter, r *http.Request, _ json.RawMessage) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	mux.HandleFunc("POST /admin/api/setup/language", s.step(s.language))
+	mux.HandleFunc("POST /admin/api/setup/jellyfin", s.step(s.jellyfin))
+	mux.HandleFunc("POST /admin/api/setup/tmdb", s.step(s.tmdb))
+	mux.HandleFunc("POST /admin/api/setup/admin", s.step(s.admin))
+	mux.HandleFunc("POST /admin/api/setup/finish", s.step(s.finish))
 	return sameOrigin(headers(mux))
 }
 
-func (s *Setup) save(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Code             string `json:"code"`
-		URL              string `json:"url"`
-		JellyfinUsername string `json:"jellyfinUsername"`
-		JellyfinPassword string `json:"jellyfinPassword"`
-		Confirm          string `json:"confirm"`
-		Language         string `json:"language"`
-		Email            string `json:"email"`
-		Password         string `json:"password"`
+// stepList is the wizard's steps: those with something to ask, fixed on
+// first use, so a step stays (done) once saved and Back still shows it.
+// Callers hold mu.
+func (s *Setup) stepList() []string {
+	if s.steps == nil {
+		s.steps = []string{stepCode}
+		for _, st := range []struct {
+			id  string
+			ask bool
+		}{{stepLanguage, s.Language != nil}, {stepJellyfin, s.Jellyfin != nil},
+			{stepTMDB, s.TMDB != nil}, {stepAdmin, s.FirstAdmin != nil}} {
+			if st.ask {
+				s.steps = append(s.steps, st.id)
+			}
+		}
+		s.steps = append(s.steps, stepDone)
+		s.saved = map[string]bool{}
 	}
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "That request isn't valid."})
-		return
-	}
-	// One attempt at a time: tests take a few seconds, and codes can't be
-	// tried in parallel.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	switch {
-	case s.done:
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "Overfin is already set up: reload the page."})
-		return
-	case s.failures >= setupAttempts:
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{
-			"error": "Too many wrong codes: restart Overfin, and use the new code in its log."})
-		return
-	case subtle.ConstantTimeCompare([]byte(normalizeCode(req.Code)), []byte(normalizeCode(s.Code))) != 1:
-		s.failures++
-		s.Logger.Warn("setup page: wrong code", "attempts", s.failures)
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "That isn't the code in Overfin's log."})
-		return
-	}
-	unusable := func(msg string) {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": msg})
-	}
-	// Everything is checked before anything is saved.
-	if s.Language != nil && !lang.Offered(req.Language) {
-		unusable("Choose the default language.")
-		return
-	}
-	var email, hash string
-	if s.FirstAdmin != nil {
-		email = strings.TrimSpace(req.Email)
-		if a, err := mail.ParseAddress(email); err != nil || a.Address != email || len(email) > 254 {
-			unusable("The admin's email isn't an email address.")
+	return s.steps
+}
+
+// step serves one of the wizard's steps: one request at a time (tests take
+// a few seconds, and codes can't be tried in parallel), each with the
+// one-time code. The handler gets the request's other fields.
+func (s *Setup) step(next func(w http.ResponseWriter, r *http.Request, body json.RawMessage)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Code string `json:"code"`
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		if err != nil || json.Unmarshal(body, &req) != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "That request isn't valid."})
 			return
 		}
-		var err error
-		if hash, err = password.Hash(req.Password); err != nil {
-			unusable(fmt.Sprintf("The admin's password must be %d to %d characters.", password.MinLength, password.MaxLength))
-			return
-		}
-	}
-	summary := "Overfin is set up."
-	if s.Jellyfin != nil {
-		ans, err := s.Jellyfin(r.Context(), JellyfinRequest{URL: req.URL, Username: strings.TrimSpace(req.JellyfinUsername),
-			Password: req.JellyfinPassword, Confirm: req.Confirm})
-		var plain Problem
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.stepList()
 		switch {
-		case errors.As(err, &plain):
-			unusable(string(plain))
+		case s.done:
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "Overfin is already set up: reload the page."})
 			return
-		case err != nil:
-			s.Logger.Error("setup page: Jellyfin's step failed", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "That failed; Overfin's log says why."})
+		case s.failures >= setupAttempts:
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{
+				"error": "Too many wrong codes: restart Overfin, and use the new code in its log."})
 			return
-		case !ans.Done:
-			// The next thing to ask: an administrator's login, or a
-			// confirmation of what the server holds.
-			writeJSON(w, http.StatusOK, map[string]any{"jellyfin": ans})
+		case subtle.ConstantTimeCompare([]byte(normalizeCode(req.Code)), []byte(normalizeCode(s.Code))) != 1:
+			s.failures++
+			s.Logger.Warn("setup page: wrong code", "attempts", s.failures)
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "That isn't the code in Overfin's log."})
 			return
 		}
-		s.Jellyfin = nil // Overfin's now: a retry only asks for the rest
-		summary = ans.Summary
+		next(w, r, body)
 	}
-	if s.Language != nil {
-		if err := s.Language(r.Context(), req.Language); err != nil {
-			s.Logger.Error("setup page: saving the language failed", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Saving the language failed; Overfin's log says why."})
-			return
-		}
-		s.Language = nil
+}
+
+// decodeStep reads a step's fields; the code is allowed alongside.
+func decodeStep(w http.ResponseWriter, body json.RawMessage, v any) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) == nil {
+		delete(fields, "code")
+		body, _ = json.Marshal(fields)
 	}
-	if s.FirstAdmin != nil {
-		if err := s.FirstAdmin(r.Context(), email, hash); err != nil {
-			s.Logger.Error("setup page: making the first admin failed", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Saving the admin failed; Overfin's log says why."})
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "That request isn't valid."})
+		return false
+	}
+	return true
+}
+
+// unusable answers what's wrong with a step's answer, in plain words.
+func unusable(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": msg})
+}
+
+// failed answers an error from a step: as is when it's a Problem, else
+// logged.
+func (s *Setup) failed(w http.ResponseWriter, err error, what string) {
+	var plain Problem
+	if errors.As(err, &plain) {
+		unusable(w, string(plain))
+		return
+	}
+	s.Logger.Error("setup page: "+what+" failed", "err", err)
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "That failed; Overfin's log says why."})
+}
+
+func (s *Setup) language(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
+	var req struct {
+		Language string `json:"language"`
+	}
+	if !decodeStep(w, body, &req) {
+		return
+	}
+	if s.Language == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !lang.Offered(req.Language) {
+		unusable(w, "Choose the default language.")
+		return
+	}
+	if err := s.Language(r.Context(), req.Language); err != nil {
+		s.failed(w, err, "saving the language")
+		return
+	}
+	s.saved[stepLanguage] = true
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Setup) jellyfin(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
+	var req struct {
+		URL      string `json:"url"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Confirm  string `json:"confirm"`
+	}
+	if !decodeStep(w, body, &req) {
+		return
+	}
+	if s.Jellyfin == nil || s.saved[stepJellyfin] {
+		if s.saved[stepJellyfin] {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "Overfin has its Jellyfin already."})
 			return
 		}
-		s.Logger.Info("setup page: the first admin is made")
+		http.NotFound(w, r)
+		return
+	}
+	ans, err := s.Jellyfin(r.Context(), JellyfinRequest{URL: req.URL, Username: strings.TrimSpace(req.Username),
+		Password: req.Password, Confirm: req.Confirm})
+	if err != nil {
+		s.failed(w, err, "Jellyfin's step")
+		return
+	}
+	// Not done: the next thing to ask, an administrator's login or a
+	// confirmation of what the server holds.
+	if ans.Done {
+		s.saved[stepJellyfin] = true
+	}
+	writeJSON(w, http.StatusOK, ans)
+}
+
+func (s *Setup) tmdb(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
+	var req struct {
+		Key string `json:"key"`
+	}
+	if !decodeStep(w, body, &req) {
+		return
+	}
+	if s.TMDB == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if strings.TrimSpace(req.Key) == "" {
+		unusable(w, "Paste TMDB's key first, or skip this step.")
+		return
+	}
+	summary, err := s.TMDB(r.Context(), req.Key)
+	if err != nil {
+		s.failed(w, err, "TMDB's step")
+		return
+	}
+	s.saved[stepTMDB] = true
+	writeJSON(w, http.StatusOK, map[string]string{"summary": summary})
+}
+
+func (s *Setup) admin(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decodeStep(w, body, &req) {
+		return
+	}
+	if s.FirstAdmin == nil || s.saved[stepAdmin] {
+		if s.saved[stepAdmin] {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "The first admin is made already."})
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
+	email := strings.TrimSpace(req.Email)
+	if a, err := mail.ParseAddress(email); err != nil || a.Address != email || len(email) > 254 {
+		unusable(w, "The admin's email isn't an email address.")
+		return
+	}
+	hash, err := password.Hash(req.Password)
+	if err != nil {
+		unusable(w, fmt.Sprintf("The admin's password must be %d to %d characters.", password.MinLength, password.MaxLength))
+		return
+	}
+	if err := s.FirstAdmin(r.Context(), email, hash); err != nil {
+		s.failed(w, err, "making the first admin")
+		return
+	}
+	s.Logger.Info("setup page: the first admin is made")
+	s.saved[stepAdmin] = true
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// finish ends the wizard once every step that can't be skipped is done.
+func (s *Setup) finish(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
+	if !decodeStep(w, body, &struct{}{}) {
+		return
+	}
+	for _, id := range s.steps {
+		if id != stepCode && id != stepDone && !optional[id] && !s.saved[id] {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "A step isn't done yet.", "step": id})
+			return
+		}
 	}
 	s.done = true
 	if s.Done != nil {
 		s.Done()
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"summary": summary})
+	w.WriteHeader(http.StatusNoContent)
 }

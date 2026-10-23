@@ -284,6 +284,20 @@ func run(logger *slog.Logger) error {
 				return err
 			}
 		}
+		// TMDB's key, unless there's one: the step may be skipped, and
+		// Overfin then runs on Jellyfin's data.
+		if _, ok, err := db.TMDBKey(ctx); err == nil && !ok && cfg.Secrets.TMDBKey == "" {
+			setup.TMDB = func(ctx context.Context, key string) (string, error) {
+				key = strings.TrimSpace(key)
+				if _, err := checkTMDBKey(ctx, db, key); err != nil {
+					return "", forPage(err)
+				}
+				if err := db.SetTMDBKey(ctx, key); err != nil {
+					return "", err
+				}
+				return "TMDB takes the key.", nil
+			}
+		}
 		if !haveAdmin {
 			setup.FirstAdmin = func(ctx context.Context, email, hash string) error {
 				u, err := db.CreateUser(ctx, email, true)

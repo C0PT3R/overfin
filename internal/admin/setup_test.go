@@ -43,8 +43,8 @@ func newSetup() (*Setup, *[]string) {
 	return s, &saved
 }
 
-func post(h http.Handler, peer, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("POST", "/admin/api/setup", strings.NewReader(body))
+func post(h http.Handler, peer, step, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("POST", "/admin/api/setup/"+step, strings.NewReader(body))
 	req.RemoteAddr = peer
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -52,10 +52,21 @@ func post(h http.Handler, peer, body string) *httptest.ResponseRecorder {
 	return rec
 }
 
+func get(h http.Handler, peer string) string {
+	req := httptest.NewRequest("GET", "/admin/api/setup", nil)
+	req.RemoteAddr = peer
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec.Body.String()
+}
+
+const local = "127.0.0.1:50000"
+
 func TestSetup(t *testing.T) {
 	s, saved := newSetup()
+	done := 0
+	s.Done = func() { done++ }
 	h := s.Handler()
-	const local = "127.0.0.1:50000"
 
 	// The page itself, on a private address only.
 	for peer, want := range map[string]int{local: http.StatusOK, "203.0.113.5:4000": http.StatusNotFound} {
@@ -63,42 +74,67 @@ func TestSetup(t *testing.T) {
 		req.RemoteAddr = peer
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		if rec.Code != want || (want == 200 && !strings.Contains(rec.Body.String(), "Set up Overfin")) {
+		if rec.Code != want {
 			t.Errorf("GET /admin/ from %s: %d", peer, rec.Code)
 		}
 	}
-	if rec := post(h, "203.0.113.5:4000", `{"code":"K7QM-2XRP","url":"http://fresh:8096"}`); rec.Code != http.StatusNotFound {
+	if rec := post(h, "203.0.113.5:4000", "jellyfin", `{"code":"K7QM-2XRP","url":"http://fresh:8096"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("from the internet: %d", rec.Code)
 	}
+	if got := get(h, local); !strings.Contains(got, `"steps":[{"id":"code","done":false},{"id":"jellyfin","done":false},{"id":"done","done":false}]`) {
+		t.Errorf("steps: %s", got)
+	}
 
-	// A wrong code, a server that doesn't answer, one that fails: nothing
-	// is saved, and only plain problems are shown as they are.
-	if rec := post(h, local, `{"code":"AAAA-AAAA","url":"http://fresh:8096"}`); rec.Code != http.StatusForbidden {
+	// The code alone, checked: lowercase, without its dash too.
+	if rec := post(h, local, "code", `{"code":"AAAA-AAAA"}`); rec.Code != http.StatusForbidden {
 		t.Errorf("wrong code: %d %s", rec.Code, rec.Body)
 	}
-	rec := post(h, local, `{"code":"K7QM-2XRP","url":"http://down:8096"}`)
+	if rec := post(h, local, "code", `{"code":" k7qm2xrp "}`); rec.Code != http.StatusNoContent {
+		t.Errorf("right code: %d %s", rec.Code, rec.Body)
+	}
+	// Each step needs it too.
+	if rec := post(h, local, "jellyfin", `{"url":"http://fresh:8096"}`); rec.Code != http.StatusForbidden {
+		t.Errorf("no code: %d", rec.Code)
+	}
+
+	// A server that doesn't answer, one that fails: nothing is saved, and
+	// only plain problems are shown as they are.
+	rec := post(h, local, "jellyfin", `{"code":"K7QM-2XRP","url":"http://down:8096"}`)
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "can't be reached") {
 		t.Errorf("down: %d %s", rec.Code, rec.Body)
 	}
-	rec = post(h, local, `{"code":"K7QM-2XRP","url":"http://broken:8096"}`)
+	rec = post(h, local, "jellyfin", `{"code":"K7QM-2XRP","url":"http://broken:8096"}`)
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "disk") {
 		t.Errorf("broken: %d %s", rec.Code, rec.Body)
+	}
+	// Not finished before Jellyfin is.
+	if rec := post(h, local, "finish", `{"code":"K7QM-2XRP"}`); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"step":"jellyfin"`) || done != 0 {
+		t.Errorf("finished early: %d %s", rec.Code, rec.Body)
 	}
 	if len(*saved) != 0 {
 		t.Fatalf("saved too early: %v", *saved)
 	}
 
-	// The code may be typed in lowercase, without its dash.
-	rec = post(h, local, `{"code":" k7qm2xrp ","url":"http://fresh:8096"}`)
+	rec = post(h, local, "jellyfin", `{"code":"K7QM-2XRP","url":"http://fresh:8096"}`)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Jellyfin 12.2.0") {
-		t.Fatalf("good setup: %d %s", rec.Code, rec.Body)
+		t.Fatalf("good Jellyfin: %d %s", rec.Code, rec.Body)
 	}
 	if len(*saved) != 1 || (*saved)[0] != "http://fresh:8096" {
 		t.Errorf("saved: %v", *saved)
 	}
+	// Done, it stays in the steps; it isn't set up twice.
+	if got := get(h, local); !strings.Contains(got, `{"id":"jellyfin","done":true}`) {
+		t.Errorf("steps after Jellyfin: %s", got)
+	}
+	if rec := post(h, local, "jellyfin", `{"code":"K7QM-2XRP","url":"http://fresh2:8096"}`); rec.Code != http.StatusConflict || len(*saved) != 1 {
+		t.Errorf("twice: %d, saved %v", rec.Code, *saved)
+	}
+	if rec := post(h, local, "finish", `{"code":"K7QM-2XRP"}`); rec.Code != http.StatusNoContent || done != 1 {
+		t.Fatalf("finish: %d %s", rec.Code, rec.Body)
+	}
 	// Once set up, the page saves nothing more.
-	if rec := post(h, local, `{"code":"K7QM-2XRP","url":"http://fresh2:8096"}`); rec.Code != http.StatusConflict || len(*saved) != 1 {
-		t.Errorf("after setup: %d, saved %v", rec.Code, *saved)
+	if rec := post(h, local, "code", `{"code":"K7QM-2XRP"}`); rec.Code != http.StatusConflict {
+		t.Errorf("after setup: %d", rec.Code)
 	}
 }
 
@@ -108,26 +144,25 @@ func TestSetup(t *testing.T) {
 func TestSetupHandOver(t *testing.T) {
 	s, saved := newSetup()
 	h := s.Handler()
-	const local = "127.0.0.1:50000"
 	const other = `{"code":"K7QM-2XRP","url":"http://other:8096"`
 	for _, st := range []struct {
 		body, want string
 		status     int
 	}{
 		{other + `}`, `"needsLogin":true`, http.StatusOK},
-		{other + `,"jellyfinUsername":"admin","jellyfinPassword":"no"}`, "refuses", http.StatusUnprocessableEntity},
-		{other + `,"jellyfinUsername":"admin","jellyfinPassword":"pw"}`, `"libraries":3`, http.StatusOK},
-		{other + `,"jellyfinUsername":"admin","jellyfinPassword":"pw","confirm":"srv-1"}`, `"libraries":3`, http.StatusOK},
+		{other + `,"username":"admin","password":"no"}`, "refuses", http.StatusUnprocessableEntity},
+		{other + `,"username":"admin","password":"pw"}`, `"libraries":3`, http.StatusOK},
+		{other + `,"username":"admin","password":"pw","confirm":"srv-1"}`, `"libraries":3`, http.StatusOK},
 	} {
-		if rec := post(h, local, st.body); rec.Code != st.status || !strings.Contains(rec.Body.String(), st.want) {
+		if rec := post(h, local, "jellyfin", st.body); rec.Code != st.status || !strings.Contains(rec.Body.String(), st.want) {
 			t.Errorf("%s: %d %s", st.body, rec.Code, rec.Body)
 		}
 	}
 	if len(*saved) != 0 {
 		t.Fatalf("handed over before it was confirmed: %v", *saved)
 	}
-	rec := post(h, local, other+`,"jellyfinUsername":"admin","jellyfinPassword":"pw","confirm":"srv-2"}`)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "summary") || len(*saved) != 1 {
+	rec := post(h, local, "jellyfin", other+`,"username":"admin","password":"pw","confirm":"srv-2"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"done":true`) || len(*saved) != 1 {
 		t.Errorf("confirmed: %d %s, saved %v", rec.Code, rec.Body, *saved)
 	}
 }
@@ -136,10 +171,10 @@ func TestSetupStopsAfterWrongCodes(t *testing.T) {
 	s, saved := newSetup()
 	h := s.Handler()
 	for range setupAttempts {
-		post(h, "127.0.0.1:1", `{"code":"AAAA-AAAA","url":"http://fresh:8096"}`)
+		post(h, "127.0.0.1:1", "code", `{"code":"AAAA-AAAA"}`)
 	}
 	// Even the right code is refused now, until a restart.
-	if rec := post(h, "127.0.0.1:1", `{"code":"K7QM-2XRP","url":"http://fresh:8096"}`); rec.Code != http.StatusTooManyRequests || len(*saved) != 0 {
+	if rec := post(h, "127.0.0.1:1", "jellyfin", `{"code":"K7QM-2XRP","url":"http://fresh:8096"}`); rec.Code != http.StatusTooManyRequests || len(*saved) != 0 {
 		t.Errorf("after %d wrong codes: %d, saved %v", setupAttempts, rec.Code, *saved)
 	}
 }
@@ -154,10 +189,9 @@ func TestSetupCode(t *testing.T) {
 }
 
 // With managed sign-in, the page is on the site's own address too, and
-// also makes the first admin; what's saved stays saved when the rest
-// fails.
+// also makes the first admin.
 func TestSetupFirstAdmin(t *testing.T) {
-	s, saved := newSetup()
+	s, _ := newSetup()
 	var admins []string
 	fail := true
 	s.FirstAdmin = func(_ context.Context, email, hash string) error {
@@ -167,64 +201,81 @@ func TestSetupFirstAdmin(t *testing.T) {
 		admins = append(admins, email+" "+hash[:13])
 		return nil
 	}
-	done := 0
-	s.Done = func() { done++ }
 	h := s.PublicHandler()
 	const internet = "203.0.113.5:4000"
 
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/api/setup", nil))
-	if rec.Body.String() != `{"admin":true,"fixedUrl":"","jellyfin":true,"site":true}`+"\n" {
-		t.Errorf("what it asks: %s", rec.Body)
+	if got := get(h, internet); !strings.Contains(got, `{"id":"admin","done":false}`) || !strings.Contains(got, `"site":true`) {
+		t.Errorf("what it asks: %s", got)
 	}
 	for body, want := range map[string]string{
-		`{"code":"K7QM-2XRP","url":"http://fresh:8096","email":"not an email","password":"long enough pw"}`: "isn't an email",
-		`{"code":"K7QM-2XRP","url":"http://fresh:8096","email":"ann@example.org","password":"short"}`:       "10 to 256",
+		`{"code":"K7QM-2XRP","email":"not an email","password":"long enough pw"}`: "isn't an email",
+		`{"code":"K7QM-2XRP","email":"ann@example.org","password":"short"}`:       "10 to 256",
 	} {
-		if rec := post(h, internet, body); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), want) {
+		if rec := post(h, internet, "admin", body); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
 	}
-	if len(*saved) != 0 {
-		t.Fatalf("saved before the admin was checked: %v", *saved)
-	}
-	good := `{"code":"K7QM-2XRP","url":"http://fresh:8096","email":"ann@example.org","password":"long enough pw"}`
-	if rec := post(h, internet, good); rec.Code != http.StatusInternalServerError || len(*saved) != 1 || done != 0 {
-		t.Fatalf("admin failing: %d, saved %v", rec.Code, *saved)
-	}
-	// Jellyfin is kept; the retry asks only for the admin.
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/api/setup", nil))
-	if !strings.Contains(rec.Body.String(), `"jellyfin":false`) {
-		t.Errorf("after Jellyfin was saved: %s", rec.Body)
+	good := `{"code":"K7QM-2XRP","email":"ann@example.org","password":"long enough pw"}`
+	if rec := post(h, internet, "admin", good); rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "disk") {
+		t.Fatalf("admin failing: %d %s", rec.Code, rec.Body)
 	}
 	fail = false
-	if rec := post(h, internet, `{"code":"K7QM-2XRP","email":"ann@example.org","password":"long enough pw"}`); rec.Code != http.StatusOK {
+	if rec := post(h, internet, "admin", good); rec.Code != http.StatusNoContent {
 		t.Fatalf("retry: %d %s", rec.Code, rec.Body)
 	}
-	if len(admins) != 1 || admins[0] != "ann@example.org pbkdf2-sha256" || len(*saved) != 1 || done != 1 {
-		t.Errorf("admins %v, saved %v, done %d", admins, *saved, done)
+	if len(admins) != 1 || admins[0] != "ann@example.org pbkdf2-sha256" {
+		t.Errorf("admins %v", admins)
+	}
+	if rec := post(h, internet, "admin", good); rec.Code != http.StatusConflict || len(admins) != 1 {
+		t.Errorf("twice: %d, admins %v", rec.Code, admins)
 	}
 }
 
-// On a fresh server, the page asks the default language too.
+// On a fresh server, the wizard asks the default language too.
 func TestSetupLanguage(t *testing.T) {
-	s, saved := newSetup()
+	s, _ := newSetup()
 	var language string
 	s.Language = func(_ context.Context, tag string) error { language = tag; return nil }
 	h := s.Handler()
-	const local = "127.0.0.1:50000"
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/admin/api/setup", nil)
-	req.RemoteAddr = local
-	h.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), `"tag":"fr-CA"`) {
-		t.Errorf("what it asks: %s", rec.Body)
+	if got := get(h, local); !strings.Contains(got, `"tag":"fr-CA"`) || !strings.Contains(got, `{"id":"language","done":false}`) {
+		t.Errorf("what it asks: %s", got)
 	}
-	if rec := post(h, local, `{"code":"K7QM-2XRP","url":"http://fresh:8096","language":"xx-YY"}`); rec.Code != 422 || len(*saved) != 0 {
-		t.Errorf("no language: %d, saved %v", rec.Code, *saved)
+	if rec := post(h, local, "language", `{"code":"K7QM-2XRP","language":"xx-YY"}`); rec.Code != 422 || language != "" {
+		t.Errorf("no language: %d, language %q", rec.Code, language)
 	}
-	if rec := post(h, local, `{"code":"K7QM-2XRP","url":"http://fresh:8096","language":"fr-CA"}`); rec.Code != 200 || language != "fr-CA" {
+	if rec := post(h, local, "language", `{"code":"K7QM-2XRP","language":"fr-CA"}`); rec.Code != 204 || language != "fr-CA" {
 		t.Errorf("with one: %d %s, language %q", rec.Code, rec.Body, language)
+	}
+}
+
+// TMDB's key may be given, tested by TMDB, or skipped.
+func TestSetupTMDB(t *testing.T) {
+	s, _ := newSetup()
+	var key string
+	s.TMDB = func(_ context.Context, k string) (string, error) {
+		if k != "good" {
+			return "", Problem("TMDB refuses that key.")
+		}
+		key = k
+		return "TMDB takes the key.", nil
+	}
+	done := 0
+	s.Done = func() { done++ }
+	h := s.Handler()
+	if got := get(h, local); !strings.Contains(got, `{"id":"tmdb","done":false,"optional":true}`) {
+		t.Errorf("what it asks: %s", got)
+	}
+	for body, want := range map[string]string{`{"code":"K7QM-2XRP","key":" "}`: "Paste", `{"code":"K7QM-2XRP","key":"bad"}`: "refuses"} {
+		if rec := post(h, local, "tmdb", body); rec.Code != 422 || !strings.Contains(rec.Body.String(), want) || key != "" {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	if rec := post(h, local, "tmdb", `{"code":"K7QM-2XRP","key":"good"}`); rec.Code != 200 || key != "good" {
+		t.Errorf("good: %d %s", rec.Code, rec.Body)
+	}
+	// Skipped or not, it doesn't hold the wizard back.
+	post(h, local, "jellyfin", `{"code":"K7QM-2XRP","url":"http://fresh:8096"}`)
+	if rec := post(h, local, "finish", `{"code":"K7QM-2XRP"}`); rec.Code != 204 || done != 1 {
+		t.Errorf("finish: %d %s", rec.Code, rec.Body)
 	}
 }
