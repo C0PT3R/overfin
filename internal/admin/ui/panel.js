@@ -54,6 +54,7 @@ const icons = {
   check: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'M20 20l-4-4'],
   key: ['M15 7a4 4 0 1 1-3.87 5H4v3h3v3h3v-3h1.13', 'M15.5 8.5h.01'],
   puzzle: ['M10 4h4v3a2 2 0 1 0 4 0V4h2v6h-3a2 2 0 1 0 0 4h3v6h-6v-3a2 2 0 1 0-4 0v3H4v-6h3a2 2 0 1 0 0-4H4V4h6z'],
+  folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
 };
 
 async function api(method, path, body) {
@@ -173,6 +174,120 @@ function toLocalInput(iso) {
 }
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+// ---- Libraries -----------------------------------------------------------------
+
+const kindNames = { films: 'Films', series: 'Series' };
+
+// librariesView: the libraries of Overfin's own Jellyfin, with their
+// folders as Jellyfin sees them, and a scan on demand.
+async function librariesView() {
+  const { items } = await api('GET', '/admin/api/libraries');
+  const reload = () => librariesView();
+  const adding = h('div', {});
+  const add = h('button', { class: 'primary', type: 'button', onclick: () => {
+    fill(adding, libraryForm(null, reload, () => fill(adding)));
+    adding.querySelector('input')?.focus();
+  } }, 'Add a library');
+  const scan = h('button', { type: 'button', onclick: () => busy(scan, async () => {
+    await api('POST', '/admin/api/libraries/scan', {});
+    toast('Jellyfin is reading every folder again.');
+    setTimeout(reload, 1500);
+  }) }, 'Scan now');
+  show(pageHead('Libraries', 'Where your films and series are, folder by folder, as Jellyfin sees them. New files show up by themselves; a scan reads everything again.', scan, add),
+    adding,
+    items.length
+      ? h('div', { class: 'cards' }, items.map((lib) => libraryCard(lib, reload)))
+      : h('p', { class: 'notice' }, 'No library yet. Add one with the folders where your films or series are.'));
+  // While Jellyfin scans, its progress, unless a form is open.
+  if (items.some((l) => l.scanning)) {
+    setTimeout(() => { if (location.hash === '#/libraries' && !$('#main form')) reload(); }, 3000);
+  }
+}
+
+function libraryCard(lib, reload) {
+  const body = h('div', {});
+  const view = () => fill(body,
+    h('ul', { class: 'list' }, lib.folders.map((f) => h('li', {}, icon(icons.folder), h('div', { class: 'mono' }, f)))),
+    h('div', { class: 'actions-row' }, edit, remove));
+  const edit = h('button', { type: 'button', class: 'small', onclick: () => fill(body, libraryForm(lib, reload, view)) }, 'Change');
+  const remove = h('button', { type: 'button', class: 'small danger', onclick: () => {
+    if (!confirm(`Remove the library ${lib.name}? Its files stay where they are; Overfin and its apps stop showing them.`)) return;
+    busy(remove, async () => {
+      await api('DELETE', `/admin/api/libraries/${encodeURIComponent(lib.name)}`);
+      toast(`${lib.name} removed.`);
+      reload();
+    });
+  } }, 'Remove');
+  view();
+  const b = lib.scanning ? badge(`Scanning ${Math.round(lib.progress)}%`, 'info') : badge(kindNames[lib.kind] || lib.kind, 'plain');
+  return card({ title: lib.name, badge: b }, body);
+}
+
+// libraryForm adds a library (lib null) or changes one: its name, its
+// kind when it's new, and its folders, picked as Jellyfin sees them.
+function libraryForm(lib, done, cancel) {
+  const name = h('input', { value: lib?.name || '', autocomplete: 'off', placeholder: 'Films' });
+  const kind = h('select', {}, h('option', { value: 'films' }, 'Films'), h('option', { value: 'series' }, 'Series'));
+  const folders = [...(lib?.folders || [])];
+  const list = h('ul', { class: 'list' });
+  const picker = h('div', {});
+  const draw = () => fill(list, folders.length ? folders.map((f, i) => h('li', {}, icon(icons.folder), h('div', { class: 'mono' }, f),
+    h('button', { type: 'button', class: 'small ghost', onclick: () => { folders.splice(i, 1); draw(); } }, 'Remove')))
+    : h('li', {}, h('div', { class: 'hint' }, 'No folder yet.')));
+  const addFolder = h('button', { type: 'button', class: 'small', onclick: () => fill(picker, folderPicker((f) => {
+    if (!folders.includes(f)) folders.push(f);
+    draw();
+    fill(picker);
+  }, () => fill(picker))) }, 'Add a folder');
+  const save = h('button', { class: 'primary', type: 'submit' }, lib ? 'Save' : 'Add');
+  const submit = (e) => {
+    e.preventDefault();
+    busy(save, async () => {
+      if (lib) {
+        await api('PATCH', `/admin/api/libraries/${encodeURIComponent(lib.name)}`, { name: name.value, folders });
+        toast(`${name.value} saved.`);
+      } else {
+        await api('POST', '/admin/api/libraries', { name: name.value, kind: kind.value, folders });
+        toast(`${name.value} added; Jellyfin is reading it.`);
+      }
+      done();
+    });
+  };
+  draw();
+  const form = h('form', { onsubmit: submit },
+    h('div', { class: 'fields' }, field('Name', name), !lib && field('Holds', kind)),
+    h('h3', {}, 'Folders'), list, h('div', { class: 'actions-row' }, addFolder), picker,
+    h('div', { class: 'actions-row' }, h('button', { type: 'button', class: 'ghost', onclick: cancel }, 'Cancel'), save));
+  return lib ? form : card({ title: 'Add a library', description: 'Films and series go in libraries of their own. Folders are as Jellyfin sees them: in a container, its paths, not the host\'s.' }, form);
+}
+
+// folderPicker browses folders as Jellyfin sees them, and picks one.
+function folderPicker(pick, close) {
+  const box = h('div', { class: 'box' });
+  const typed = h('input', { class: 'mono', placeholder: '/media/films', autocomplete: 'off', spellcheck: 'false' });
+  const open = async (path) => {
+    try {
+      const d = await api('GET', `/admin/api/folders?path=${encodeURIComponent(path)}`);
+      typed.value = d.path;
+      fill(box,
+        h('div', { class: 'row' }, typed,
+          h('button', { type: 'button', onclick: () => open(typed.value) }, 'Go'),
+          h('button', { type: 'button', class: 'primary', disabled: !d.path, onclick: () => pick(d.path) }, 'Choose this folder'),
+          h('button', { type: 'button', class: 'ghost', onclick: close }, 'Cancel')),
+        h('ul', { class: 'list' },
+          d.parent !== '' && h('li', {}, h('a', { href: '#', onclick: (e) => { e.preventDefault(); open(d.parent); } }, '↑ Up')),
+          d.folders.map((f) => h('li', {}, icon(icons.folder),
+            h('a', { href: '#', class: 'mono', onclick: (e) => { e.preventDefault(); open(f); } }, f.split('/').pop() || f))),
+          !d.folders.length && h('li', {}, h('div', { class: 'hint' }, 'No folders in here.'))));
+    } catch (err) {
+      toast(err.message, true);
+    }
+  };
+  typed.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); open(typed.value); } });
+  open('');
+  return box;
+}
 
 // ---- Server --------------------------------------------------------------------
 
@@ -907,6 +1022,7 @@ const views = {
   features: { label: 'Features & limits', icon: icons.sliders, view: () => featuresView() },
   people: { label: 'People', icon: icons.people, view: () => peopleView() },
   templates: { label: 'Templates', icon: icons.layers, view: () => templatesView() },
+  libraries: { label: 'Libraries', icon: icons.folder, view: () => librariesView() },
   identification: { label: 'Identification', icon: icons.check, view: () => identificationView() },
   apps: { label: 'Apps', icon: icons.key, view: () => appsView() },
 };
@@ -946,6 +1062,7 @@ async function start() {
     link('templates', views.templates.label, views.templates.icon),
     tabs.map((m) => link(`m/${encodeURIComponent(m.name)}`, featureName(m.name), moduleIcons[m.name] || icons.puzzle)),
     h('div', { class: 'group' }, 'Library'),
+    link('libraries', views.libraries.label, views.libraries.icon),
     link('identification', views.identification.label, views.identification.icon),
     link('apps', views.apps.label, views.apps.icon));
   $('nav').hidden = false;

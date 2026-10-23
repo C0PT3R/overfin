@@ -92,6 +92,8 @@ type Panel struct {
 	Features Features
 	// Jellyfin, when set, shows and changes how Overfin reaches Jellyfin.
 	Jellyfin Jellyfin
+	// Libraries, when set, manages the libraries of Overfin's Jellyfin.
+	Libraries Libraries
 	// Catalog, when set, shows where the catalog's index stands.
 	Catalog Catalog
 	// Seerr, when set, shows and changes Seerr's connection.
@@ -204,6 +206,12 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("GET /admin/api/ratings", p.signedIn(p.ratings))
 	mux.HandleFunc("PUT /admin/api/ratings", p.signedIn(p.setRatings))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
+	mux.HandleFunc("GET /admin/api/libraries", p.signedIn(p.libraries))
+	mux.HandleFunc("POST /admin/api/libraries", p.signedIn(p.addLibrary))
+	mux.HandleFunc("PATCH /admin/api/libraries/{name}", p.signedIn(p.changeLibrary))
+	mux.HandleFunc("DELETE /admin/api/libraries/{name}", p.signedIn(p.removeLibrary))
+	mux.HandleFunc("POST /admin/api/libraries/scan", p.signedIn(p.scanLibraries))
+	mux.HandleFunc("GET /admin/api/folders", p.signedIn(p.browseFolders))
 	mux.HandleFunc("POST /admin/api/logout", p.logout)
 	mux.HandleFunc("GET /admin/api/accounts", p.signedIn(p.accounts))
 	mux.HandleFunc("PATCH /admin/api/accounts/{id}", p.signedIn(p.changeAccount))

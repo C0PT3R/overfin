@@ -123,6 +123,9 @@ func run(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, apply bo
 		return changes, err
 	}
 	for _, l := range libs {
+		if l.ID == "" || l.Options == nil {
+			continue // still being made: next time
+		}
 		found := differences(l.Options, librarySettings, "library "+l.Name)
 		if apply && len(found) > 0 {
 			if err := jf.SetLibraryOptions(ctx, admin, l.ID, l.Options); err != nil {
@@ -179,4 +182,12 @@ func normalize(v any) any {
 		return v
 	}
 	return out
+}
+
+// LibraryOptions are Overfin's settings for a new library, so it's right
+// from its first scan.
+func LibraryOptions() jellyfin.Settings {
+	options := jellyfin.Settings{}
+	differences(options, librarySettings, "")
+	return options
 }

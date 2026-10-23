@@ -395,7 +395,7 @@ func run(logger *slog.Logger) error {
 
 	if a := cfg.Admin; a.Enabled() || managed {
 		o := cfg.OIDC
-		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
+		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Libraries: libraries{gw}, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
 			TMDB: func() bool { return gw.tmdbSource() != nil },
 			// A new language: artwork and discovery's lists, read again now.
 			OnLanguage: func() { sh.titles.Wake(); sh.lists.Wake() },

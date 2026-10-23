@@ -44,11 +44,14 @@ func (c *Client) SetSettings(ctx context.Context, admin Auth, name string, s Set
 
 // Library is one of the server's libraries, with its options.
 type Library struct {
-	ID             string
+	ID             string // "" while Jellyfin is still making it
 	Name           string
 	CollectionType string
 	Folders        []string
 	Options        Settings
+	// Scanning while Jellyfin reads its folders; Progress is in percent.
+	Scanning bool
+	Progress float64
 }
 
 // AllLibraries is the server's libraries, with their folders and options.
@@ -58,17 +61,26 @@ func (c *Client) AllLibraries(ctx context.Context, admin Auth) ([]Library, error
 		Name, ItemId, CollectionType string
 		Locations                    []string
 		LibraryOptions               Settings
+		RefreshStatus                string
+		RefreshProgress              *float64
 	}
 	if err := c.do(ctx, "all libraries", http.MethodGet, "/Library/VirtualFolders", admin, nil, &res); err != nil {
 		return nil, err
 	}
 	libs := make([]Library, 0, len(res))
 	for _, l := range res {
+		// A library Jellyfin is still making has no ID yet: it's listed
+		// without one.
 		id, err := NormalizeID(l.ItemId)
 		if err != nil {
-			return nil, err
+			id = ""
 		}
-		libs = append(libs, Library{ID: id, Name: l.Name, CollectionType: l.CollectionType, Folders: l.Locations, Options: l.LibraryOptions})
+		lib := Library{ID: id, Name: l.Name, CollectionType: l.CollectionType, Folders: l.Locations, Options: l.LibraryOptions,
+			Scanning: l.RefreshStatus == "Active"}
+		if l.RefreshProgress != nil {
+			lib.Progress = *l.RefreshProgress
+		}
+		libs = append(libs, lib)
 	}
 	return libs, nil
 }
