@@ -364,7 +364,7 @@ export class Overfin {
    * each body or its OverfinError (one failing doesn't fail the others).
    * At most 20; images, streams and logins can't be batched.
    */
-  batch(calls: Array<string | [string, Record<string, string | number | boolean | undefined>]>): Promise<Array<any | OverfinError>>;
+  batch(calls: Array<string | [string, Record<string, string | number | boolean | string[] | undefined>]>): Promise<Array<any | OverfinError>>;
   search(query: string): Promise<{ titles: TitleSummary[]; people: { id: string; name: string; department?: string; image?: ImageRef }[]; peopleFirst?: boolean }>;
   /** A library's titles; kind is required. */
   titles(query?: TitleQuery): Promise<TitlePage>;
