@@ -19,6 +19,7 @@ import (
 	"github.com/overfin/server/internal/introskipper"
 	"github.com/overfin/server/internal/lang"
 	"github.com/overfin/server/internal/password"
+	"github.com/overfin/server/internal/theme"
 )
 
 // Setup is the first-run setup wizard, served until Overfin is set up: on
@@ -169,6 +170,7 @@ func (s *Setup) handler(public bool) http.Handler {
 	for _, f := range []string{"setup.js", "panel.css", "logo.svg"} {
 		mux.Handle("GET /admin/"+f, files)
 	}
+	mux.Handle("GET /admin/theme.css", theme.Handler())
 	mux.HandleFunc("GET /admin/api/setup", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()

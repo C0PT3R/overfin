@@ -1,0 +1,118 @@
+/* Overfin's look, shared by everything it shows: the site, the sign-in
+   page, the control panel and the setup wizard (and, written into them,
+   its emails). Only values live here; each one's own stylesheet lays
+   things out with them.
+
+   Dark is the default. A page picks light with data-theme="light" on
+   <html>; one without data-theme follows the device. The -rgb tokens are
+   the same colors as numbers, for rgba(var(--text-rgb), .1): old TV
+   browsers have no color-mix(). */
+
+:root {
+  --bg: #0c0d11;
+  --bg-rgb: 12, 13, 17;
+  --panel: #16181e;
+  --panel-rgb: 22, 24, 30;
+  --panel-2: #1f222a;
+  --panel-3: #262a33;
+  --border: #2b2f39;
+  --border-strong: #383d49;
+  --text: #ececf0;
+  --text-rgb: 236, 236, 240;
+  --muted: #a1a4ad;
+  --faint: #6d7180;
+  --accent: #6aa8ff;
+  --accent-rgb: 106, 168, 255;
+  --accent-hover: #8dbcff;
+  --accent-soft: rgba(106, 168, 255, .14);
+  --on-accent: #0b1020;
+  --ok: #4cc38a;
+  --ok-soft: rgba(76, 195, 138, .14);
+  --warn: #f0b44c;
+  --warn-soft: rgba(240, 180, 76, .14);
+  --danger: #ff6b6b;
+  --danger-rgb: 255, 107, 107;
+  --danger-soft: rgba(255, 107, 107, .12);
+  /* The logo's colors, for the few places that carry the brand. */
+  --brand: linear-gradient(90deg, #7b5cf0, #3fa9f5);
+  /* Contours and depth: a hairline that catches the light, soft shadows. */
+  --hairline: rgba(255, 255, 255, .07);
+  --highlight: rgba(255, 255, 255, .05);
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, .35), 0 4px 12px rgba(0, 0, 0, .18);
+  --shadow: 0 2px 6px rgba(0, 0, 0, .3), 0 14px 34px rgba(0, 0, 0, .35);
+  --shadow-l: 0 8px 20px rgba(0, 0, 0, .35), 0 24px 60px rgba(0, 0, 0, .45);
+  --radius-s: 8px;
+  --radius: 14px;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+
+/* Light, chosen. */
+:root[data-theme="light"] {
+  --bg: #f4f5f8;
+  --bg-rgb: 244, 245, 248;
+  --panel: #ffffff;
+  --panel-rgb: 255, 255, 255;
+  --panel-2: #f7f8fa;
+  --panel-3: #eceef3;
+  --border: #e2e5eb;
+  --border-strong: #cfd3dc;
+  --text: #1b1e25;
+  --text-rgb: 27, 30, 37;
+  --muted: #5f6573;
+  --faint: #8a8f9c;
+  --accent: #2f6fde;
+  --accent-rgb: 47, 111, 222;
+  --accent-hover: #2458b8;
+  --accent-soft: rgba(47, 111, 222, .1);
+  --on-accent: #ffffff;
+  --ok: #1f8a57;
+  --ok-soft: rgba(31, 138, 87, .1);
+  --warn: #a86b00;
+  --warn-soft: rgba(168, 107, 0, .1);
+  --danger: #c43d3d;
+  --danger-rgb: 196, 61, 61;
+  --danger-soft: rgba(196, 61, 61, .08);
+  --hairline: rgba(20, 24, 34, .08);
+  --highlight: rgba(255, 255, 255, .6);
+  --shadow-s: 0 1px 2px rgba(20, 24, 34, .08), 0 4px 12px rgba(20, 24, 34, .06);
+  --shadow: 0 2px 6px rgba(20, 24, 34, .08), 0 14px 34px rgba(20, 24, 34, .1);
+  --shadow-l: 0 8px 20px rgba(20, 24, 34, .1), 0 24px 60px rgba(20, 24, 34, .14);
+  color-scheme: light;
+}
+
+/* Light, followed from the device: the same values. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f4f5f8;
+    --bg-rgb: 244, 245, 248;
+    --panel: #ffffff;
+    --panel-rgb: 255, 255, 255;
+    --panel-2: #f7f8fa;
+    --panel-3: #eceef3;
+    --border: #e2e5eb;
+    --border-strong: #cfd3dc;
+    --text: #1b1e25;
+    --text-rgb: 27, 30, 37;
+    --muted: #5f6573;
+    --faint: #8a8f9c;
+    --accent: #2f6fde;
+    --accent-rgb: 47, 111, 222;
+    --accent-hover: #2458b8;
+    --accent-soft: rgba(47, 111, 222, .1);
+    --on-accent: #ffffff;
+    --ok: #1f8a57;
+    --ok-soft: rgba(31, 138, 87, .1);
+    --warn: #a86b00;
+    --warn-soft: rgba(168, 107, 0, .1);
+    --danger: #c43d3d;
+    --danger-rgb: 196, 61, 61;
+    --danger-soft: rgba(196, 61, 61, .08);
+    --hairline: rgba(20, 24, 34, .08);
+    --highlight: rgba(255, 255, 255, .6);
+    --shadow-s: 0 1px 2px rgba(20, 24, 34, .08), 0 4px 12px rgba(20, 24, 34, .06);
+    --shadow: 0 2px 6px rgba(20, 24, 34, .08), 0 14px 34px rgba(20, 24, 34, .1);
+    --shadow-l: 0 8px 20px rgba(20, 24, 34, .1), 0 24px 60px rgba(20, 24, 34, .14);
+    color-scheme: light;
+  }
+}

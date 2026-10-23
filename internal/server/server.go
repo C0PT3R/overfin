@@ -12,6 +12,7 @@ import (
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/theme"
 )
 
 // maxBodyBytes caps request bodies. The API takes small JSON bodies only.
@@ -26,6 +27,10 @@ func New(logger *slog.Logger, identify func(http.Handler) http.Handler, site htt
 	reg := plugin.NewRegistrar(mux, requireIdentity)
 
 	if err := reg.HandlePublic("GET /api/v1/health", http.HandlerFunc(health)); err != nil {
+		return nil, err
+	}
+	// Overfin's look, for the site and the sign-in page.
+	if err := reg.HandlePublic("GET /api/v1/theme.css", theme.Handler()); err != nil {
 		return nil, err
 	}
 	if err := reg.Load(plugins...); err != nil {

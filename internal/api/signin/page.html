@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}</title>
 <link rel="icon" href="{{.Logo}}" type="image/svg+xml">
+<link rel="stylesheet" href="/api/v1/theme.css">
 <link rel="stylesheet" href="{{.CSS}}">
 <script src="{{.JS}}" defer></script>
 </head>

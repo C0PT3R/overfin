@@ -35,6 +35,7 @@ import (
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/theme"
 	"github.com/overfin/server/internal/tmdb"
 )
 
@@ -213,6 +214,7 @@ func (p *Panel) handler() http.Handler {
 	mux := http.NewServeMux()
 	ui, _ := fs.Sub(uiFiles, "ui")
 	mux.Handle("GET /admin/", http.StripPrefix("/admin/", http.FileServerFS(ui)))
+	mux.Handle("GET /admin/theme.css", theme.Handler())
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/", http.StatusFound)
 	})
