@@ -14,6 +14,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/overfin/web v0.35.0 h1:UHqv7i4YPvKK3XX3JeTXzP2UHQib2WwSgxaxp+cpQGw=
 github.com/overfin/web v0.35.0/go.mod h1:QCD5oC/OiOhhhJo84vtvDZlDGhQgQ4scKzdqo8z+8M8=
+github.com/overfin/web v0.36.0 h1:pA2HCbnMyDfroQRay9NrqfIvkx/vaq0AvvqfSvzOBG4=
+github.com/overfin/web v0.36.0/go.mod h1:QCD5oC/OiOhhhJo84vtvDZlDGhQgQ4scKzdqo8z+8M8=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 golang.org/x/crypto v0.58.0 h1:COkYLr4k7nDI4r6QtMML2AfzeIswWHAJthLS6K/M/54=

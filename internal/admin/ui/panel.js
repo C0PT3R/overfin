@@ -605,6 +605,8 @@ async function featuresView() {
     bind(path, (el) => el.value, (el, v) => { el.value = v; }, h('select', {}, options.map(([v, t]) => h('option', { value: v }, t)))), sub);
   const toggle = (label, hint, path, value, sub) => setting(label, hint,
     bind(path, (el) => el.checked, (el, list) => { el.checked = (list || []).includes(value); }, h('input', { type: 'checkbox', 'aria-label': label }), value), sub);
+  const text = (label, hint, path) => setting(label, hint,
+    bind(path, (el) => el.value.trim(), (el, v) => { el.value = v || ''; }, h('input', { autocomplete: 'off', spellcheck: 'false', 'aria-label': label })), true);
   const onOff = (label, hint, path) => setting(label, hint,
     bind(path, (el) => (el.checked ? 'on' : 'off'), (el, v) => { el.checked = v === 'on'; }, h('input', { type: 'checkbox', 'aria-label': label })), true);
 
@@ -613,6 +615,7 @@ async function featuresView() {
   const features = state.plugins.map((p) => {
     const subs = (p.settings || []).map((s) => {
       const path = `modules.${p.name}.${s.key}`;
+      if (s.text) return text(s.label, s.hint, path);
       return s.choices ? choice(s.label, s.hint, path, s.choices.map((c) => [c.value, c.label]), true) : onOff(s.label, s.hint, path);
     });
     const main = toggle(featureName(p.name), [p.description, p.needs && `Needs ${p.needs.map(featureName).join(', ')}.`].filter(Boolean).join(' '),

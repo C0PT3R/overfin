@@ -1,7 +1,6 @@
 package feature
 
 import (
-	"context"
 	"net/http"
 )
 
@@ -13,14 +12,13 @@ type VisitorHandler func(v Visitor, w http.ResponseWriter, r *http.Request)
 // them: it can only have the core set their account up, and the core
 // answers them itself, with their new account or why not.
 type Visitor interface {
-	// Adopt sets the visitor's account up on an existing account of the
-	// media backend, once its username and password check out, through the
-	// account gates like any other creation. The account keeps its
-	// history. With keepLogin, its old login keeps working, for a
-	// transition; otherwise it's moved for good and its old login stops
-	// working. The password is used once and never kept. Adopt reports
+	// Copy sets the visitor's account up as a new one, with the history
+	// their account had on another Jellyfin server, at from, once its
+	// username and password check out there, through the account gates
+	// like any other creation. Nothing changes on that server; the
+	// password is used for that one sign-in and never kept. Copy reports
 	// whether the account was set up.
-	Adopt(w http.ResponseWriter, username, password string, keepLogin bool) bool
+	Copy(w http.ResponseWriter, from, username, password string) bool
 }
 
 // SetupOffer is implemented by a module that offers visitors another way to
@@ -30,18 +28,7 @@ type Visitor interface {
 // visitor chooses.
 type SetupOffer interface {
 	// Offer names the offer and its detail, as account-setup-required
-	// carries them: "claim" and "move", say. ok is false when the module
+	// carries them: "claim" and "copy", say. ok is false when the module
 	// offers nothing at the moment.
 	Offer(h Host) (name, value string, ok bool)
-}
-
-// Adoption is the media backend's side of bringing existing accounts over,
-// for control panel routes.
-type Adoption interface {
-	// Linked counts the adopted accounts whose old login still works.
-	Linked(ctx context.Context) (int, error)
-	// MoveLinked moves them for good, as adopting them without keepLogin
-	// would have: their old logins stop working. It returns how many
-	// moved; an error leaves the others for a retry.
-	MoveLinked(ctx context.Context) (moved int, err error)
 }

@@ -140,11 +140,11 @@ paths:
       operationId: getMe
       summary: The current account and active profile
       description: |
-        On the first visit, this creates the account, its owner profile and
-        the matching media server user. When the operator offers bringing an
-        existing account (migration), it doesn't: it answers
+        On the first visit, this creates the account and its owner profile.
+        When the operator offers bringing the history of an account on
+        another server (migration), it doesn't: it answers
         `account-setup-required` with a `claim` member, and the site offers
-        to start fresh (`POST /me`) or to bring an existing account
+        to start fresh (`POST /me`) or to bring that history
         (`POST /me/claim`).
       tags: [account]
       responses:
@@ -241,19 +241,16 @@ paths:
   /me/claim:
     post:
       operationId: claimAccount
-      summary: Bring an existing media server account, with its history
+      summary: Start a new account with the history of one on another server
       description: |
-        Only when the operator switches migration on. The username
-        and password of
-        the existing Jellyfin account prove ownership; the password is used
-        for that one check and never stored or logged. Administrator accounts
-        can't be brought over. Failed attempts are limited per user.
-
-        `account-setup-required` says how in its `claim` field. With `move`,
-        claiming is one-way: the media server account gets an opaque name and
-        a new password nobody knows, so its old login and apps stop working;
-        sites should say so before the user confirms. With `link`, it keeps
-        working until the operator moves it.
+        Only when the operator switches migration on and names the other
+        server (`claim` is `copy` in `account-setup-required`). The username
+        and password of the account on that server prove it's theirs: Overfin
+        signs in there once, copies what they watched, where they stopped and
+        their favorites into the new account, and signs out. Nothing changes
+        on that server, and the password is used for that one sign-in, never
+        stored or logged. An account there can be copied into one account
+        here only. Failed attempts are limited per user.
       tags: [account]
       requestBody:
         required: true
@@ -274,17 +271,16 @@ paths:
                   maxLength: 256
       responses:
         "201":
-          description: The account, now linked to the existing media server
-            account and its history.
+          description: The new account, with the history copied.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Me"
         "403":
           description: Wrong username or password, deliberately without
-            saying which (`claim-failed`); or that account can't be brought
-            over, because it's an administrator or already brought over
-            (`claim-not-allowed`); or not in the required group
+            saying which (`claim-failed`); or that account's history was
+            copied into another account already (`claim-not-allowed`); or not
+            in the required group
             (`account-not-allowed`).
           content:
             application/problem+json:
@@ -2453,10 +2449,10 @@ components:
             before trying again.
         claim:
           type: string
-          description: For `account-setup-required`, whether an existing
-            media server account can be brought (`move` or `link`, see
+          description: For `account-setup-required`, whether the history
+            of an account on another server can be brought (`copy`, see
             `POST /me/claim`). Absent when it can't.
-          enum: [move, link]
+          enum: [copy]
         stepUp:
           type: string
           description: For `step-up-required`, what is needed. Open set.

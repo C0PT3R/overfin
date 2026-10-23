@@ -12,10 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/creation"
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
+	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/library"
+	"github.com/overfin/server/internal/personal"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
 	"github.com/overfin/server/internal/provision"
@@ -86,18 +89,6 @@ func (h *host) HandleLink(pattern string, fn http.HandlerFunc) error {
 	return h.reg.HandleNavigation(pattern, fn)
 }
 
-// Adoption is Jellyfin's: it can bring its existing users over.
-func (h *host) Adoption() feature.Adoption { return adoption{h.mount.Library.Provisioner} }
-
-type adoption struct{ prov *provision.Provisioner }
-
-func (a adoption) Linked(ctx context.Context) (int, error) {
-	linked, err := a.prov.Store.LinkedProfiles(ctx)
-	return len(linked), err
-}
-
-func (a adoption) MoveLinked(ctx context.Context) (int, error) { return a.prov.MoveLinked(ctx) }
-
 func (h *host) Logger() *slog.Logger {
 	return h.mount.Logger.With("module", h.mount.Module.Info().Name)
 }
@@ -152,15 +143,21 @@ type visitor struct {
 	r     *http.Request
 }
 
-func (v visitor) Adopt(w http.ResponseWriter, username, password string, keepLogin bool) bool {
+func (v visitor) Copy(w http.ResponseWriter, from, username, password string) bool {
 	if username == "" || len(username) > 128 || password == "" || len(password) > 256 {
 		problem.Send(w, problem.InvalidRequest, "")
 		return false
 	}
 	l := v.mount.Library
+	old, err := jellyfin.New(from, "overfin")
+	if config.CheckJellyfinURL(from) != nil || err != nil {
+		l.Logger.Error("migration: the other server's address isn't usable", "from", from)
+		problem.Send(w, problem.Internal, "")
+		return false
+	}
 	id, _ := identity.FromContext(v.r.Context())
-	acct, prof, err := l.Provisioner.Claim(creation.Adopting(v.r.Context()), id, username, password, !keepLogin,
-		creationHooks(v.r, v.mount.Peers, l.Provisioner))
+	acct, prof, err := l.Provisioner.CopyIn(creation.Adopting(v.r.Context()), id, old, username, password,
+		personal.FromServer, creationHooks(v.r, v.mount.Peers, l.Provisioner))
 	accountResult(w, l.Sessions, l.Logger, acct, prof, err, http.StatusCreated)
 	return err == nil
 }

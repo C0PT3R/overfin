@@ -390,13 +390,9 @@ func TestAdoptionCarriedOver(t *testing.T) {
 	}
 	f.ImportAdoption(Adoption{Claim: true, Mode: "link"})
 	f.ImportAdoption(Adoption{Claim: true, Mode: "link"})
-	if len(f.Plugins.Enable) != 1 || !f.Plugins.Enabled("migration") || f.Modules["migration"]["mode"] != "link" {
+	// Switched on once; its mode is gone, it only copies now.
+	if len(f.Plugins.Enable) != 1 || !f.Plugins.Enabled("migration") || f.Modules["migration"] != nil {
 		t.Errorf("carried over: %v %v", f.Plugins, f.Modules)
-	}
-	var g Features
-	g.ImportAdoption(Adoption{Claim: true})
-	if g.Modules["migration"]["mode"] != "move" {
-		t.Errorf("default mode: %v", g.Modules)
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
 )
@@ -104,22 +105,17 @@ type Adoption struct {
 }
 
 // ImportAdoption carries the former [adoption] settings over to the
-// migration module: switched on, in the same mode.
+// migration module: switched on. Its mode is gone: it only copies now, from
+// the server the operator names.
 func (f *Features) ImportAdoption(a Adoption) {
-	if !a.Claim {
-		return
-	}
-	if !f.Plugins.Enabled("migration") {
+	if a.Claim && !f.Plugins.Enabled("migration") {
 		f.Plugins.Enable = append(f.Plugins.Enable, "migration")
 	}
-	if f.Modules == nil {
-		f.Modules = map[string]map[string]string{}
-	}
-	if f.Modules["migration"] == nil {
-		f.Modules["migration"] = map[string]string{}
-	}
-	f.Modules["migration"]["mode"] = cmp.Or(a.Mode, "move")
 }
+
+// retiredSettings are module settings that existed once: kept values are
+// dropped, not refused.
+var retiredSettings = map[string][]string{"migration": {"mode"}}
 
 // Privacy lists the privacy-sensitive fields the operator chooses to
 // expose (SECURITY.md rule 55). Everything not listed stays hidden.
@@ -198,12 +194,13 @@ var PluginDescriptions = map[string]string{
 var PluginSettings = map[string][]Setting{}
 
 // Setting is one of a module's settings. Without Choices, it's a switch:
-// "on" or "off".
+// "on" or "off"; with Text, a line of text, empty by default.
 type Setting struct {
 	Key     string   `json:"key"`
 	Label   string   `json:"label"`
 	Hint    string   `json:"hint,omitempty"`
 	Choices []Choice `json:"choices,omitempty"`
+	Text    bool     `json:"text,omitempty"`
 }
 
 // Choice is one value a setting can take.
@@ -212,16 +209,24 @@ type Choice struct {
 	Label string `json:"label"`
 }
 
-// fallback is the setting's default: its first choice, or "off".
+// fallback is the setting's default: its first choice, "" for text, or
+// "off".
 func (s Setting) fallback() string {
+	if s.Text {
+		return ""
+	}
 	if len(s.Choices) == 0 {
 		return "off"
 	}
 	return s.Choices[0].Value
 }
 
-// allows reports whether v is one of the setting's values.
+// allows reports whether v is one of the setting's values: for text, a
+// line of up to 2048 characters.
 func (s Setting) allows(v string) bool {
+	if s.Text {
+		return len(v) <= 2048 && !strings.ContainsFunc(v, unicode.IsControl)
+	}
 	if len(s.Choices) == 0 {
 		return v == "on" || v == "off"
 	}
@@ -974,7 +979,7 @@ func (c *Config) settleModules(add func(string, ...any)) {
 		settings := PluginSettings[name]
 		values := c.Modules[name]
 		for _, key := range slices.Sorted(maps.Keys(values)) {
-			if !slices.ContainsFunc(settings, func(s Setting) bool { return s.Key == key }) {
+			if !slices.ContainsFunc(settings, func(s Setting) bool { return s.Key == key }) && !slices.Contains(retiredSettings[name], key) {
 				add("modules.%s: unknown setting %q", name, key)
 			}
 		}

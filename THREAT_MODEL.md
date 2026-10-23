@@ -136,10 +136,10 @@ subtitles and attachments) from anywhere.
   email can sign in as them, as with any "forgot password" email. Codes
   work even for people who set a password, so a password doesn't close
   that way in.
-- **Taking over someone else's history:** adopting an existing Jellyfin
-  account requires its password, attempts are limited, and an account can be
-  adopted only once. Administrator accounts are never adopted, so Overfin
-  never holds an administrator's token [60].
+- **Taking someone else's history:** copying it from another server
+  requires that account's password, attempts are limited, and an account
+  there can be copied into only one Overfin account. The token that sign-in
+  gives is for that server only, used once and dropped [60].
 - **Overfin taking over the wrong Jellyfin:** it takes over only a fresh
   one, one that answers to its own key, or one the operator explicitly
   hands over after seeing what it holds; it never changes another [67].

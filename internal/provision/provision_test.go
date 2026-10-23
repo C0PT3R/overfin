@@ -57,6 +57,8 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.aliceName, f.alicePw = "alice", alicePass
 	}
 	switch r.Method + " " + r.URL.Path {
+	case "GET /System/Info/Public":
+		json.NewEncoder(w).Encode(map[string]any{"Version": "12.2.0", "Id": "old-server", "StartupWizardCompleted": true})
 	case "POST /Sessions/Logout":
 		f.logouts++
 		w.WriteHeader(http.StatusNoContent)
@@ -238,147 +240,96 @@ func TestBucket(t *testing.T) {
 	}
 }
 
-func TestClaim(t *testing.T) {
+// history stands for personal.FromServer: what alice watched, as titles.
+func history(_ context.Context, _ *jellyfin.Client, a jellyfin.Auth, userID string) ([]store.Personal, int, error) {
+	if a.Token != "token-"+userID {
+		return nil, 0, errors.New("read with someone else's token")
+	}
+	return []store.Personal{{Title: "movie/tmdb/949", Played: true, PlayCount: 2},
+		{Title: "series/tmdb/1399/s1/e2", PositionMs: 60_000}}, 1, nil
+}
+
+// copyFrom is the provisioner's own fake Jellyfin standing for the other
+// server.
+func copyFrom(p *Provisioner, id identity.Identity, username, password string, hooks *Hooks) (*store.Account, *store.Profile, error) {
+	return p.CopyIn(context.Background(), id, p.Jellyfin, username, password, history, hooks)
+}
+
+func TestCopyIn(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "")
 	id := identity.Identity{Subject: "alice-subject"}
 
-	_, prof, err := p.Claim(ctx, id, "alice", alicePass, false, nil)
+	_, prof, err := copyFrom(p, id, "alice", alicePass, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prof.JellyfinUserID != aliceUser || prof.JellyfinToken != "token-"+aliceUser || !prof.Owner {
-		t.Errorf("adopted profile = %+v", prof)
+	if prof.JellyfinUserID != "" || !prof.Owner {
+		t.Errorf("profile = %+v", prof)
 	}
-	if len(fake.created) != 0 {
-		t.Error("claiming created a new Jellyfin user")
+	got, err := p.Store.PersonalStates(ctx, prof.ID, []string{"movie/tmdb/949", "series/tmdb/1399/s1/e2"})
+	if err != nil || !got["movie/tmdb/949"].Played || got["movie/tmdb/949"].PlayCount != 2 || got["series/tmdb/1399/s1/e2"].PositionMs != 60_000 {
+		t.Errorf("history = %+v, %v", got, err)
+	}
+	if imported, _ := p.Store.Imported(ctx, prof.ID); !imported {
+		t.Error("the profile would be imported from this server's Jellyfin too")
+	}
+	// Nothing changed on the other server, and Overfin signed out there.
+	if len(fake.created) != 0 || fake.aliceName != "alice" || fake.alicePw != alicePass || fake.alicePolicy != nil || fake.logouts != 1 {
+		t.Errorf("the other server: created %v, alice %q %q %v, logouts %d", fake.created, fake.aliceName, fake.alicePw, fake.alicePolicy, fake.logouts)
 	}
 
-	// Claiming again, or creating a fresh account, once one exists.
-	if _, _, err := p.Claim(ctx, id, "alice", alicePass, false, nil); !errors.Is(err, ErrAccountExists) {
-		t.Errorf("second claim: %v", err)
+	// Copying again, or creating a fresh account, once one exists.
+	if _, _, err := copyFrom(p, id, "alice", alicePass, nil); !errors.Is(err, ErrAccountExists) {
+		t.Errorf("second copy: %v", err)
 	}
 	if _, _, err := p.Create(ctx, id, nil); !errors.Is(err, ErrAccountExists) {
-		t.Errorf("create after claim: %v", err)
+		t.Errorf("create after a copy: %v", err)
 	}
-	// Someone else claiming alice's Jellyfin account, with her password.
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "other"}, "alice", alicePass, false, nil); !errors.Is(err, ErrClaimNotAllowed) {
-		t.Errorf("claiming an adopted account: %v", err)
+	// Someone else copying alice's history, with her password.
+	if _, _, err := copyFrom(p, identity.Identity{Subject: "other"}, "alice", alicePass, nil); !errors.Is(err, ErrClaimNotAllowed) {
+		t.Errorf("copying alice's history twice: %v", err)
+	}
+	if _, err := p.Store.AccountBySubject(ctx, "other"); !errors.Is(err, store.ErrNotFound) {
+		t.Error("an account was made anyway")
 	}
 }
 
-func TestClaimRefusesAdministrators(t *testing.T) {
+// Administrators may copy their history: the token is the other server's,
+// used once, never Overfin's.
+func TestCopyInAdministrators(t *testing.T) {
 	p := setup(t, &fakeJellyfin{}, "")
-	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "boss", adminPass, false, nil)
-	if !errors.Is(err, ErrClaimNotAllowed) {
-		t.Errorf("err = %v, want ErrClaimNotAllowed", err)
-	}
-	if _, err := p.Store.AccountBySubject(context.Background(), "s"); !errors.Is(err, store.ErrNotFound) {
-		t.Error("an account was created for an administrator claim")
+	if _, _, err := copyFrom(p, identity.Identity{Subject: "s"}, "boss", adminPass, nil); err != nil {
+		t.Errorf("an administrator's copy: %v", err)
 	}
 }
 
-func TestClaimAttemptsAreLimited(t *testing.T) {
+func TestCopyAttemptsAreLimited(t *testing.T) {
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "")
 	id := identity.Identity{Subject: "guesser"}
 	for i := 0; i < maxFailures; i++ {
-		if _, _, err := p.Claim(context.Background(), id, "alice", "wrong", false, nil); !errors.Is(err, ErrClaimFailed) {
+		if _, _, err := copyFrom(p, id, "alice", "wrong", nil); !errors.Is(err, ErrClaimFailed) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
-	// Even the right password is refused now, without asking Jellyfin.
+	// Even the right password is refused now, without asking the server.
 	before := len(fake.logins)
-	if _, _, err := p.Claim(context.Background(), id, "alice", alicePass, false, nil); !errors.Is(err, ErrRateLimited) {
+	if _, _, err := copyFrom(p, id, "alice", alicePass, nil); !errors.Is(err, ErrRateLimited) {
 		t.Errorf("after %d failures: %v, want ErrRateLimited", maxFailures, err)
 	}
 	if len(fake.logins) != before {
-		t.Error("Jellyfin was asked despite the limit")
+		t.Error("the server was asked despite the limit")
 	}
 }
 
-func TestClaimRespectsRequiredGroup(t *testing.T) {
+func TestCopyRespectsRequiredGroup(t *testing.T) {
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "media")
-	_, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, false, nil)
+	_, _, err := copyFrom(p, identity.Identity{Subject: "s"}, "alice", alicePass, nil)
 	if !errors.Is(err, ErrNotAllowed) || len(fake.logins) != 0 {
 		t.Errorf("err = %v, logins = %v", err, fake.logins)
-	}
-}
-
-func TestClaimMoves(t *testing.T) {
-	ctx := context.Background()
-	fake := &fakeJellyfin{}
-	p := setup(t, fake, "")
-
-	_, prof, err := p.Claim(ctx, identity.Identity{Subject: "alice-subject"}, "alice", alicePass, true, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// An opaque name, the lock-down, a password nobody knows: the old login
-	// is gone, and the profile holds the new name and a working token.
-	if !strings.HasPrefix(fake.aliceName, "of-") || prof.JellyfinUsername != fake.aliceName {
-		t.Errorf("name: jellyfin %q, profile %q", fake.aliceName, prof.JellyfinUsername)
-	}
-	if fake.alicePw == alicePass {
-		t.Error("the old password still works")
-	}
-	if fake.alicePolicy["IsHidden"] != true || fake.alicePolicy["MaxParentalRating"] != 10.0 {
-		t.Errorf("policy not locked down, or other settings lost: %v", fake.alicePolicy)
-	}
-	if prof.JellyfinToken != "token-"+aliceUser {
-		t.Errorf("token = %q", prof.JellyfinToken)
-	}
-	if fake.logouts != 1 {
-		t.Errorf("the claim check's session was ended %d times", fake.logouts)
-	}
-}
-
-// A move that fails half-way puts everything back: the user can still log
-// in as before, and try again.
-func TestClaimMoveFailureRestores(t *testing.T) {
-	for _, step := range []string{"rename", "password"} {
-		t.Run(step, func(t *testing.T) {
-			fake := &fakeJellyfin{failing: step}
-			p := setup(t, fake, "")
-			if _, _, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, true, nil); err == nil {
-				t.Fatal("claim succeeded")
-			}
-			if fake.aliceName != "alice" || fake.alicePw != alicePass {
-				t.Errorf("not restored: %q / %q", fake.aliceName, fake.alicePw)
-			}
-			if fake.alicePolicy["IsHidden"] == true {
-				t.Errorf("lock-down left in place: %v", fake.alicePolicy)
-			}
-			if _, err := p.Store.AccountBySubject(context.Background(), "s"); !errors.Is(err, store.ErrNotFound) {
-				t.Error("an account was created")
-			}
-		})
-	}
-}
-
-func TestClaimLinkKeepsTheLogin(t *testing.T) {
-	fake := &fakeJellyfin{}
-	p := setup(t, fake, "")
-	_, prof, err := p.Claim(context.Background(), identity.Identity{Subject: "s"}, "alice", alicePass, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fake.aliceName != "alice" || fake.alicePw != alicePass || prof.JellyfinUsername != "alice" {
-		t.Errorf("link changed the login: %q %q", fake.aliceName, fake.alicePw)
-	}
-	// Moved later, without the old password.
-	moved, err := p.MoveLinked(context.Background())
-	if err != nil || moved != 1 || !strings.HasPrefix(fake.aliceName, "of-") || fake.alicePw == alicePass {
-		t.Errorf("move later: %d %q %v", moved, fake.aliceName, err)
-	}
-	prof, _ = p.Store.Profile(context.Background(), prof.AccountID, prof.ID)
-	if prof.JellyfinUsername != fake.aliceName || prof.JellyfinToken == "" {
-		t.Errorf("profile after the move: %q %q", prof.JellyfinUsername, prof.JellyfinToken)
-	}
-	if moved, err := p.MoveLinked(context.Background()); err != nil || moved != 0 {
-		t.Errorf("moving again: %d %v", moved, err)
 	}
 }
 
@@ -411,36 +362,33 @@ func TestExpiredAccount(t *testing.T) {
 	}
 }
 
-func TestClaimHooks(t *testing.T) {
+func TestCopyHooks(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeJellyfin{}
 	p := setup(t, fake, "")
 
-	// Refused before the old account is even looked at.
+	// Refused before the other server is even asked.
 	refuse := &Hooks{Before: func(context.Context) error { return errors.New("no invitation") }}
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, true, refuse); err == nil {
-		t.Fatal("claim went through a refusal")
+	if _, _, err := copyFrom(p, identity.Identity{Subject: "s"}, "alice", alicePass, refuse); err == nil {
+		t.Fatal("the copy went through a refusal")
 	}
 	if len(fake.logins) != 0 {
-		t.Errorf("the old account was checked despite the refusal: %v", fake.logins)
+		t.Errorf("the other server was asked despite the refusal: %v", fake.logins)
 	}
 
-	// A failure afterwards undoes it all: the old account is as it was.
+	// A failure afterwards undoes it all, the record of the copy included.
 	fail := &Hooks{After: func(context.Context, *store.Account, *store.Profile) error {
 		return errors.New("invitation used meanwhile")
 	}}
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, true, fail); err == nil {
-		t.Fatal("claim succeeded")
-	}
-	if fake.aliceName != "alice" || fake.alicePw != alicePass || fake.alicePolicy["IsHidden"] == true {
-		t.Errorf("old account not restored: %q %q %v", fake.aliceName, fake.alicePw, fake.alicePolicy)
+	if _, _, err := copyFrom(p, identity.Identity{Subject: "s"}, "alice", alicePass, fail); err == nil {
+		t.Fatal("the copy succeeded")
 	}
 	if _, err := p.Store.AccountBySubject(ctx, "s"); !errors.Is(err, store.ErrNotFound) {
 		t.Error("an account was left behind")
 	}
-	// And it can be claimed properly afterwards.
-	if _, _, err := p.Claim(ctx, identity.Identity{Subject: "s"}, "alice", alicePass, true, nil); err != nil {
-		t.Errorf("claim after the undo: %v", err)
+	// And it can be done properly afterwards.
+	if _, _, err := copyFrom(p, identity.Identity{Subject: "s"}, "alice", alicePass, nil); err != nil {
+		t.Errorf("a copy after the undo: %v", err)
 	}
 }
 

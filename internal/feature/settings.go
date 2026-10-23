@@ -14,6 +14,8 @@ type Setting struct {
 	// being the default. Without them, it's a switch, "off" by default,
 	// and its value is "on" or "off".
 	Choices []Choice
+	// Text makes it a line of text instead, empty by default.
+	Text bool
 }
 
 // Choice is one value a setting can take.

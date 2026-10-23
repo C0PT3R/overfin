@@ -187,15 +187,18 @@ func (p *Provisioner) allowed(id identity.Identity) error {
 	return nil
 }
 
-// Claim adopts an existing Jellyfin account: the username and password prove
-// ownership, and the account's history comes along. The password is used for
-// this one login and never stored or logged. Administrator accounts are
-// never adopted, so Overfin never holds an administrator's token.
-//
-// With move, claiming is one-way: the Jellyfin user gets an opaque name, the
-// lock-down and a password nobody knows, so its old login stops working.
-// Otherwise it keeps its name and password until moved later (link).
-func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username, password string, move bool, hooks *Hooks) (*store.Account, *store.Profile, error) {
+// History reads what a user did on another Jellyfin server, signed in as
+// them (personal.FromServer).
+type History func(ctx context.Context, jf *jellyfin.Client, a jellyfin.Auth, userID string) ([]store.Personal, int, error)
+
+// CopyIn makes a fresh account with the history the visitor had on another
+// Jellyfin server, from: their username and password there prove it's
+// theirs, and are used for that one sign-in, never kept (SECURITY.md rule
+// 60). Overfin signs out again and changes nothing there. An account there
+// is copied into one Overfin account only. The account gates and modules'
+// hooks apply as to any new account.
+func (p *Provisioner) CopyIn(ctx context.Context, id identity.Identity, from *jellyfin.Client, username, password string,
+	history History, hooks *Hooks) (*store.Account, *store.Profile, error) {
 	if err := p.allowed(id); err != nil {
 		return nil, nil, err
 	}
@@ -217,82 +220,68 @@ func (p *Provisioner) Claim(ctx context.Context, id identity.Identity, username,
 		return nil, nil, ErrRateLimited
 	}
 	// Modules have their say first (an invitation, say), before the old
-	// account is even looked at.
+	// server is even asked.
 	if err := hooks.before(ctx); err != nil {
 		return nil, nil, err
 	}
 
-	// A throwaway device for the check; the kept token gets a stable one.
-	token, userID, err := p.Jellyfin.Authenticate(ctx, "overfin-claim", username, password)
+	server, err := from.Public(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	token, userID, err := from.Authenticate(ctx, "overfin-migration", username, password)
 	if err != nil {
 		if jellyfin.IsStatus(err, http.StatusUnauthorized) || jellyfin.IsStatus(err, http.StatusForbidden) ||
 			jellyfin.IsStatus(err, http.StatusNotFound) || jellyfin.IsStatus(err, http.StatusBadRequest) {
 			p.attempts.fail(id.Subject, now)
-			p.Logger.Info("claim failed: wrong credentials", "user", p.logID(id.Subject))
+			p.Logger.Info("history copy failed: wrong credentials", "user", p.logID(id.Subject))
 			return nil, nil, ErrClaimFailed
 		}
 		return nil, nil, err
 	}
-
-	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
-	policy, err := p.Jellyfin.UserPolicy(ctx, admin, userID)
-	if err != nil {
+	a := jellyfin.Auth{Token: token, DeviceID: "overfin-migration"}
+	defer func() {
+		if err := from.Logout(context.WithoutCancel(ctx), a); err != nil {
+			p.Logger.Warn("could not sign out of the other server", "err", err)
+		}
+	}()
+	// Checked under the lock, so two people can't copy the same account.
+	if into, err := p.Store.CopiedInto(ctx, server.ID, userID); err != nil {
 		return nil, nil, err
-	}
-	if isAdmin, _ := policy["IsAdministrator"].(bool); isAdmin {
-		p.Logger.Warn("claim refused: administrator account", "user", p.logID(id.Subject))
+	} else if into != "" {
+		p.Logger.Warn("history copy refused: copied into another account already", "user", p.logID(id.Subject))
 		return nil, nil, ErrClaimNotAllowed
 	}
-	// Checked under the lock, so two people can't adopt the same account.
-	// The database's unique constraints remain as a last line of defense.
-	linked, err := p.Store.JellyfinUserLinked(ctx, userID)
+	states, skipped, err := history(ctx, from, a, userID)
 	if err != nil {
 		return nil, nil, err
 	}
-	if linked {
-		p.Logger.Warn("claim refused: account already adopted", "user", p.logID(id.Subject))
-		return nil, nil, ErrClaimNotAllowed
-	}
 
-	// The check's login was on a throwaway device; end it, so its token
-	// doesn't linger in Jellyfin.
-	if err := p.Jellyfin.Logout(ctx, jellyfin.Auth{Token: token, DeviceID: "overfin-claim"}); err != nil {
-		p.Logger.Warn("could not end the claim check's session", "err", err)
-	}
-
-	var undo func()
-	name := username
-	if move {
-		if name, token, undo, err = p.move(ctx, userID, password); err != nil {
-			return nil, nil, err
-		}
-	} else if token, _, err = p.Jellyfin.Authenticate(ctx, DeviceID(userID), username, password); err != nil {
-		return nil, nil, err
-	}
-
-	acct, prof, err := p.Store.CreateAccount(ctx, id.Subject, store.NewOwner{
-		Name: OwnerProfileName, JellyfinUserID: userID, JellyfinUsername: name, JellyfinToken: token,
-	})
+	acct, owner, err := p.create(ctx, id.Subject)
 	if err != nil {
-		if undo != nil {
-			undo()
-		}
 		return nil, nil, err
 	}
-	if err := hooks.after(ctx, acct, prof); err != nil {
-		// Undone: the account goes, and the old Jellyfin account is put
-		// back as it was. It's someone's real account: never deleted.
-		if derr := p.Store.DeleteAccount(ctx, acct.ID); derr != nil {
-			p.Logger.Error("undoing an adopted account failed", "account", acct.ID, "err", derr)
-		}
-		if undo != nil {
-			undo()
+	err = p.Store.RecordCopy(ctx, server.ID, userID, acct.ID)
+	if err == nil {
+		err = p.Store.MergePersonal(ctx, owner.ID, states)
+	}
+	if err == nil {
+		err = p.Store.MarkImported(ctx, owner.ID, now)
+	}
+	if err == nil {
+		err = hooks.after(ctx, acct, owner)
+	}
+	if err != nil {
+		// Undone whole: the account and what was copied go.
+		if _, derr := p.DeleteAccount(ctx, acct.ID, false); derr != nil {
+			p.Logger.Error("undoing an account failed", "account", acct.ID, "err", derr)
 		}
 		return nil, nil, err
 	}
 	p.attempts.reset(id.Subject)
-	p.Logger.Info("account adopted", "user", p.logID(id.Subject), "account", acct.ID)
-	return acct, prof, nil
+	p.Logger.Info("account made with a copied history", "user", p.logID(id.Subject), "account", acct.ID,
+		"titles", len(states), "left out", skipped)
+	return acct, owner, nil
 }
 
 func (p *Provisioner) existing(ctx context.Context, subject string) (*store.Account, *store.Profile, error) {
@@ -347,95 +336,6 @@ func (p *Provisioner) Unrestrict(ctx context.Context, jellyfinUserID string) err
 	}
 	policy.Unlimited()
 	return p.Jellyfin.SetUserPolicy(ctx, admin, jellyfinUserID, policy)
-}
-
-// move takes an existing Jellyfin user over for good: the lock-down, an
-// opaque name, and a password nobody knows, then a fresh token. Its old
-// login stops working. With the old password (when claiming), every step
-// that fails is undone, and the returned undo puts everything back if what
-// follows fails; without it (moving later), there's nothing to restore it to.
-func (p *Provisioner) move(ctx context.Context, userID, oldPassword string) (name, token string, undo func(), err error) {
-	admin := jellyfin.Auth{Token: p.AdminKey, DeviceID: "overfin-admin"}
-	policy, err := p.Jellyfin.UserPolicy(ctx, admin, userID)
-	if err != nil {
-		return "", "", nil, err
-	}
-	original := jellyfin.Policy{}
-	for k, v := range policy {
-		original[k] = v
-	}
-	user, err := p.Jellyfin.UserName(ctx, admin, userID)
-	if err != nil {
-		return "", "", nil, err
-	}
-
-	// Steps done so far, undone in reverse on failure.
-	var done []func()
-	undo = func() {
-		for i := len(done) - 1; i >= 0; i-- {
-			done[i]()
-		}
-	}
-	fail := func(e error) (string, string, func(), error) {
-		undo()
-		return "", "", nil, e
-	}
-
-	policy.LockDown()
-	if err := p.Jellyfin.SetUserPolicy(ctx, admin, userID, policy); err != nil {
-		return fail(err)
-	}
-	done = append(done, func() { _ = p.Jellyfin.SetUserPolicy(context.Background(), admin, userID, original) })
-
-	name = "of-" + randomName()
-	if err := p.Jellyfin.RenameUser(ctx, admin, userID, name); err != nil {
-		return fail(err)
-	}
-	done = append(done, func() { _ = p.Jellyfin.RenameUser(context.Background(), admin, userID, user) })
-
-	password := randomSecret()
-	if err := p.Jellyfin.SetPassword(ctx, admin, userID, password); err != nil {
-		return fail(err)
-	}
-	if oldPassword != "" {
-		done = append(done, func() { _ = p.Jellyfin.SetPassword(context.Background(), admin, userID, oldPassword) })
-	}
-
-	if token, _, err = p.Jellyfin.Authenticate(ctx, DeviceID(userID), name, password); err != nil {
-		return fail(err)
-	}
-	return name, token, undo, nil
-}
-
-// MoveLinked moves every account adopted in "link" mode for good, as
-// claiming in "move" mode would have: for when the operator closes the old
-// way to Jellyfin. Their owners' old logins stop working. It returns how
-// many moved; the others are left for a retry.
-func (p *Provisioner) MoveLinked(ctx context.Context) (moved int, err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	linked, err := p.Store.LinkedProfiles(ctx)
-	if err != nil {
-		return 0, err
-	}
-	failed := 0
-	for _, l := range linked {
-		name, token, _, err := p.move(ctx, l.JellyfinUserID, "")
-		if err == nil {
-			err = p.Store.SetJellyfinUser(ctx, l.ProfileID, name, token)
-		}
-		if err != nil {
-			failed++
-			p.Logger.Error("linked account not moved", "profile", l.ProfileID, "err", err)
-			continue
-		}
-		moved++
-		p.Logger.Info("linked account moved", "profile", l.ProfileID)
-	}
-	if failed > 0 {
-		return moved, fmt.Errorf("provision: %d linked accounts not moved", failed)
-	}
-	return moved, nil
 }
 
 // Relogin gives a profile's Jellyfin user a new random password and logs in

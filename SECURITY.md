@@ -50,8 +50,7 @@ Every rule not named here is a hard rule.
    Each playback runs on a Jellyfin device of its own, so playbacks never
    share a session or a transcode. The Jellyfin admin key is used only by
    provisioning code and the admin API (rule 58), never by the public API's
-   user routes. A profile that brought a Jellyfin user of its own (an
-   adopted account) keeps it only to bring its history over once. Seerr has no per-user tokens, so Seerr
+   user routes. Seerr has no per-user tokens, so Seerr
    calls use its API key with the acting user named in the request; that user
    is always the account's own Seerr user, derived from the session.
 4. Upstream tokens never reach the browser, including inside stream URLs and
@@ -332,18 +331,19 @@ comes from the internet, and media files can be written by anyone.
 59. No code copied or ported from other projects. Dependencies are few, chosen
     on purpose, and pinned.
 
-### Adoption
-60. Bringing an existing Jellyfin account (migration) is off by
-    default. When enabled, the account's password is used once to prove
-    ownership and is never stored or logged; failed attempts are limited per user, and wrong usernames and
-    wrong passwords get the same answer. Administrator accounts are never
-    adopted, and a Jellyfin account can belong to only one Overfin account.
-    Nothing is guessed: no matching by name or email, only the username and
-    password. By default adoption is a move: the account gets an opaque name
-    (rule 47), the same lock-down as the users Overfin creates, and a new
-    password nobody knows, so its old login stops working; a move that fails
-    half-way is undone. In the operator's "link" mode, adopted accounts keep
-    their names and passwords until moved, an exception to rule 47.
+### Migration
+60. Bringing history over from another Jellyfin server (migration) is off
+    by default; the operator names that server to turn it on. It's a copy:
+    Overfin signs in there with the person's own username and password,
+    reads what they watched, where they stopped and their favorites, keeps
+    a copy, and signs out. It changes nothing on that server. The password
+    is used for that one sign-in and never stored or logged, and neither is
+    the token it gives, which is for that server only, never Overfin's own;
+    that's why administrator accounts may copy their history too. Failed
+    attempts are limited per user, and wrong usernames and wrong passwords
+    get the same answer. An account on the other server can be copied into
+    only one Overfin account. Nothing is guessed: no matching by name or
+    email, only the username and password.
 
 ### Resource use
 61. Memory-heavy work, such as decoding images, runs with bounded

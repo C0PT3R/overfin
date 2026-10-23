@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// The migration module brings an old account over, through the visitor
-// route the core guards.
+// The migration module copies an old account's history into a new one,
+// through the visitor route the core guards.
 func TestMigrationClaim(t *testing.T) {
 	srv, _ := newServer(t)
 	claim := func(who, body string) (int, string) {
@@ -25,7 +25,7 @@ func TestMigrationClaim(t *testing.T) {
 	}
 
 	// A visitor is told they can bring their account, and how.
-	if code, body := getAs(t, srv, "newcomer", "/api/v1/me"); code != 404 || !strings.Contains(body, `"claim":"move"`) {
+	if code, body := getAs(t, srv, "newcomer", "/api/v1/me"); code != 404 || !strings.Contains(body, `"claim":"copy"`) {
 		t.Errorf("setup offer: %d %s", code, body)
 	}
 	if code, _ := claim("newcomer", `{"username":"old","password":"pw","extra":1}`); code != 400 {
@@ -33,6 +33,9 @@ func TestMigrationClaim(t *testing.T) {
 	}
 	if code, _ := claim("newcomer", `{"username":"","password":"pw"}`); code != 400 {
 		t.Errorf("no username: %d", code)
+	}
+	if code, body := claim("newcomer", `{"username":"old","password":"nope"}`); code != 401 && code != 403 {
+		t.Errorf("wrong password: %d %s", code, body)
 	}
 	if code, body := claim("newcomer", `{"username":"old","password":"pw"}`); code != 201 || !strings.Contains(body, `"owner":true`) {
 		t.Fatalf("claim: %d %s", code, body)

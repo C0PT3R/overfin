@@ -126,14 +126,7 @@ func (im *Importer) profile(ctx context.Context, p *store.Profile) (int, error) 
 	}
 	states := make([]store.Personal, 0, len(byItem))
 	for id, u := range byItem {
-		s := store.Personal{Title: keys[id], ItemID: id, Played: u.Played, PlayCount: u.PlayCount, Favorite: u.IsFavorite}
-		if u.PlaybackPositionTicks > 0 {
-			s.PositionMs = u.PlaybackPositionTicks / 10_000
-		}
-		if t, err := time.Parse(time.RFC3339Nano, u.LastPlayedDate); err == nil {
-			s.LastPlayedAt = t
-		}
-		states = append(states, s)
+		states = append(states, stateOf(keys[id], id, u))
 	}
 	return len(states), im.Store.MergePersonal(ctx, p.ID, states)
 }

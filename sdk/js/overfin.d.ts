@@ -11,7 +11,7 @@ export interface Problem {
   stepUp?: string;
   stepUpUrl?: string;
   /** For account-setup-required: whether an existing account can be brought. */
-  claim?: 'move' | 'link';
+  claim?: 'copy';
 }
 
 export class OverfinError extends Error {

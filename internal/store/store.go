@@ -294,15 +294,6 @@ func insertProfile(ctx context.Context, tx *sql.Tx, box *seal.Box, p *Profile, n
 	return nil
 }
 
-// JellyfinUserLinked reports whether a Jellyfin user already belongs to a
-// profile.
-func (s *Store) JellyfinUserLinked(ctx context.Context, jellyfinUserID string) (bool, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM profiles WHERE jellyfin_user_id = ?`, jellyfinUserID).Scan(&n)
-	return n > 0, err
-}
-
 // AccountBySubject finds the account of an identity provider user.
 func (s *Store) AccountBySubject(ctx context.Context, subject string) (*Account, error) {
 	return scanAccount(s.db.QueryRowContext(ctx, accountSelect+` WHERE a.subject = ?`, subject))
@@ -1017,25 +1008,6 @@ func (s *Store) ForgetSealed(ctx context.Context) (pins, logins int64, err error
 type Linked struct {
 	ProfileID      string
 	JellyfinUserID string
-}
-
-// LinkedProfiles lists the profiles whose Jellyfin user keeps its own name.
-// Users Overfin created or moved all have opaque "of-" names.
-func (s *Store) LinkedProfiles(ctx context.Context) ([]Linked, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, jellyfin_user_id FROM profiles WHERE jellyfin_username NOT LIKE 'of-%'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Linked
-	for rows.Next() {
-		var l Linked
-		if err := rows.Scan(&l.ProfileID, &l.JellyfinUserID); err != nil {
-			return nil, err
-		}
-		out = append(out, l)
-	}
-	return out, rows.Err()
 }
 
 // SetJellyfinUser records a profile's Jellyfin user's new name and token,

@@ -52,7 +52,7 @@ func registerModules() error {
 			if !moduleName.MatchString(s.Key) {
 				return fmt.Errorf("module %s: setting %q: lowercase letters, digits and dashes only", info.Name, s.Key)
 			}
-			cs := config.Setting{Key: s.Key, Label: s.Label, Hint: s.Hint}
+			cs := config.Setting{Key: s.Key, Label: s.Label, Hint: s.Hint, Text: s.Text}
 			for _, c := range s.Choices {
 				cs.Choices = append(cs.Choices, config.Choice{Value: c.Value, Label: c.Label})
 			}

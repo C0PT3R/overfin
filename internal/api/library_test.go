@@ -413,8 +413,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger}
 	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
 	// The watchlist and migration modules, mounted as the real program
-	// mounts them, each with a database of its own; migration brings
-	// accounts over in "move" mode.
+	// mounts them, each with a database of its own; migration copies
+	// histories from another server.
 	dbs := map[string]*sql.DB{}
 	moduleDB := func(m feature.Feature) *sql.DB {
 		db, err := store.OpenModule(context.Background(), m.Info().Name,
@@ -429,7 +429,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	all := append([]feature.Feature{watchlist.Feature{}, migration.Feature{}}, o.modules...)
 	mounts := []api.Mount{
 		{Module: watchlist.Feature{}, Library: lib, DB: moduleDB(watchlist.Feature{}), Logger: logger},
-		{Module: migration.Feature{}, Library: lib, DB: moduleDB(migration.Feature{}), Logger: logger, Settings: map[string]string{"mode": "move"}},
+		{Module: migration.Feature{}, Library: lib, DB: moduleDB(migration.Feature{}), Logger: logger, Settings: map[string]string{"from": otherServer(t)}},
 	}
 	for _, m := range o.modules {
 		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: moduleDB(m), Logger: logger,
@@ -1016,4 +1016,38 @@ func (f testForgetter) ForgetAccount(ctx context.Context, id string) {
 			mf.ForgetAccount(ctx, f.dbs[m.Info().Name], id)
 		}
 	}
+}
+
+// otherServer is the Jellyfin server a site replaces, for migration: its
+// user "old" (password "pw") watched one film, Fight Club; "boss" too, an
+// administrator. Its address is returned.
+func otherServer(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/System/Info/Public":
+			json.NewEncoder(w).Encode(map[string]any{"Version": "10.11.0", "Id": "the-old-server", "StartupWizardCompleted": true})
+		case "/Users/AuthenticateByName":
+			var in struct{ Username, Pw string }
+			json.NewDecoder(r.Body).Decode(&in)
+			ids := map[string]string{"old": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "old2": "cccccccccccccccccccccccccccccccc"}
+			if ids[in.Username] == "" || in.Pw != "pw" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"AccessToken": "old-token", "User": map[string]string{"Id": ids[in.Username]}})
+		case "/Items":
+			if r.URL.Query().Get("isPlayed") != "true" {
+				json.NewEncoder(w).Encode(map[string]any{"Items": []any{}})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"Items": []any{map[string]any{"Id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Type": "Movie",
+				"Name": "Fight Club", "ProviderIds": map[string]string{"Tmdb": "550"}, "UserData": map[string]any{"Played": true, "PlayCount": 1}}}})
+		case "/Sessions/Logout":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }

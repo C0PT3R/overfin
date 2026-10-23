@@ -83,11 +83,8 @@ type Host interface {
 	// only signed-in admins reach it.
 	HandleAdmin(pattern string, h http.HandlerFunc) error
 	// Setting is the current value of one of the module's settings: the
-	// chosen value, or "on" or "off" for a switch.
+	// chosen value, "on" or "off" for a switch, or the text.
 	Setting(key string) string
-	// Adoption is the media backend's side of bringing existing accounts
-	// over, or nil when it can't.
-	Adoption() Adoption
 	// Templates lists the account templates, Default first.
 	Templates(ctx context.Context) ([]AccountTemplate, error)
 	// SiteURL is the site's address, e.g. "https://example.org", for links

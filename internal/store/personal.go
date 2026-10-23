@@ -401,3 +401,23 @@ func (s *Store) ClearPersonal(ctx context.Context, profileID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM profile_titles WHERE profile_id = ?`, profileID)
 	return err
 }
+
+// CopiedInto is the Overfin account a user of another Jellyfin server had
+// their history copied into; "" if none.
+func (s *Store) CopiedInto(ctx context.Context, serverID, userID string) (string, error) {
+	var account string
+	err := s.db.QueryRowContext(ctx, `SELECT account_id FROM history_copies WHERE server_id = ? AND user_id = ?`,
+		serverID, userID).Scan(&account)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return account, err
+}
+
+// RecordCopy notes that a user of another Jellyfin server had their
+// history copied into account.
+func (s *Store) RecordCopy(ctx context.Context, serverID, userID, account string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO history_copies (server_id, user_id, account_id, copied_at)
+		VALUES (?, ?, ?, ?)`, serverID, userID, account, time.Now().Unix())
+	return err
+}

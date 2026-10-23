@@ -1,53 +1,36 @@
-// Package migration is the migration module: people bring their account and
-// its history over from the media server they used before, with its
-// username and password, once. Each old account becomes a new account with
-// its owner profile alone; Jellyfin and Emby have no profiles to bring.
-//
-// Accounts are moved (their old login stops working at once) or linked
-// (their old login keeps working, for a transition, until the operator
-// moves them all from the module's control panel tab).
+// Package migration is the migration module: people bring the history of
+// their account on another Jellyfin server, the one this site replaces,
+// with its username and password, once. It's a copy: their new account
+// gets what they watched, where they stopped and their favorites, and
+// nothing changes on that server (SECURITY.md rule 60).
 package migration
 
 import (
-	"embed"
 	"encoding/json"
-	"io/fs"
 	"net/http"
 
+	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/feature"
 )
 
-//go:embed ui/panel.js
-var files embed.FS
-
-// Module is the migration module.
+// Feature is the migration module.
 type Feature struct{}
 
 func (Feature) Info() feature.Info {
-	ui, _ := fs.Sub(files, "ui")
 	return feature.Info{
 		Name:        "migration",
-		Description: "People bring their previous account and its history, with its username and password",
+		Description: "People bring their history from your other Jellyfin server, with their username and password there. Nothing changes on that server.",
 		Settings: []feature.Setting{{
-			Key:   "mode",
-			Label: "When an account is brought",
-			Choices: []feature.Choice{
-				{Value: "move", Label: "Move it (old login stops working)"},
-				{Value: "link", Label: "Link it (old login keeps working)"},
-			},
+			Key:   "from",
+			Label: "The other server's address",
+			Hint:  "As Overfin reaches it, such as http://192.168.1.10:8096. Nothing is offered without it.",
+			Text:  true,
 		}},
-		AdminUI: ui,
 	}
 }
 
 func (Feature) Setup(h feature.Host) error {
-	a := h.Adoption()
-	if a == nil {
-		h.Logger().Warn("the media backend can't bring existing accounts over; nothing to offer")
-		return nil
-	}
-	keepLogin := h.Setting("mode") == "link"
-	if err := h.HandleVisitor("POST /api/v1/me/claim", func(v feature.Visitor, w http.ResponseWriter, r *http.Request) {
+	return h.HandleVisitor("POST /api/v1/me/claim", func(v feature.Visitor, w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
@@ -58,40 +41,25 @@ func (Feature) Setup(h feature.Host) error {
 			feature.Problem(w, feature.InvalidRequest, "")
 			return
 		}
-		v.Adopt(w, req.Username, req.Password, keepLogin)
-	}); err != nil {
-		return err
-	}
-	if err := h.HandleAdmin("GET /linked", func(w http.ResponseWriter, r *http.Request) {
-		n, err := a.Linked(r.Context())
-		if err != nil {
-			h.Logger().Error("counting linked accounts failed", "err", err)
-			feature.Problem(w, feature.Internal, "")
+		from, ok := source(h)
+		if !ok {
+			feature.Problem(w, feature.NotFound, "")
 			return
 		}
-		feature.JSON(w, map[string]any{"linked": n, "mode": h.Setting("mode")})
-	}); err != nil {
-		return err
-	}
-	return h.HandleAdmin("POST /linked/move", func(w http.ResponseWriter, r *http.Request) {
-		moved, err := a.MoveLinked(r.Context())
-		left, lerr := a.Linked(r.Context())
-		if lerr != nil {
-			h.Logger().Error("counting linked accounts failed", "err", lerr)
-			feature.Problem(w, feature.Internal, "")
-			return
-		}
-		if err != nil {
-			h.Logger().Error("moving linked accounts failed", "err", err)
-		}
-		feature.JSON(w, map[string]int{"moved": moved, "linked": left})
+		v.Copy(w, from, req.Username, req.Password)
 	})
 }
 
-// Offer tells visitors they can bring their account, and how it's brought.
+// source is the other server's address, when it's a usable one.
+func source(h feature.Host) (string, bool) {
+	from := h.Setting("from")
+	return from, from != "" && config.CheckJellyfinURL(from) == nil
+}
+
+// Offer: bringing a history, once the other server is named.
 func (Feature) Offer(h feature.Host) (name, value string, ok bool) {
-	if h.Adoption() == nil {
+	if _, ok := source(h); !ok {
 		return "", "", false
 	}
-	return "claim", h.Setting("mode"), true
+	return "claim", "copy", true
 }
