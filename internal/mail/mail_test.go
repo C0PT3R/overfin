@@ -2,6 +2,7 @@ package mail
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"net"
 	"net/mail"
@@ -98,8 +99,32 @@ func TestRefusesBadInput(t *testing.T) {
 		}
 	}
 	a := &mail.Address{Address: "a@example.org"}
-	if _, err := message(a, a, "two\r\nlines", "b"); err == nil {
+	if _, err := message(a, a, Message{Subject: "two\r\nlines", Text: "b"}); err == nil {
 		t.Error("a subject with a line break")
 	}
+	for _, img := range []Image{{ID: "x>\r\nBcc: e@f.org", ContentType: "image/png"}, {ID: "logo", ContentType: "text/html"}} {
+		if _, err := message(a, a, Message{Subject: "s", Text: "b", HTML: "<p>b</p>", Images: []Image{img}}); err == nil {
+			t.Errorf("image %+v taken", img)
+		}
+	}
+}
 
+// An HTML email: text and HTML as alternatives, the HTML with its image.
+func TestHTML(t *testing.T) {
+	port, got := fakeSMTP(t)
+	s := &Sender{Host: "127.0.0.1", Port: port, TLS: "none", From: "Movies <noreply@example.org>"}
+	err := s.SendMessage(context.Background(), "someone@example.org", Message{Subject: "Votre code de connexion",
+		Text: "Votre code : 123456", HTML: `<p><img src="cid:banner"> Votre code : <b>123456</b></p>`,
+		Images: []Image{{ID: "banner", ContentType: "image/png", Data: bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 40)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := <-got
+	for _, want := range []string{"Content-Type: multipart/alternative; boundary=", "Content-Type: text/plain; charset=utf-8",
+		"Votre code : 123456", "Content-Type: multipart/related; boundary=", "Content-Type: text/html; charset=utf-8",
+		"cid:banner", "Content-ID: <banner>", "Content-Type: image/png", "Content-Transfer-Encoding: base64"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in:\n%s", want, all)
+		}
+	}
 }

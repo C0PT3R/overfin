@@ -49,3 +49,10 @@ func TestHandler(t *testing.T) {
 		t.Errorf("revalidated: %d", rec.Code)
 	}
 }
+
+func TestColors(t *testing.T) {
+	dark, light := Colors(false), Colors(true)
+	if dark["bg"] != "#0c0d11" || light["bg"] != "#f4f5f8" || light["text"] != "#1b1e25" || dark["accent"] != "#6aa8ff" {
+		t.Errorf("dark %v, light %v", dark, light)
+	}
+}

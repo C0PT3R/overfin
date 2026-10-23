@@ -27,6 +27,7 @@ import (
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/emails"
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/images"
@@ -380,7 +381,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	var managed *api.Managed
 	if o.managed {
 		managed = &api.Managed{Sessions: sessions, Store: st, Provisioner: prov, CodeKey: []byte("code-key"),
-			SiteURL: "https://media.example.org", LoginLifetime: time.Hour, FreshFor: cmp.Or(o.freshFor, 5*time.Minute), Logger: logger}
+			SiteURL: "https://media.example.org", LoginLifetime: time.Hour, FreshFor: cmp.Or(o.freshFor, 5*time.Minute), Logger: logger,
+			Emails: &emails.Writer{Store: st, Logger: logger}}
 		if box := o.mailbox; box != nil {
 			managed.Mail = func() api.Mailer { return box }
 		}

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/emails"
 	"github.com/overfin/server/internal/gpu"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/images"
@@ -66,6 +68,8 @@ type shared struct {
 	seerr    *seerr.Client
 	seerrURL string
 	seerrKey string
+	// emails writes Overfin's emails, from its templates or the operator's.
+	emails *emails.Writer
 	// tmdb is TMDB itself, with the operator's token: TMDB's data comes
 	// from it first, from Seerr otherwise.
 	tmdb *tmdb.Client
@@ -191,8 +195,8 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	var managed *api.Managed
 	if cfg.Identity.Mode == "managed" {
 		managed = &api.Managed{Sessions: sessions, Store: db, Provisioner: prov, CodeKey: k.SigninCode,
-			Mail: sh.mailer, SiteURL: siteURL(cfg), LoginLifetime: 30 * 24 * time.Hour, FreshFor: 5 * time.Minute,
-			Logger: logger}
+			Mail: sh.mailer, Emails: sh.emails, SiteURL: siteURL(cfg), LoginLifetime: 30 * 24 * time.Hour,
+			FreshFor: 5 * time.Minute, Logger: logger}
 		sessions.StepUpURL, sessions.FreshFor, sessions.SignIn = api.StepUpPath, managed.FreshFor, managed
 		signIn = append(signIn, managed)
 		identityMiddleware = func(h http.Handler) http.Handler { return ids.Middleware(managed.Middleware(h)) }
@@ -965,6 +969,43 @@ func (g *gateway) Mail() (m config.Mail, hasPassword, inFile bool) {
 // through; an empty host turns emails off. An empty password keeps the
 // current one, for the same server and username. Errors say what's wrong in
 // plain words.
+// MailTemplates lists Overfin's emails, with whose templates write them
+// in the default language.
+func (g *gateway) MailTemplates() ([]admin.MailTemplate, string) {
+	_, lang, _, _ := g.sh.db.Languages(context.Background())
+	var out []admin.MailTemplate
+	for _, name := range emails.Names {
+		out = append(out, admin.MailTemplate{Name: name,
+			HTML: g.sh.emails.Origin(name, ".html", lang), Text: g.sh.emails.Origin(name, ".txt", lang)})
+	}
+	return out, g.sh.emails.Dir
+}
+
+// SendSample sends one of Overfin's emails to an address, in the default
+// language, with a made-up code.
+func (g *gateway) SendSample(ctx context.Context, name, to string) error {
+	if !slices.Contains(emails.Names, name) {
+		return problem("There's no such email.")
+	}
+	s := g.sh.mail.Load()
+	if s == nil {
+		return problem("Email is off: set it up first.")
+	}
+	_, lang, _, _ := g.sh.db.Languages(ctx)
+	v := emails.Vars{Code: "123456", Minutes: 15}
+	if url := siteURL(g.cfg); url != "" {
+		v.Link = strings.TrimSuffix(url, "/") + api.SigninPath + "#link=sample"
+	}
+	msg, err := g.sh.emails.Write(ctx, name, lang, v)
+	if err != nil {
+		return err
+	}
+	if err := s.SendMessage(ctx, to, msg); err != nil {
+		return problemf("It didn't go through: %v", err)
+	}
+	return nil
+}
+
 func (g *gateway) SetMail(ctx context.Context, m config.Mail, password, testTo string) (string, error) {
 	// One change at a time, apart from the gateway's lock: a test email
 	// can take a while.
@@ -996,8 +1037,12 @@ func (g *gateway) SetMail(ctx context.Context, m config.Mail, password, testTo s
 		return "", problem("With a username, the SMTP server's password is needed too.")
 	}
 	s := senderFor(m, password, g.sh.db)
-	if err := s.Send(ctx, testTo, "Overfin can send emails",
-		"This test comes from Overfin's control panel: sign-in codes will arrive like it.\n"); err != nil {
+	_, lang, _, _ := g.sh.db.Languages(ctx)
+	msg, err := g.sh.emails.Write(ctx, "test", lang, emails.Vars{})
+	if err != nil {
+		return "", err
+	}
+	if err := s.SendMessage(ctx, testTo, msg); err != nil {
 		return "", problemf("A test email to %s didn't go through, so nothing changed: %v", testTo, err)
 	}
 	raw, err := json.Marshal(m)

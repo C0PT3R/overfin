@@ -8,6 +8,8 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"net/http"
+	"regexp"
+	"strings"
 )
 
 //go:embed theme.css
@@ -39,3 +41,21 @@ func Handler() http.Handler {
 		_, _ = w.Write(CSS)
 	})
 }
+
+// Colors are the theme's values, dark or light, by name ("bg", "text",
+// "accent"…), for what can't load the stylesheet: emails, written inline.
+func Colors(light bool) map[string]string {
+	css := string(CSS)
+	block := css[strings.Index(css, ":root {"):]
+	if light {
+		block = css[strings.Index(css, `:root[data-theme="light"] {`):]
+	}
+	block = block[:strings.Index(block, "}")]
+	out := map[string]string{}
+	for _, m := range token.FindAllStringSubmatch(block, -1) {
+		out[m[1]] = strings.TrimSpace(m[2])
+	}
+	return out
+}
+
+var token = regexp.MustCompile(`--([a-z0-9-]+):\s*([^;]+);`)

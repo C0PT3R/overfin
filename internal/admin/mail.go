@@ -18,12 +18,42 @@ type Mail interface {
 	// an empty host turns email off. Its error says what's wrong in plain
 	// words.
 	SetMail(ctx context.Context, m config.Mail, password, testTo string) (string, error)
+	// MailTemplates lists Overfin's emails with whose templates write
+	// them, in the default language, and the folder the operator's go in.
+	MailTemplates() (list []MailTemplate, dir string)
+	// SendSample sends one of them to an address, with a made-up code.
+	SendSample(ctx context.Context, name, to string) error
+}
+
+// MailTemplate is one of Overfin's emails: whose templates write it, ""
+// for Overfin's, else the operator's file's name.
+type MailTemplate struct {
+	Name string `json:"name"`
+	HTML string `json:"html"`
+	Text string `json:"text"`
 }
 
 type mailJSON struct {
 	config.Mail
 	HasPassword bool `json:"hasPassword"`
 	InFile      bool `json:"inFile"`
+}
+
+func (p *Panel) mailTemplates(w http.ResponseWriter, r *http.Request, _ *session) {
+	list, dir := p.Mail.MailTemplates()
+	writeJSON(w, http.StatusOK, map[string]any{"emails": list, "dir": dir})
+}
+
+// sendSample sends one email to the admin asking, as people get it.
+func (p *Panel) sendSample(w http.ResponseWriter, r *http.Request, s *session) {
+	if !decode(w, r, &struct{}{}) {
+		return
+	}
+	if err := p.Mail.SendSample(r.Context(), r.PathValue("name"), s.name); err != nil {
+		invalid(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"summary": "Sent to " + s.name + "."})
 }
 
 func (p *Panel) mail(w http.ResponseWriter, r *http.Request, _ *session) {

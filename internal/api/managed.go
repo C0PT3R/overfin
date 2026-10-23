@@ -21,8 +21,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/overfin/server/internal/cookie"
+	"github.com/overfin/server/internal/emails"
 	"github.com/overfin/server/internal/identity"
-	"github.com/overfin/server/internal/lang"
+	ofmail "github.com/overfin/server/internal/mail"
 	"github.com/overfin/server/internal/password"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -30,6 +31,9 @@ import (
 	"github.com/overfin/server/internal/store"
 	"github.com/overfin/server/internal/theme"
 )
+
+// SigninPath is the sign-in page: emails' links lead there.
+const SigninPath = signinPath
 
 const (
 	signinPath     = "/api/v1/signin"
@@ -84,6 +88,8 @@ type Managed struct {
 	// Mail is the SMTP server codes go through; nil (or a nil result)
 	// when there's none, and then people sign in with a password only.
 	Mail func() Mailer
+	// Emails writes the codes' emails.
+	Emails *emails.Writer
 	// SiteURL, when set, is the site's public address: emails then carry
 	// a link besides the code.
 	SiteURL string
@@ -457,8 +463,11 @@ func (m *Managed) start(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 			// In the account's language, looked up here too: in the
 			// background.
-			subject, body := m.codeEmail(m.mailLang(ctx, req.Email, browser), purpose, code, link)
-			if err := sender.Send(ctx, req.Email, subject, body); err != nil {
+			msg, err := m.codeEmail(ctx, m.mailLang(ctx, req.Email, browser), purpose, code, link)
+			if err == nil {
+				err = sender.SendMessage(ctx, req.Email, msg)
+			}
+			if err != nil {
 				m.Logger.Error("sending a sign-in code failed", "err", err)
 			}
 		}()
@@ -698,9 +707,9 @@ func cleanEmail(s string) (string, bool) {
 	return s, true
 }
 
-// Mailer sends one plain-text email (mail.Sender).
+// Mailer sends one email (mail.Sender).
 type Mailer interface {
-	Send(ctx context.Context, to, subject, body string) error
+	SendMessage(ctx context.Context, to string, m ofmail.Message) error
 }
 
 func (m *Managed) mailer() Mailer {
@@ -739,19 +748,16 @@ func (m *Managed) hash(kind string, parts ...string) []byte {
 
 // codeEmail is the email carrying a code, and its link when the site's
 // address is known.
-func (m *Managed) codeEmail(lang, purpose, code, link string) (subject, body string) {
-	t := signinTexts[lang]
-	// Never the code itself: subjects show in notifications and lists.
-	subject = t["mailSubject"]
+func (m *Managed) codeEmail(ctx context.Context, lang, purpose, code, link string) (ofmail.Message, error) {
+	name := "signin"
 	if purpose == "fresh" {
-		subject = t["mailSubjectFresh"]
+		name = "confirm"
 	}
-	body = fmt.Sprintf(t["mailCode"], code) + "\n\n"
+	v := emails.Vars{Code: code, Minutes: int(codeFor.Minutes())}
 	if m.SiteURL != "" {
-		body += t["mailLink"] + "\n" + strings.TrimSuffix(m.SiteURL, "/") + signinPath + "#link=" + link + "\n\n"
+		v.Link = strings.TrimSuffix(m.SiteURL, "/") + signinPath + "#link=" + link
 	}
-	body += fmt.Sprintf(t["mailEnd"], int(codeFor.Minutes())) + "\n"
-	return subject, body
+	return m.Emails.Write(ctx, name, lang, v)
 }
 
 // SigninLink makes a sign-in link for someone an admin hands it to: it
@@ -810,7 +816,7 @@ func admit(w http.ResponseWriter, r *http.Request, prov *provision.Provisioner, 
 }
 
 // mailLang is the language of an email to someone: their account's when
-// they have one and the emails exist in it, else the browser's.
+// they have one, else the browser's.
 func (m *Managed) mailLang(ctx context.Context, email, browser string) string {
 	u, err := m.Store.UserByEmail(ctx, email)
 	if err != nil {
@@ -821,13 +827,10 @@ func (m *Managed) mailLang(ctx context.Context, email, browser string) string {
 		return browser
 	}
 	tag, err := m.Store.LanguageOf(ctx, acct)
-	if err != nil {
+	if err != nil || tag == "" {
 		return browser
 	}
-	if base := lang.Base(tag); signinTexts[base] != nil {
-		return base
-	}
-	return browser
+	return tag
 }
 
 // pageLang is the visitor's language among the page's: the first of

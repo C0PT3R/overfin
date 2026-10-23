@@ -1,0 +1,14 @@
+{{define "subject"}}{{t "signin.subject"}}{{end}}
+{{define "content" -}}
+{{t "signin.intro"}}
+
+{{.Code}}
+{{- if .Link}}
+
+{{t "signin.linkText"}}
+{{.Link}}
+{{- end}}
+
+{{t "signin.expires"}}
+{{- end}}
+{{define "why"}}{{t "signin.why"}}{{end}}

@@ -16,6 +16,7 @@ import (
 	"github.com/overfin/server/internal/api"
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/invites"
+	"github.com/overfin/server/internal/mail"
 	"github.com/overfin/server/internal/password"
 	"github.com/overfin/server/internal/store"
 )
@@ -26,12 +27,12 @@ type mailbox struct {
 	sent []email
 }
 
-type email struct{ to, subject, body string }
+type email struct{ to, subject, body, html string }
 
-func (b *mailbox) Send(_ context.Context, to, subject, body string) error {
+func (b *mailbox) SendMessage(_ context.Context, to string, m mail.Message) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.sent = append(b.sent, email{to, subject, body})
+	b.sent = append(b.sent, email{to, m.Subject, m.Text, m.HTML})
 	return nil
 }
 

@@ -315,7 +315,7 @@ async function brandingView() {
       draw();
     }, (err) => st.set(err.message, 'error')) }, 'Save');
     const main = card({ title: 'Your branding', badge: b.on ? badge('On', 'ok') : badge('Overfin\'s', 'plain'),
-      description: 'On, your site shows your name, logo and banner instead of Overfin\'s: the site, its sign-in page, emails\' sender. It then says "Powered by Overfin", discreetly. The control panel stays Overfin\'s.' },
+      description: 'On, your site shows your name, logo and banner instead of Overfin\'s: the site, its sign-in page, its emails. It then says "Powered by Overfin", discreetly. The control panel stays Overfin\'s.' },
     [setting('Use your own branding', 'Off, everything shows Overfin\'s, and your files stay here unused.', on),
       setting('Name', 'Your site\'s name: in browser tabs, and as the sender of its emails.', name)],
     [st, save]);
@@ -323,12 +323,12 @@ async function brandingView() {
     const fileRows = brandingKinds.map(([kind, label, hint]) => {
       const rst = status('');
       const url = b.files[kind];
-      const picker = h('input', { type: 'file', accept: 'image/*', hidden: true });
+      const picker = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true });
       const upload = h('button', { type: 'button', onclick: () => picker.click() }, url ? 'Replace…' : 'Upload…');
       picker.addEventListener('change', () => busy(upload, async () => {
         const file = picker.files[0];
         if (!file) return;
-        const type = file.type || (file.name.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : '');
+        const type = file.type || 'image/png';
         const res = await fetch(`/admin/api/branding/files/${kind}`, { method: 'PUT', headers: { 'Content-Type': type }, body: file });
         const out = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(out.detail || (res.status === 415 ? 'That isn\'t an image.' : `HTTP ${res.status}`));
@@ -347,7 +347,7 @@ async function brandingView() {
         h('div', {}, h('div', { class: 'label' }, label), h('div', { class: 'hint' }, hint), rst),
         preview, h('div', { class: 'row' }, picker, upload, remove));
     });
-    const files = card({ title: 'Files', description: 'Kept as you upload them: SVG, PNG, WebP… 4 MB at most each.' }, fileRows);
+    const files = card({ title: 'Files', description: 'Kept as you upload them: PNG works everywhere, emails included (JPEG too; not SVG, which emails can\'t show). 4 MB at most each.' }, fileRows);
 
     // The site's header, as people will see it, on dark and light pages.
     const banner = (light) => {
@@ -367,7 +367,7 @@ async function brandingView() {
 
 // serverView: what Overfin connects to, each part tested before it's saved.
 async function serverView() {
-  const [jellyfin, transcoding, mail, catalog, seerr, ratings, languages, skipper] = await Promise.all([
+  const [jellyfin, transcoding, mail, catalog, seerr, ratings, languages, skipper, templates] = await Promise.all([
     api('GET', '/admin/api/jellyfin').catch(() => null),
     api('GET', '/admin/api/transcoding').catch(() => null),
     api('GET', '/admin/api/mail').catch(() => null),
@@ -376,9 +376,10 @@ async function serverView() {
     api('GET', '/admin/api/ratings').catch(() => null),
     api('GET', '/admin/api/languages').catch(() => null),
     api('GET', '/admin/api/intro-skipper').catch(() => null),
+    api('GET', '/admin/api/mail/templates').catch(() => null),
   ]);
   show(pageHead('Server', 'What Overfin connects to. Every change is tested before it\'s saved, and applies at once.'),
-    h('div', { class: 'cards' }, jellyfinCard(jellyfin), transcodingCard(transcoding), catalogCard(catalog), mailCard(mail), seerrCard(seerr), languagesCard(languages), tmdbCard(ratings), introSkipperCard(skipper)));
+    h('div', { class: 'cards' }, jellyfinCard(jellyfin), transcodingCard(transcoding), catalogCard(catalog), mailCard(mail), emailsCard(templates, mail), seerrCard(seerr), languagesCard(languages), tmdbCard(ratings), introSkipperCard(skipper)));
 }
 
 // introSkipperCard: Intro Skipper on Overfin's Jellyfin, installed from
@@ -616,6 +617,26 @@ function mailCard(m) {
     field('Username', username, 'Often the sender\'s address.'),
     field('Password', password, m.hasPassword ? 'Empty keeps the current one.' : null)),
   [st, off, save]);
+}
+
+// emailsCard: Overfin's emails, whose templates write each, and a sample
+// of each sent to the admin.
+const emailNames = { signin: 'Sign-in code', confirm: 'Confirmation code', test: 'Test' };
+function emailsCard(t, m) {
+  if (!t) return null;
+  const st = status('');
+  const on = Boolean(m && m.host);
+  const rows = t.emails.map((e) => {
+    const yours = [e.html, e.text].filter(Boolean);
+    const send = h('button', { type: 'button', disabled: !on, onclick: () => busy(send, async () => {
+      const out = await api('POST', `/admin/api/mail/templates/${e.name}/test`, {});
+      st.set(out.summary, 'ok');
+    }, (err) => st.set(err.message, 'error')) }, 'Send me this one');
+    return setting(emailNames[e.name] || e.name, yours.length ? yours.join(', ') : null,
+      h('div', { class: 'row' }, yours.length ? badge('Yours', 'info') : badge('Overfin\'s', 'plain'), send));
+  });
+  return card({ title: 'Emails', description: `What people get, in their language. Overfin's own, or yours: put templates of the same names in ${t.dir} (README.md, Emails, says how).` },
+    rows, [st]);
 }
 
 function seerrCard(sr) {

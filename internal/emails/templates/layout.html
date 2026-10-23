@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{{.Subject}}</title>
+</head>
+<body style="margin:0; padding:0; background:{{index .Light "bg"}};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{{index .Light "bg"}};">
+<tr><td align="center" style="padding:24px 12px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px; background:{{index .Light "panel"}}; border:1px solid {{index .Light "border"}}; border-radius:12px; font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:{{index .Light "text"}};">
+    <tr><td style="background:{{index .Dark "bg"}}; padding:18px 24px; border-radius:12px 12px 0 0;">
+      {{- if .Banner}}<img src="cid:banner" alt="{{.Site}}" width="{{.Banner.Width}}" height="{{.Banner.Height}}" style="display:block; border:0;">
+      {{- else}}<span style="color:{{index .Dark "text"}}; font-size:20px; font-weight:800;">{{.Site}}</span>{{end -}}
+    </td></tr>
+    <tr><td style="padding:28px 24px 8px; font-size:16px; line-height:1.5;">{{template "content" .}}</td></tr>
+    <tr><td style="padding:16px 24px 24px; font-size:13px; line-height:1.5; color:{{index .Light "muted"}};">{{template "why" .}}</td></tr>
+  </table>
+  {{- if .Custom}}
+  <p style="margin:16px 0 0; font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; color:{{index .Light "muted"}};">{{t "poweredBy"}}&nbsp; <img src="cid:overfin" alt="Overfin" width="{{.Overfin.Width}}" height="{{.Overfin.Height}}" style="vertical-align:middle; border:0;"></p>
+  {{- end}}
+</td></tr>
+</table>
+</body>
+</html>

@@ -1,0 +1,3 @@
+{{define "subject"}}{{t "test.subject"}}{{end}}
+{{define "content"}}{{t "test.intro"}}{{end}}
+{{define "why"}}{{t "test.why"}}{{end}}

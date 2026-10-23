@@ -16,8 +16,8 @@ import (
 )
 
 // The operator's branding: a switch, their site's name, and their logo and
-// banners, uploaded as they are. The control panel itself always stays
-// Overfin's.
+// banners, uploaded as they are, any picture but SVG (emails can't show
+// it). The control panel itself always stays Overfin's.
 
 // brandingFiles is where branding files are uploaded, shown and removed:
 // /admin/api/branding/files/{kind}.
@@ -123,6 +123,10 @@ func (p *Panel) uploadBrandingFile(w http.ResponseWriter, r *http.Request, s *se
 	case len(data) == 0:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "That file is empty."})
 		return
+	case mt == "image/svg+xml" || isSVG(data):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request",
+			"detail": "SVG isn't taken: emails can't show it. Use a PNG."})
+		return
 	}
 	if err := p.Store.SetBrandingFile(r.Context(), kind, mt, data, time.Now()); err != nil {
 		p.fail(w, "saving a branding file", err)
@@ -130,6 +134,12 @@ func (p *Panel) uploadBrandingFile(w http.ResponseWriter, r *http.Request, s *se
 	}
 	p.Logger.Info("a branding file was uploaded in the control panel", "kind", kind, "type", mt, "bytes", len(data), "by", s.name)
 	p.branding(w, r, s)
+}
+
+// isSVG says whether a file is an SVG, whatever type it was sent as.
+func isSVG(data []byte) bool {
+	head := strings.ToLower(string(data[:min(len(data), 512)]))
+	return strings.Contains(head, "<svg")
 }
 
 // brandingFile shows a file here, for the page's previews.

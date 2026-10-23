@@ -115,7 +115,7 @@ The main gaps (details in [ROADMAP.md](ROADMAP.md)):
 
 - TV and phone apps, and a sign-in for native apps.
 - A live view of who's watching.
-- Email notices (sign-in codes are there).
+- Emails beyond sign-in (sign-in and confirmation codes are there).
 - SDKs other than JavaScript.
 
 The API specification also describes endpoints that aren't served yet; they
@@ -319,6 +319,38 @@ admin group there, and invitation links lead to a one-person sign-up link
 (Pocket ID needs `ALLOW_USER_SIGNUPS=withToken`). With Authentik
 (`kind = "authentik"`), set it to an Authentik token of intent **API Token**
 (not an app password), for a user allowed only to **view users**.
+
+### Your brand, and your emails
+
+**Branding** (control panel, Server, Branding) puts your site's name, logo
+and banner in place of Overfin's: on the site, its sign-in page and its
+emails. They're kept as you upload them, PNG or JPEG (not SVG, which emails
+can't show); a banner for light pages is optional. With your brand, the
+site and emails say "Powered by Overfin", discreetly. The control panel
+stays Overfin's.
+
+**Emails** are Overfin's own, in each person's language (sign-in codes,
+confirmation codes, the panel's test), in HTML and plain text, with your
+brand when it's on. To write your own, put templates with the same names
+in `mail-templates/`, next to the database (`/data/mail-templates/` with
+Docker): any file there replaces Overfin's, and the rest stay Overfin's.
+Overfin's are the place to start, at the release you run:
+[internal/emails/templates](internal/emails/templates).
+
+- `layout.html` and `layout.txt` frame every email; `signin`, `confirm`
+  and `test` are each email's own (`.html` and `.txt`). The subject is the
+  `.txt` file's `subject` block.
+- `signin.html` replaces it in every language; `signin.fr.html`, in
+  French only; `signin.fr-CA.html`, in Canadian French only. Your own
+  templates' languages are yours to cover.
+- Templates are Go templates, with `.Site`, `.Lang`, `.Code`, `.Link`,
+  `.Minutes`, `.Custom` (your brand is on), `.Banner` (`cid:banner`),
+  `.Light` and `.Dark` (the theme's colors, such as `index .Light "accent"`),
+  and `t` for Overfin's sentences in the reader's language
+  (`{{t "signin.intro"}}`).
+- They're read for every email: no restart. One that fails is reported in
+  the log, and Overfin's is used instead. The panel's Emails card says
+  whose each one is, and sends you a sample.
 
 ### Moving people over from Jellyfin
 

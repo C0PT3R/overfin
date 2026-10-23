@@ -30,6 +30,7 @@ import (
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
 	"github.com/overfin/server/internal/cookie"
+	"github.com/overfin/server/internal/emails"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/introskipper"
 	"github.com/overfin/server/internal/jellyfin"
@@ -539,7 +540,9 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 	sh := &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
 		images: art, tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache(),
 		searches: &api.SearchLimiter{PerMinute: 30}, requested: &api.SeerrRequested{Logger: logger},
-		service: &provision.Service{}}
+		service: &provision.Service{},
+		// Emails, with the operator's own templates next to the database.
+		emails: &emails.Writer{Dir: filepath.Join(filepath.Dir(cfg.Storage.Path), "mail-templates"), Store: db, Logger: logger}}
 	if cn := cfg.Connector; cn.Enabled() {
 		sh.directory = &connector.Cache{Directory: connector.New(cn.Kind, cn.URL, cfg.Secrets.ConnectorToken, oidc.NewClient(cn.Dial))}
 	}

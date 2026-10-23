@@ -43,11 +43,18 @@ func TestBranding(t *testing.T) {
 	if rec := upload(brandingFiles+"other", "image/svg+xml", svg); rec.Code != 404 {
 		t.Errorf("unknown kind: %d", rec.Code)
 	}
-	if rec := upload(brandingFiles+"banner-dark", "image/svg+xml", svg); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"banner-dark":"/admin/api/branding/files/banner-dark?v=`) {
+	// No SVG, whatever type it comes as: emails can't show it.
+	for _, ct := range []string{"image/svg+xml", "image/png"} {
+		if rec := upload(brandingFiles+"banner-dark", ct, svg); rec.Code != 400 || !strings.Contains(rec.Body.String(), "SVG") {
+			t.Errorf("SVG as %s: %d %s", ct, rec.Code, rec.Body)
+		}
+	}
+	png := "\x89PNG\r\n\x1a\n" + strings.Repeat("x", 64)
+	if rec := upload(brandingFiles+"banner-dark", "image/png", png); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"banner-dark":"/admin/api/branding/files/banner-dark?v=`) {
 		t.Fatalf("upload: %d %s", rec.Code, rec.Body)
 	}
 	rec := b.do("GET", brandingFiles+"banner-dark", "", nil)
-	if rec.Code != 200 || rec.Body.String() != svg || rec.Header().Get("Content-Type") != "image/svg+xml" ||
+	if rec.Code != 200 || rec.Body.String() != png || rec.Header().Get("Content-Type") != "image/png" ||
 		!strings.Contains(rec.Header().Get("Content-Security-Policy"), "sandbox") {
 		t.Errorf("shown: %d %v", rec.Code, rec.Header())
 	}

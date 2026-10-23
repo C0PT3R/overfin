@@ -1,0 +1,9 @@
+{{define "content" -}}
+<p style="margin:0 0 16px;">{{t "confirm.intro"}}</p>
+<p style="margin:0 0 20px; font-size:30px; font-weight:800; letter-spacing:6px;">{{.Code}}</p>
+{{- if .Link}}
+<p style="margin:0 0 20px;"><a href="{{.Link}}" style="display:inline-block; padding:10px 22px; border-radius:8px; background:{{index .Light "accent"}}; color:{{index .Light "on-accent"}}; font-weight:700; text-decoration:none;">{{t "confirm.button"}}</a></p>
+{{- end}}
+<p style="margin:0;">{{t "confirm.expires"}}</p>
+{{- end}}
+{{define "why"}}{{t "confirm.why"}}{{end}}

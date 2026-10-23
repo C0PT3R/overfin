@@ -1,0 +1,7 @@
+{{template "content" .}}
+
+{{template "why" .}}
+{{- if .Custom}}
+
+{{t "poweredBy"}} Overfin
+{{- end}}

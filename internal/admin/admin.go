@@ -281,6 +281,8 @@ func (p *Panel) handler() http.Handler {
 	if p.Mail != nil {
 		mux.HandleFunc("GET /admin/api/mail", p.signedIn(p.mail))
 		mux.HandleFunc("PUT /admin/api/mail", p.signedIn(p.setMail))
+		mux.HandleFunc("GET /admin/api/mail/templates", p.signedIn(p.mailTemplates))
+		mux.HandleFunc("POST /admin/api/mail/templates/{name}/test", p.signedIn(p.sendSample))
 	}
 	// Modules' own control panel routes, as currently switched on.
 	modulesAPI := p.signedIn(func(w http.ResponseWriter, r *http.Request, _ *session) {

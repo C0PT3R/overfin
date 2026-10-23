@@ -1,0 +1,14 @@
+{{define "subject"}}{{t "confirm.subject"}}{{end}}
+{{define "content" -}}
+{{t "confirm.intro"}}
+
+{{.Code}}
+{{- if .Link}}
+
+{{t "confirm.linkText"}}
+{{.Link}}
+{{- end}}
+
+{{t "confirm.expires"}}
+{{- end}}
+{{define "why"}}{{t "confirm.why"}}{{end}}

@@ -8,14 +8,19 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -42,8 +47,30 @@ type Sender struct {
 // ErrAddress: an address isn't one email address.
 var ErrAddress = errors.New("mail: not an email address")
 
+// Message is one email: its subject, its text, and optionally an HTML
+// version with the images it shows, sent inside the email (so email apps
+// show them without asking to load remote images).
+type Message struct {
+	Subject string
+	Text    string
+	HTML    string
+	Images  []Image
+}
+
+// Image is a picture an HTML message shows as <img src="cid:ID">.
+type Image struct {
+	ID          string
+	ContentType string
+	Data        []byte
+}
+
 // Send sends one plain-text email to one address.
 func (s *Sender) Send(ctx context.Context, to, subject, body string) error {
+	return s.SendMessage(ctx, to, Message{Subject: subject, Text: body})
+}
+
+// SendMessage sends one email to one address.
+func (s *Sender) SendMessage(ctx context.Context, to string, m Message) error {
 	from, err := mail.ParseAddress(s.From)
 	if err != nil {
 		return fmt.Errorf("mail: the sender: %w", err)
@@ -57,7 +84,7 @@ func (s *Sender) Send(ctx context.Context, to, subject, body string) error {
 	if err != nil || rcpt.Address != to {
 		return ErrAddress
 	}
-	msg, err := message(from, rcpt, subject, body)
+	msg, err := message(from, rcpt, m)
 	if err != nil {
 		return err
 	}
@@ -118,11 +145,17 @@ func (s *Sender) Send(ctx context.Context, to, subject, body string) error {
 	return c.Quit()
 }
 
-// message is the email's headers and body. Headers can't carry a line
-// break: nothing can add one of its own.
-func message(from, to *mail.Address, subject, body string) ([]byte, error) {
-	if strings.ContainsAny(subject, "\r\n") {
+// message is the email's headers and body: plain text alone, or text and
+// HTML as alternatives, the HTML with its images. Headers can't carry a
+// line break: nothing can add one of its own.
+func message(from, to *mail.Address, m Message) ([]byte, error) {
+	if strings.ContainsAny(m.Subject, "\r\n") {
 		return nil, errors.New("mail: a subject is one line")
+	}
+	for _, img := range m.Images {
+		if !cid.MatchString(img.ID) || !strings.HasPrefix(img.ContentType, "image/") || strings.ContainsAny(img.ContentType, "\r\n") {
+			return nil, errors.New("mail: an image needs a plain ID and an image type")
+		}
 	}
 	id := make([]byte, 16)
 	rand.Read(id)
@@ -131,19 +164,89 @@ func message(from, to *mail.Address, subject, body string) ([]byte, error) {
 	header := func(k, v string) { b.WriteString(k + ": " + v + "\r\n") }
 	header("From", from.String())
 	header("To", to.String())
-	header("Subject", mime.QEncoding.Encode("utf-8", subject))
+	header("Subject", mime.QEncoding.Encode("utf-8", m.Subject))
 	header("Date", time.Now().UTC().Format(time.RFC1123Z))
 	header("Message-ID", "<"+hex.EncodeToString(id)+"@"+domain+">")
 	header("MIME-Version", "1.0")
-	header("Content-Type", "text/plain; charset=utf-8")
-	header("Content-Transfer-Encoding", "quoted-printable")
+	if m.HTML == "" {
+		header("Content-Type", "text/plain; charset=utf-8")
+		header("Content-Transfer-Encoding", "quoted-printable")
+		b.WriteString("\r\n")
+		if err := writeQP(&b, m.Text); err != nil {
+			return nil, err
+		}
+		return b.Bytes(), nil
+	}
+	alt := multipart.NewWriter(&b)
+	header("Content-Type", `multipart/alternative; boundary="`+alt.Boundary()+`"`)
 	b.WriteString("\r\n")
-	qp := quotedprintable.NewWriter(&b)
-	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\n", "\r\n"))); err != nil {
+	part, err := alt.CreatePart(textproto.MIMEHeader{"Content-Type": {"text/plain; charset=utf-8"},
+		"Content-Transfer-Encoding": {"quoted-printable"}})
+	if err != nil {
 		return nil, err
 	}
-	if err := qp.Close(); err != nil {
+	if err := writeQP(part, m.Text); err != nil {
+		return nil, err
+	}
+	// The HTML and its images, together.
+	var related bytes.Buffer
+	rel := multipart.NewWriter(&related)
+	part, err = alt.CreatePart(textproto.MIMEHeader{"Content-Type": {`multipart/related; boundary="` + rel.Boundary() + `"`}})
+	if err != nil {
+		return nil, err
+	}
+	html, err := rel.CreatePart(textproto.MIMEHeader{"Content-Type": {"text/html; charset=utf-8"},
+		"Content-Transfer-Encoding": {"quoted-printable"}})
+	if err != nil {
+		return nil, err
+	}
+	if err := writeQP(html, m.HTML); err != nil {
+		return nil, err
+	}
+	for _, img := range m.Images {
+		w, err := rel.CreatePart(textproto.MIMEHeader{"Content-Type": {img.ContentType},
+			"Content-Transfer-Encoding": {"base64"}, "Content-ID": {"<" + img.ID + ">"},
+			"Content-Disposition": {"inline"}})
+		if err != nil {
+			return nil, err
+		}
+		if err := writeBase64(w, img.Data); err != nil {
+			return nil, err
+		}
+	}
+	if err := rel.Close(); err != nil {
+		return nil, err
+	}
+	if _, err := part.Write(related.Bytes()); err != nil {
+		return nil, err
+	}
+	if err := alt.Close(); err != nil {
 		return nil, err
 	}
 	return b.Bytes(), nil
+}
+
+// cid is what an image's ID looks like: plain, so it can't break a header.
+var cid = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}(@[A-Za-z0-9.-]{1,64})?$`)
+
+// writeQP writes text as quoted-printable, with CRLF line ends.
+func writeQP(w io.Writer, text string) error {
+	qp := quotedprintable.NewWriter(w)
+	if _, err := qp.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", "\r\n"))); err != nil {
+		return err
+	}
+	return qp.Close()
+}
+
+// writeBase64 writes data as base64, in lines of 76 characters.
+func writeBase64(w io.Writer, data []byte) error {
+	enc := base64.StdEncoding.EncodeToString(data)
+	for len(enc) > 76 {
+		if _, err := io.WriteString(w, enc[:76]+"\r\n"); err != nil {
+			return err
+		}
+		enc = enc[76:]
+	}
+	_, err := io.WriteString(w, enc+"\r\n")
+	return err
 }
