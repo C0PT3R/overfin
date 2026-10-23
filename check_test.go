@@ -32,6 +32,10 @@ func fakeJellyfinState(t *testing.T, version, id string, setUp bool) *httptest.S
 		switch r.URL.Path {
 		case "/System/Info/Public":
 			fmt.Fprintf(w, `{"Version":%q,"Id":%q,"StartupWizardCompleted":%t}`, version, id, setUp)
+		case "/System/Configuration", "/System/Configuration/network", "/System/Configuration/encoding":
+			fmt.Fprint(w, `{}`)
+		case "/Library/VirtualFolders", "/ScheduledTasks":
+			fmt.Fprint(w, `[]`)
 		case "/Library/MediaFolders":
 			switch {
 			case strings.Contains(r.Header.Get("Authorization"), `Token="admin"`):
@@ -121,6 +125,7 @@ func TestCheck(t *testing.T) {
 		want               string
 	}{
 		{"Overfin's own", jf, ours, env("a"), "ok    Jellyfin 12.2.0, at " + jf + ": Overfin's own; 2 libraries"},
+		{"its settings", jf, ours, env("a"), "ok    Jellyfin settings: 10 differ from Overfin's, and are set back when it starts:\n        server: QuickConnectAvailable null → false"},
 		{"its own key", jf, ours, env("a"), "ok    secret key: it's the one this database was created with"},
 		{"another key", jf, ours, env("b"), "FAIL  secret key: it isn't the key this database was created with"},
 		{"no key, existing database", jf, ours, noKey, "FAIL  secret key: OVERFIN_SECRET_KEY isn't set"},
@@ -134,6 +139,9 @@ func TestCheck(t *testing.T) {
 		out, err := runCheck(t, tc.jellyfin, tc.db, tc.getenv)
 		if !strings.Contains(out, tc.want) {
 			t.Errorf("%s: missing %q in:\n%s", tc.name, tc.want, out)
+		}
+		if strings.HasPrefix(tc.want, "ok") && strings.Contains(out, "FAIL") {
+			t.Errorf("%s: FAIL lines in:\n%s", tc.name, out)
 		}
 		if failed := strings.Contains(out, "FAIL"); failed != (err != nil) {
 			t.Errorf("%s: FAIL lines but err = %v", tc.name, err)

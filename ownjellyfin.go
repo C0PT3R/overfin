@@ -14,6 +14,7 @@ import (
 	"github.com/overfin/server/internal/admin"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/jfsettings"
 	"github.com/overfin/server/internal/store"
 	"github.com/overfin/server/internal/takeover"
 )
@@ -220,4 +221,21 @@ func handOverInTerminal(ctx context.Context, db *store.Store, fixed string, in i
 		return "", "", err
 	}
 	return url, key, nil
+}
+
+// ownSettings sets back the Jellyfin settings Overfin owns, and logs each
+// it changed. A failure doesn't stop Overfin: it tries again at its next
+// start.
+func ownSettings(ctx context.Context, url, key string, logger *slog.Logger) {
+	jf, err := jellyfin.New(url, Version)
+	if err != nil {
+		return
+	}
+	changes, err := jfsettings.Apply(ctx, jf, jellyfin.Auth{Token: key, DeviceID: "overfin-admin"})
+	for _, c := range changes {
+		logger.Info("a Jellyfin setting was set back to Overfin's", "change", c.String())
+	}
+	if err != nil {
+		logger.Warn("setting Jellyfin's settings back failed; Overfin tries again at its next start", "err", err)
+	}
 }

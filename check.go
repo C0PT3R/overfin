@@ -15,6 +15,7 @@ import (
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
 	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/jfsettings"
 	"github.com/overfin/server/internal/keys"
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/seal"
@@ -182,6 +183,17 @@ func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
 			return
 		}
 		c.ok("%s", found.summary)
+		changes, err := jfsettings.Plan(ctx, jf, jellyfin.Auth{Token: key, DeviceID: "overfin-check"})
+		switch {
+		case err != nil:
+			c.fail("Jellyfin's settings can't be read: %v", err)
+		case len(changes) > 0:
+			lines := make([]string, len(changes))
+			for i, ch := range changes {
+				lines[i] = "\n        " + ch.String()
+			}
+			c.ok("Jellyfin settings: %d differ from Overfin's, and are set back when it starts:%s", len(changes), strings.Join(lines, ""))
+		}
 	}
 }
 

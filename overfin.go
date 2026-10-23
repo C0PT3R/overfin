@@ -304,6 +304,9 @@ func run(logger *slog.Logger) error {
 		}
 		site.set(settingUp)
 	}
+	// The Jellyfin settings Overfin needs are its own: set back on every
+	// start (rule 67).
+	ownSettings(ctx, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey, logger)
 
 	sh, err := newShared(cfg, db, moduleDBs, k, logger)
 	if err != nil {
