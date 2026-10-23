@@ -42,8 +42,9 @@ func (s *Store) Languages(ctx context.Context) (offered []string, def string, se
 }
 
 // SetLanguages saves the languages offered and the default, which must be
-// one of them. TMDB is asked in the default's language; when that changes,
-// its data is fetched again (SetTMDBLanguage), and changed reports it.
+// one of them. TMDB is asked in the default (its regional tag); when that
+// changes, its data is fetched again (SetTMDBLanguage), and changed
+// reports it.
 func (s *Store) SetLanguages(ctx context.Context, offered []string, def string) (changed bool, err error) {
 	old, err := s.TMDBLanguage(ctx)
 	if err != nil {
@@ -55,10 +56,25 @@ func (s *Store) SetLanguages(ctx context.Context, offered []string, def string) 
 			return false, err
 		}
 	}
-	if base := lang.Base(def); base != old {
-		return true, s.SetTMDBLanguage(ctx, base)
+	if def != old {
+		return true, s.SetTMDBLanguage(ctx, def)
 	}
 	return false, nil
+}
+
+// SyncTMDBLanguage asks TMDB in the default language when it was asked in
+// another (an install from before regional languages asked "fr" for
+// fr-CA): its data is fetched again then, and changed says so.
+func (s *Store) SyncTMDBLanguage(ctx context.Context) (changed bool, err error) {
+	_, def, set, err := s.Languages(ctx)
+	if err != nil || !set {
+		return false, err
+	}
+	old, err := s.TMDBLanguage(ctx)
+	if err != nil || old == def {
+		return false, err
+	}
+	return true, s.SetTMDBLanguage(ctx, def)
 }
 
 // SetAccountLanguage changes an account's language.

@@ -343,6 +343,13 @@ func run(logger *slog.Logger) error {
 			sh.seerr, sh.seerrURL, sh.seerrKey = c, url, key
 		}
 	}
+	// TMDB is asked in the default language's regional tag; an install
+	// from before asked in two letters, and fetches its titles again once.
+	if changed, err := db.SyncTMDBLanguage(ctx); err != nil {
+		logger.Warn("TMDB's language couldn't be brought in line", "err", err)
+	} else if changed {
+		logger.Info("TMDB is asked in the default language's region now: titles are fetched again")
+	}
 	// TMDB itself, with the project's own key, in the language the panel
 	// sets.
 	if c, err := tmdb.New(tmdb.BaseURL, tmdb.ProjectToken); err == nil {
@@ -357,6 +364,8 @@ func run(logger *slog.Logger) error {
 	// why it exists before them. Its source is the gateway's, once there is
 	// one.
 	var gw *gateway
+	sh.texts = catalog.NewTexts(func(language string) catalog.TitleSource { return gw.textSource(language) }, db, logger,
+		100*time.Millisecond, 3*time.Second)
 	sh.titles = catalog.NewTitles(func() catalog.TitleSource { return gw.titleSource() }, db, logger,
 		10*time.Minute, 100*time.Millisecond)
 	gw, err = newGateway(*configPath, cfg, sh)
@@ -391,6 +400,7 @@ func run(logger *slog.Logger) error {
 	// The library's titles from TMDB: looked for every 10 minutes, a tenth
 	// of a second between requests.
 	go sh.titles.Run(ctx)
+	go sh.texts.Run(ctx)
 	go unrestrictKids(ctx, db, gw.Provisioner, logger)
 	// Each profile's data, brought over from Jellyfin once.
 	// With Pocket ID, Overfin sets up its own client and groups there.

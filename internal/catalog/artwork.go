@@ -45,7 +45,7 @@ func (k *LibraryArtwork) Once(ctx context.Context) error {
 	}
 	var wanted []images.TMDBRef
 	for start := 0; start < len(keys); start += 500 {
-		infos, err := k.Store.TitleInfos(ctx, keys[start:min(start+500, len(keys))], time.Now().Format(time.DateOnly))
+		infos, err := k.Store.TitleInfos(ctx, keys[start:min(start+500, len(keys))], time.Now().Format(time.DateOnly), "")
 		if err != nil {
 			return err
 		}

@@ -120,15 +120,26 @@ type TitleInfo struct {
 	// Votes of them; 0 when it has none.
 	Score float64
 	Votes int
+	// Untranslated: its texts aren't kept in the language asked for yet;
+	// they're the default language's.
+	Untranslated bool
 }
 
 // TitleInfos returns the titles of keys (those that parse), as of today
-// (YYYY-MM-DD, for what has aired).
-func (s *Store) TitleInfos(ctx context.Context, keys []string, today string) (map[string]*TitleInfo, error) {
+// (YYYY-MM-DD, for what has aired), their texts in language where they're
+// kept ("" for the default language).
+func (s *Store) TitleInfos(ctx context.Context, keys []string, today, language string) (map[string]*TitleInfo, error) {
 	out := map[string]*TitleInfo{}
 	country, err := s.RatingsCountry(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if language != "" {
+		if _, def, _, err := s.Languages(ctx); err != nil {
+			return nil, err
+		} else if language == def {
+			language = ""
+		}
 	}
 	for _, k := range keys {
 		if _, done := out[k]; done {
@@ -150,6 +161,13 @@ func (s *Store) TitleInfos(ctx context.Context, keys []string, today string) (ma
 			if t.Certification, err = s.certification(ctx, kind, tmdb, country); err != nil {
 				return nil, err
 			}
+		}
+		if language != "" && t.Known {
+			done, err := s.translate(ctx, t, language)
+			if err != nil {
+				return nil, err
+			}
+			t.Untranslated = !done
 		}
 		out[k] = t
 	}

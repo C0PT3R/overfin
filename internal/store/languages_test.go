@@ -25,18 +25,34 @@ func TestLanguages(t *testing.T) {
 		t.Errorf("from before: %q %v", def, set)
 	}
 
-	// Saved: the default's language is TMDB's, and changing it says so.
+	// Saved: TMDB is asked in the default's tag ("fr" was the old way to
+	// ask for it), and changing it says so.
 	changed, err := s.SetLanguages(ctx, []string{"fr-CA", "en-US"}, "fr-CA")
-	if err != nil || changed {
-		t.Errorf("same language: %v %v", changed, err)
+	if l, _ := s.TMDBLanguage(ctx); err != nil || !changed || l != "fr-CA" {
+		t.Errorf("fr to fr-CA: %v %v, TMDB's %q", changed, err, l)
 	}
-	if offered, def, set, _ := s.Languages(ctx); !set || def != "fr-CA" || strings.Join(offered, ",") != "fr-CA,en-US" {
+	if changed, err := s.SetLanguages(ctx, []string{"fr-CA", "en-US", "de-DE"}, "fr-CA"); err != nil || changed {
+		t.Errorf("same default: %v %v", changed, err)
+	}
+	if offered, def, set, _ := s.Languages(ctx); !set || def != "fr-CA" || strings.Join(offered, ",") != "fr-CA,en-US,de-DE" {
 		t.Errorf("saved: %v %q %v", offered, def, set)
 	}
 	if changed, err := s.SetLanguages(ctx, []string{"fr-CA", "en-US"}, "en-US"); err != nil || !changed {
 		t.Errorf("another default: %v %v", changed, err)
 	}
-	if l, _ := s.TMDBLanguage(ctx); l != "en" {
+	if l, _ := s.TMDBLanguage(ctx); l != "en-US" {
 		t.Errorf("TMDB's language: %q", l)
+	}
+
+	// An install from before, asking TMDB in two letters, is brought in
+	// line once.
+	if err := s.SetTMDBLanguage(ctx, "en"); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := s.SyncTMDBLanguage(ctx); err != nil || !changed {
+		t.Errorf("sync: %v %v", changed, err)
+	}
+	if changed, _ := s.SyncTMDBLanguage(ctx); changed {
+		t.Error("synced twice")
 	}
 }

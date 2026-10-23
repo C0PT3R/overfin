@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/overfin/server/internal/textclean"
 )
@@ -33,9 +34,11 @@ type Full struct {
 // maxNames caps how many other names a title keeps.
 const maxNames = 60
 
-// imageLanguages is which images to ask for: those in the language, those
-// without text, and English ones.
+// imageLanguages is which images to ask for: those in the language (TMDB
+// files images under the two-letter code), those without text, and English
+// ones.
 func imageLanguages(lang string) string {
+	lang, _, _ = strings.Cut(lang, "-")
 	if lang != "" && lang != "en" {
 		return lang + ",null,en"
 	}

@@ -195,7 +195,8 @@ func (s *Store) PurgeArtwork(ctx context.Context, before time.Time) error {
 	return tx.Commit()
 }
 
-// TMDBLanguage is the language TMDB's data is asked in (ISO 639-1).
+// TMDBLanguage is the language TMDB's data is asked in: the default
+// language's tag ("fr-CA"), or, from before, its two letters.
 func (s *Store) TMDBLanguage(ctx context.Context) (string, error) {
 	var v []byte
 	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'tmdb-language'`).Scan(&v)

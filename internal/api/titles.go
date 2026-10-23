@@ -228,7 +228,8 @@ func (l Library) visibleTitles(ctx context.Context, p *store.Profile, titles []*
 // those the profile may not see, with what it did with them.
 func (l Library) titleSummaries(ctx context.Context, p *store.Profile, keys []string) ([]library.TitleSummary, error) {
 	st := l.Provisioner.Store
-	infos, err := st.TitleInfos(ctx, keys, today())
+	infos, err := st.TitleInfos(ctx, keys, today(), p.TextLanguage)
+	l.wantTexts(p, infos)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +329,8 @@ func (l Library) title(w http.ResponseWriter, r *http.Request) {
 	l.describe(ctx, ref)
 	st := l.Provisioner.Store
 	key := ref.Key()
-	infos, err := st.TitleInfos(ctx, []string{key}, today())
+	infos, err := st.TitleInfos(ctx, []string{key}, today(), p.TextLanguage)
+	l.wantTexts(p, infos)
 	if err != nil {
 		l.storeError(w, err)
 		return
@@ -394,7 +396,8 @@ func (l Library) title(w http.ResponseWriter, r *http.Request) {
 			l.storeError(w, err)
 			return
 		}
-		infos, err := st.TitleInfos(ctx, keys, today())
+		infos, err := st.TitleInfos(ctx, keys, today(), p.TextLanguage)
+		l.wantTexts(p, infos)
 		if err != nil {
 			l.storeError(w, err)
 			return
@@ -425,7 +428,8 @@ func (l Library) visibleTitle(w http.ResponseWriter, r *http.Request, p *store.P
 // found".
 func (l Library) visibleTitleRef(w http.ResponseWriter, ctx context.Context, p *store.Profile, ref store.TitleRef) (*store.TitleInfo, bool) {
 	key := ref.Key()
-	infos, err := l.Provisioner.Store.TitleInfos(ctx, []string{key}, today())
+	infos, err := l.Provisioner.Store.TitleInfos(ctx, []string{key}, today(), p.TextLanguage)
+	l.wantTexts(p, infos)
 	if err != nil {
 		l.storeError(w, err)
 		return nil, false
@@ -534,7 +538,7 @@ func (l Library) episodesOf(ctx context.Context, t *store.TitleInfo) ([]*store.T
 		}
 	}
 	day := today()
-	infos, err := st.TitleInfos(ctx, keys, day)
+	infos, err := st.TitleInfos(ctx, keys, day, "")
 	if err != nil {
 		return nil, err
 	}
@@ -599,7 +603,7 @@ func (l Library) copyOf(ctx context.Context, p *store.Profile, id string) (strin
 		return "", nil
 	}
 	st := l.Provisioner.Store
-	infos, err := st.TitleInfos(ctx, []string{ref.Key()}, today())
+	infos, err := st.TitleInfos(ctx, []string{ref.Key()}, today(), "")
 	t := infos[ref.Key()]
 	if err != nil || t == nil || len(t.Items) == 0 {
 		return "", err
@@ -691,7 +695,8 @@ func (l Library) nextEpisode(ctx context.Context, p *store.Profile, ep store.Tit
 	}
 	if len(keys) == 0 && ep.Season > 0 {
 		series := ep.Series()
-		infos, err := st.TitleInfos(ctx, []string{series.Key()}, today())
+		infos, err := st.TitleInfos(ctx, []string{series.Key()}, today(), p.TextLanguage)
+		l.wantTexts(p, infos)
 		if err != nil {
 			return nil, err
 		}
@@ -759,4 +764,18 @@ func (l Library) upNext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeOK(w, map[string]any{"title": sums[0], "positionMs": pos})
+}
+
+// wantTexts asks for the texts infos were shown without, in the profile's
+// account's language: they come with a later visit.
+func (l Library) wantTexts(p *store.Profile, infos map[string]*store.TitleInfo) {
+	var refs []store.TitleRef
+	for _, t := range infos {
+		if t.Untranslated {
+			refs = append(refs, t.Ref)
+		}
+	}
+	if len(refs) > 0 {
+		l.Texts.Want(p.TextLanguage, refs)
+	}
 }

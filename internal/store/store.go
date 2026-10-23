@@ -215,6 +215,9 @@ func scanAccount(sc scanner) (*Account, error) {
 // JellyfinToken (the plain token, opened from its sealed form; it never
 // leaves the server): Overfin's one Jellyfin account serves everyone.
 type Profile struct {
+	// TextLanguage is its account's language, for titles' texts: set when
+	// a request's caller is known, never stored.
+	TextLanguage     string
 	ID               string
 	AccountID        string
 	Name             string

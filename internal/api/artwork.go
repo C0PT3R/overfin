@@ -62,7 +62,7 @@ func (l Library) artworkImage(w http.ResponseWriter, r *http.Request, p *store.P
 		if len(ids) == 0 && len(keys) == 0 {
 			return images.ErrInvalid
 		}
-		infos, err := st.TitleInfos(ctx, keys, today())
+		infos, err := st.TitleInfos(ctx, keys, today(), "")
 		if err != nil {
 			return err
 		}

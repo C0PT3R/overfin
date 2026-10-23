@@ -37,8 +37,10 @@ type Client struct {
 	base  *url.URL
 	token string
 	http  *http.Client
-	// Language, when set, is the language TMDB answers in (ISO 639-1,
-	// such as "fr"): titles, overviews, and the text on posters and logos.
+	// Language, when set, is the language TMDB answers in, ISO 639-1 or
+	// regional ("fr", "fr-CA": TMDB falls back to the language's other
+	// text field by field): titles, overviews, and the text on posters
+	// and logos.
 	Language func() string
 }
 
@@ -53,8 +55,8 @@ func (c *Client) language() string {
 	return ""
 }
 
-// languageCode is what an ISO 639-1 code looks like.
-var languageCode = regexp.MustCompile(`^[a-z]{2}$`)
+// languageCode is what an ISO 639-1 code, regional or not, looks like.
+var languageCode = regexp.MustCompile(`^[a-z]{2}(-[A-Z]{2})?$`)
 
 // withLanguage adds the language to a query.
 func (c *Client) withLanguage(q url.Values) url.Values {

@@ -75,6 +75,8 @@ type shared struct {
 	ratings *ratings.Keeper
 	// titles keeps what TMDB says about the library's titles, in the background.
 	titles *catalog.Titles
+	// texts keeps titles' texts in the other languages offered.
+	texts *catalog.Texts
 	// searches limits searches per account, across reloads.
 	searches *api.SearchLimiter
 	// requested is what Seerr says anyone requested, kept across reloads.
@@ -194,7 +196,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	}
 	lib := api.Library{Sessions: sessions, Provisioner: prov, Jellyfin: sh.jf, Images: sh.images, CursorKey: k.Cursor,
 		Requested: sh.requested,
-		Folders:   sh.folders, Service: sh.service, Titles: sh.titles, Searches: sh.searches, Logger: logger}
+		Folders:   sh.folders, Service: sh.service, Titles: sh.titles, Texts: sh.texts, Searches: sh.searches, Logger: logger}
 	// Discovery, when there's a source for TMDB's data.
 	var disc *api.Discovery
 	if sh.source() != nil {
@@ -637,6 +639,19 @@ func (g *gateway) tmdbSource() tmdb.Source {
 }
 
 // titleSource is where the library's titles are described: TMDB itself.
+// textSource is TMDB answering in a language, for titles' texts; nil when
+// TMDB isn't reachable (Seerr's lists come in Seerr's language only).
+func (g *gateway) textSource(language string) catalog.TitleSource {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.sh.tmdb == nil {
+		return nil
+	}
+	c := *g.sh.tmdb
+	c.Language = func() string { return language }
+	return &c
+}
+
 func (g *gateway) titleSource() catalog.TitleSource {
 	g.mu.Lock()
 	defer g.mu.Unlock()

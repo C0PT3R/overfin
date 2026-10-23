@@ -102,6 +102,10 @@ func (s *Sessions) Current(w http.ResponseWriter, r *http.Request) *Caller {
 		problem.Send(w, problem.ProfileRequired, "")
 		return nil
 	}
+	if c != nil {
+		// Titles read for it come in its account's language.
+		c.Profile.TextLanguage, _ = s.Store.LanguageOf(r.Context(), c.Account)
+	}
 	return c
 }
 

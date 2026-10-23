@@ -46,6 +46,9 @@ type Library struct {
 	// Titles, when set, fetches from TMDB what a title's page needs and
 	// the catalog doesn't have yet, and searches it.
 	Titles *catalog.Titles
+	// Texts, when set, fetches titles' texts in the account's language when
+	// they're shown without them.
+	Texts *catalog.Texts
 	// Searches, when set, limits how often each account searches.
 	Searches *SearchLimiter
 	// Requested, when set, is what Seerr says anyone requested.

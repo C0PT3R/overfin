@@ -55,7 +55,7 @@ func TestTitleInfos(t *testing.T) {
 
 	keys := []string{"series/tmdb/1399", "series/tmdb/1399/s1", "series/tmdb/1399/s2", "series/tmdb/1399/s2/e1",
 		"series/tmdb/1399/s1/e2", "item/" + id(4)}
-	got, err := s.TitleInfos(ctx, keys, "2026-10-22")
+	got, err := s.TitleInfos(ctx, keys, "2026-10-22", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestTitleCertification(t *testing.T) {
 	s.SetRatingScales(ctx, "movie", map[string][]RatingLevel{"US": {{Certification: "G", Position: 1}, {Certification: "PG-13", Position: 3}}})
 	s.SetTitleRatings(ctx, RatedTitle{"movie", "1"}, map[string][]string{"US": {"G", "PG-13"}, "FR": {"12"}}, "", "", time.Now())
 	s.SetTitleRatings(ctx, RatedTitle{"series", "2"}, map[string][]string{"US": {"TV-MA"}}, "", "", time.Now())
-	got, err := s.TitleInfos(ctx, []string{"movie/tmdb/1", "series/tmdb/2/s1", "movie/tmdb/3"}, "2026-10-22")
+	got, err := s.TitleInfos(ctx, []string{"movie/tmdb/1", "series/tmdb/2/s1", "movie/tmdb/3"}, "2026-10-22", "")
 	if err != nil {
 		t.Fatal(err)
 	}
