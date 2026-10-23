@@ -22,7 +22,7 @@ func TestInvites(t *testing.T) {
 	var tmpl string
 	panel := http.NewServeMux()
 	srv, fake := newServerWith(t, options{modules: []feature.Feature{invites.Feature{}}, template: &tmpl, admin: panel,
-		settings: map[string]map[string]string{"invites": {"required": "on"}}, site: true})
+		settings: map[string]map[string]string{"invites": {"required": "on"}}})
 	admin := func(method, path string, body any) (int, map[string]any) {
 		b, _ := json.Marshal(body)
 		rec := httptest.NewRecorder()
@@ -81,9 +81,8 @@ func TestInvites(t *testing.T) {
 	}
 	code, made := admin("POST", "/invites", map[string]any{"template": it["id"], "label": "Bob"})
 	full, _ := made["link"].(string)
-	// A short link on the site, Overfin serving it.
 	link := strings.TrimPrefix(full, "https://media.example.org")
-	if code != 200 || !strings.HasPrefix(full, "https://media.example.org/invite/") {
+	if code != 200 || !strings.HasPrefix(full, "https://media.example.org/api/v1/invite/") {
 		t.Fatalf("invitation: %d %v", code, made)
 	}
 
@@ -98,7 +97,7 @@ func TestInvites(t *testing.T) {
 	if res.StatusCode != 303 || res.Header.Get("Location") != "/" || cookie == nil || !cookie.HttpOnly || !cookie.Secure {
 		t.Fatalf("opening the link: %d %v", res.StatusCode, res.Header)
 	}
-	if res := open("/invite/AAAAAAAAAAAAAAAAAAAAAA"); res.StatusCode != 404 {
+	if res := open("/api/v1/invite/AAAAAAAAAAAAAAAAAAAAAA"); res.StatusCode != 404 {
 		t.Errorf("a made-up code: %d", res.StatusCode)
 	}
 

@@ -86,8 +86,7 @@ func TestHandleProtectsAndHandlePublicDoesNot(t *testing.T) {
 	}
 }
 
-// Navigation routes: a fixed path, or one ending in a code; a short path
-// (without /api/v1) stands only for those ending in a code.
+// Navigation routes: a fixed path, or one ending in a code.
 func TestNavigationCodes(t *testing.T) {
 	r := NewRegistrar(http.NewServeMux(), func(h http.Handler) http.Handler { return h })
 	ok := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
@@ -105,14 +104,6 @@ func TestNavigationCodes(t *testing.T) {
 		"/api/v1/invite/a/b": false, "/api/v1/signin/x": false} {
 		if r.IsNavigation(path) != want {
 			t.Errorf("IsNavigation(%s) = %v", path, !want)
-		}
-	}
-	if p, ok := r.Short("/invite/abc"); !ok || p != "/api/v1/invite/abc" {
-		t.Errorf("Short(/invite/abc) = %s, %v", p, ok)
-	}
-	for _, path := range []string{"/signin", "/invite/", "/title/abc"} {
-		if _, ok := r.Short(path); ok {
-			t.Errorf("Short(%s) is a short link", path)
 		}
 	}
 }

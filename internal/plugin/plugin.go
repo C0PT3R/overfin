@@ -122,15 +122,6 @@ func (r *Registrar) IsNavigation(path string) bool {
 	return i >= 0 && i < len(path)-1 && r.codes[path[:i+1]]
 }
 
-// Short is the API path a short link stands for: a navigation route
-// ending in a code is also reachable without "/api/v1" ("/invite/abc" for
-// "/api/v1/invite/{code}"), where the site is Overfin's. ok is false for
-// any other path.
-func (r *Registrar) Short(path string) (apiPath string, ok bool) {
-	apiPath = "/api/v1" + path
-	return apiPath, r.IsNavigation(apiPath) && !r.nav[apiPath]
-}
-
 func (r *Registrar) add(pattern string, h http.Handler, public bool) error {
 	if err := checkPattern(pattern); err != nil {
 		return err

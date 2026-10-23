@@ -43,9 +43,6 @@ type Mount struct {
 	Peers []Mount
 	// SiteURL is the site's address, when known.
 	SiteURL string
-	// ShortLinks: Overfin serves the site, so a link route ending in a code
-	// is reachable without /api/v1 (feature.Host's Link).
-	ShortLinks bool
 	// SignUp is feature.Host's SignUpLink; nil when the identity provider
 	// has no sign-up links.
 	SignUp func(ctx context.Context, previous string, uses int, until time.Time) (link, id string, err error)
@@ -68,13 +65,6 @@ func (h *host) DB() *sql.DB { return h.mount.DB }
 func (h *host) Setting(key string) string { return h.mount.Settings[key] }
 
 func (h *host) SiteURL() string { return h.mount.SiteURL }
-
-func (h *host) Link(path string) string {
-	if !h.mount.ShortLinks {
-		path = "/api/v1" + path
-	}
-	return h.mount.SiteURL + path
-}
 
 func (h *host) SignUpLink(ctx context.Context, previous string, uses int, until time.Time) (string, string, error) {
 	if h.mount.SignUp == nil {

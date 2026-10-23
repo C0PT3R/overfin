@@ -90,12 +90,6 @@ type Host interface {
 	// SiteURL is the site's address, e.g. "https://example.org", for links
 	// to it; empty when the core doesn't know it.
 	SiteURL() string
-	// Link is the address people open for one of the module's links: path
-	// is its HandleLink route without "/api/v1", ending in a code
-	// ("/invite/abc"). It's that short path on the site when Overfin
-	// serves the site, under /api/v1 otherwise; relative when the site's
-	// address isn't known.
-	Link(path string) string
 	// SignUpLink is the link where people make their account at the
 	// identity provider, for an invitation that has uses left until a time.
 	// previous is the ID it returned last time for that invitation (empty

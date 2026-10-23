@@ -212,7 +212,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		info := m.Info()
 		if cfg.Plugins.Enabled(info.Name) {
 			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: sh.moduleDBs[info.Name], Logger: logger, Admin: b.admin,
-				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg), ShortLinks: servesSite(cfg), SignUp: signUp(cfg)})
+				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg), SignUp: signUp(cfg)})
 			b.tabs = append(b.tabs, admin.Tab{Name: info.Name, Description: info.Description, UI: info.AdminUI})
 		}
 	}
@@ -313,12 +313,6 @@ func siteURL(cfg *config.Config) string {
 		return ""
 	}
 	return "https://" + u.Host
-}
-
-// servesSite reports whether Overfin serves the site itself, so short
-// links (/invite/…) reach it.
-func servesSite(cfg *config.Config) bool {
-	return cfg.Site.Serve != "none" && (cfg.Site.Serve != "builtin" || builtinSite != nil)
 }
 
 // effective completes a configuration read from the file with the feature
