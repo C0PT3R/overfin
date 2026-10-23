@@ -200,12 +200,12 @@ func TestSite(t *testing.T) {
 
 	logIn(t, b, srv, idp, subject, "/")
 	res, body := visit(t, b, srv, "/", page)
-	if res.StatusCode != 200 || !strings.Contains(body, "<title>Overfin</title>") ||
+	if res.StatusCode != 200 || !strings.Contains(body, `<div id="app">`) ||
 		res.Header.Get("Content-Security-Policy") != config.DefaultCSP {
 		t.Errorf("page, logged in: %d %v", res.StatusCode, res.Header)
 	}
 	// The site's own paths are its pages; a missing file is still missing.
-	if res, body := visit(t, b, srv, "/item/item_abc", page); res.StatusCode != 200 || !strings.Contains(body, "<title>Overfin</title>") {
+	if res, body := visit(t, b, srv, "/item/item_abc", page); res.StatusCode != 200 || !strings.Contains(body, `<div id="app">`) {
 		t.Errorf("deep link, logged in: %d", res.StatusCode)
 	}
 	if res, _ := visit(t, b, srv, "/missing.js", nil); res.StatusCode != 404 {
