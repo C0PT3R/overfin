@@ -2,8 +2,10 @@ package jellyfin
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 )
 
 // Plugin is a plugin installed on the server.
@@ -22,6 +24,17 @@ func (c *Client) Plugins(ctx context.Context, admin Auth) ([]Plugin, error) {
 	err := c.do(ctx, "plugins", http.MethodGet, "/Plugins", admin, nil, &out)
 	return out, err
 }
+
+// UninstallPlugin uninstalls a plugin's version; it's gone once the server
+// restarts. id is a validated ID.
+func (c *Client) UninstallPlugin(ctx context.Context, admin Auth, id, version string) error {
+	if !pluginVersion.MatchString(version) {
+		return errors.New("jellyfin: malformed plugin version")
+	}
+	return c.do(ctx, "uninstalling a plugin", http.MethodDelete, "/Plugins/"+id+"/"+version, admin, nil, nil)
+}
+
+var pluginVersion = regexp.MustCompile(`^[0-9]+(\.[0-9]+){0,3}$`)
 
 // Repository is where Jellyfin finds plugins.
 type Repository struct {

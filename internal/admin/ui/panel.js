@@ -320,7 +320,7 @@ function introSkipperCard(sk) {
       const now = await api('GET', '/admin/api/intro-skipper');
       if (!now.progress.running) {
         if (now.progress.error) throw new Error(now.progress.error);
-        toast('Intro Skipper is installed.');
+        toast(now.status.installed ? 'Intro Skipper is installed.' : 'Intro Skipper is removed.');
         serverView();
         return;
       }
@@ -330,13 +330,18 @@ function introSkipperCard(sk) {
   };
   const install = !installed && h('button', { class: 'primary', type: 'button', onclick: () => busy(install, async () => {
     if (!confirm(`Overfin adds Intro Skipper's repository to its Jellyfin, installs version ${sk.version}, and restarts Jellyfin: playback stops for a few seconds. Install it?`)) return;
-    await api('POST', '/admin/api/intro-skipper');
+    await api('POST', '/admin/api/intro-skipper', {});
     await watch();
   }, (err) => st.set(err.message, 'error')) }, 'Install');
-  if (sk.progress.running) busy(install, watch, (err) => st.set(err.message, 'error'));
+  const remove = installed && h('button', { class: 'danger', type: 'button', onclick: () => busy(remove, async () => {
+    if (!confirm('Overfin uninstalls Intro Skipper, removes its repository from its Jellyfin, and restarts Jellyfin: playback stops for a few seconds, and the player no longer offers to skip intros and credits. Remove it?')) return;
+    await api('DELETE', '/admin/api/intro-skipper');
+    await watch();
+  }, (err) => st.set(err.message, 'error')) }, 'Remove');
+  if (sk.progress.running) busy(install || remove, watch, (err) => st.set(err.message, 'error'));
   return card({ title: 'Intro Skipper', badge: installed ? badge(sk.status.state === 'Active' ? 'Installed' : sk.status.state, sk.status.state === 'Active' ? 'ok' : 'warn') : badge('Not installed', 'plain'),
     description: 'A Jellyfin plugin, by the Intro Skipper project, that finds intros and credits: the player then offers to skip them.' },
-  [], [st, install]);
+  [], [st, install, remove]);
 }
 
 function inFileCard(title, text) {

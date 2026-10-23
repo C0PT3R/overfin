@@ -433,7 +433,12 @@ comes from the internet, and media files can be written by anyone.
     knows, ending every sign-in there, and changes nothing else (other
     users stay, and other apps' keys, such as Seerr's, are never touched).
     The settings Overfin needs are its own: it sets them, and sets them
-    back on every start.
+    back on every start. Only when the operator asks (setup wizard or
+    control panel), Overfin installs Intro Skipper on its Jellyfin: it adds
+    that project's plugin repository, checks that the pinned version's
+    checksum is the one Overfin knows, installs it and restarts Jellyfin;
+    removing it from the panel takes the plugin and its repository off
+    again. Overfin installs no other plugin.
 
 ## Deployment
 

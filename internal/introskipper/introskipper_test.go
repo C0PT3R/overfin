@@ -25,6 +25,7 @@ type fakeJellyfin struct {
 	plugin    *jellyfin.Plugin
 	down      int // requests still refused, restarting
 	installed []string
+	removed   int
 }
 
 func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +62,13 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.installed = append(f.installed, q.Get("version")+" "+q.Get("assemblyGuid")+" "+q.Get("repositoryUrl"))
 		f.plugin = &jellyfin.Plugin{ID: "c83d86bba1e04c35a113e2101cf4ee6b", Name: Name, Version: q.Get("version"), Status: "Restart"}
 		w.WriteHeader(http.StatusNoContent)
+	case "DELETE /Plugins/c83d86bba1e04c35a113e2101cf4ee6b/12.0.5.0":
+		// Jellyfin stops listing it at once; it's gone at the restart.
+		f.plugin = nil
+		f.removed++
+		w.WriteHeader(http.StatusNoContent)
+	case "GET /System/Info":
+		io.WriteString(w, `{"HasPendingRestart":false}`)
 	case "POST /System/Restart":
 		f.down = 3
 		w.WriteHeader(http.StatusNoContent)
@@ -135,5 +143,34 @@ func TestInstaller(t *testing.T) {
 	}
 	if p := in.Progress(); !p.Done || p.Error != "" || p.Status.State != "Active" {
 		t.Errorf("progress: %+v", p)
+	}
+}
+
+func TestRemove(t *testing.T) {
+	stable := jellyfin.Repository{Name: "Jellyfin Stable", URL: "https://repo.jellyfin.org/files/plugin/manifest.json", Enabled: true}
+	f := &fakeJellyfin{repos: []jellyfin.Repository{stable}, checksum: Checksum}
+	jf, admin := setup(t, f)
+	if _, err := Install(context.Background(), jf, admin, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Remove(context.Background(), jf, admin, func(string) {})
+	if err != nil || st.Installed || f.removed != 1 {
+		t.Fatalf("remove: %+v %v, removed %d", st, err, f.removed)
+	}
+	if len(f.repos) != 1 || f.repos[0] != stable {
+		t.Errorf("repositories: %+v", f.repos)
+	}
+}
+
+// Jellyfin lists a replaced version too: the active one is reported.
+func TestLookActive(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `[{"Id":"c83d86bba1e04c35a113e2101cf4ee6b","Name":"Intro Skipper","Version":"12.0.5.0","Status":"Superseded"},
+			{"Id":"c83d86bba1e04c35a113e2101cf4ee6b","Name":"Intro Skipper","Version":"12.0.6.0","Status":"Active"}]`)
+	}))
+	defer srv.Close()
+	jf, _ := jellyfin.New(srv.URL, "test")
+	if st, err := Look(context.Background(), jf, jellyfin.Auth{Token: "a", DeviceID: "d"}); err != nil || st.Version != "12.0.6.0" || st.State != "Active" {
+		t.Errorf("%+v %v", st, err)
 	}
 }

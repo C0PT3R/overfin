@@ -46,13 +46,19 @@ func Look(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth) (Status
 	if err != nil {
 		return Status{}, err
 	}
+	// Jellyfin lists every version it has, the ones another replaced
+	// included: the active one says most.
 	want, _ := jellyfin.NormalizeID(GUID)
+	var st Status
 	for _, p := range plugins {
-		if id, err := jellyfin.NormalizeID(p.ID); err == nil && id == want {
-			return Status{Installed: true, Version: p.Version, State: p.Status}, nil
+		if id, err := jellyfin.NormalizeID(p.ID); err != nil || id != want {
+			continue
+		}
+		if !st.Installed || p.Status == "Active" || st.State == "Superseded" {
+			st = Status{Installed: true, Version: p.Version, State: p.Status}
 		}
 	}
-	return Status{}, nil
+	return st, nil
 }
 
 // poll is how often the install is checked on; wait, how long Jellyfin
@@ -119,6 +125,59 @@ func Install(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, prog
 	return st, nil
 }
 
+// Remove uninstalls Intro Skipper, takes its repository off Jellyfin's
+// list and restarts Jellyfin, telling each step to progress.
+func Remove(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, progress func(string)) (Status, error) {
+	plugins, err := jf.Plugins(ctx, admin)
+	if err != nil {
+		return Status{}, err
+	}
+	want, _ := jellyfin.NormalizeID(GUID)
+	for _, p := range plugins {
+		if id, err := jellyfin.NormalizeID(p.ID); err == nil && id == want {
+			progress("Uninstalling Intro Skipper…")
+			if err := jf.UninstallPlugin(ctx, admin, id, p.Version); err != nil {
+				return Status{}, err
+			}
+		}
+	}
+	repos, err := jf.Repositories(ctx, admin)
+	if err != nil {
+		return Status{}, err
+	}
+	if hasRepository(repos) {
+		progress("Removing its repository…")
+		kept := repos[:0]
+		for _, r := range repos {
+			if !strings.EqualFold(strings.TrimSpace(r.URL), Repository) {
+				kept = append(kept, r)
+			}
+		}
+		if err := jf.SetRepositories(ctx, admin, kept); err != nil {
+			return Status{}, err
+		}
+	}
+	progress("Restarting Jellyfin…")
+	if err := jf.Restart(ctx, admin); err != nil {
+		return Status{}, err
+	}
+	st, err := until(ctx, func() (Status, bool, error) {
+		pending, err := jf.PendingRestart(ctx, admin)
+		if err != nil || pending {
+			return Status{}, false, nil
+		}
+		st, err := Look(ctx, jf, admin)
+		return st, err == nil, nil
+	})
+	if err != nil {
+		return st, Problem("Jellyfin didn't come back in time after its restart.")
+	}
+	if st.Installed {
+		return st, Problem("Jellyfin restarted, but Intro Skipper is still there: Jellyfin's log may say why.")
+	}
+	return st, nil
+}
+
 func hasRepository(repos []jellyfin.Repository) bool {
 	for _, r := range repos {
 		if strings.EqualFold(strings.TrimSpace(r.URL), Repository) && r.Enabled {
@@ -177,18 +236,24 @@ type Installer struct {
 	status   Status
 }
 
-// Progress is where an install stands.
+// Progress is where an install or a removal stands.
 type Progress struct {
 	Running bool   `json:"running"`
 	Step    string `json:"step,omitempty"`
 	Done    bool   `json:"done"`
 	Status  Status `json:"status"`
-	// Error is what went wrong with the last install, in plain words.
+	// Error is what went wrong the last time, in plain words.
 	Error string `json:"error,omitempty"`
 }
 
 // Start begins an install, unless one is running.
-func (in *Installer) Start() error {
+func (in *Installer) Start() error { return in.start(false) }
+
+// StartRemoving begins removing Intro Skipper, unless an install or a
+// removal is running.
+func (in *Installer) StartRemoving() error { return in.start(true) }
+
+func (in *Installer) start(remove bool) error {
 	jf, admin, ok := in.Jellyfin()
 	if !ok {
 		return Problem("Overfin has no Jellyfin of its own yet.")
@@ -200,7 +265,11 @@ func (in *Installer) Start() error {
 	}
 	in.running, in.finished, in.err, in.step = true, false, nil, "Starting…"
 	go func() {
-		st, err := Install(context.Background(), jf, admin, func(step string) {
+		do, done, what := Install, "Intro Skipper is installed on Overfin's Jellyfin", "installing"
+		if remove {
+			do, done, what = Remove, "Intro Skipper is removed from Overfin's Jellyfin", "removing"
+		}
+		st, err := do(context.Background(), jf, admin, func(step string) {
 			in.mu.Lock()
 			in.step = step
 			in.mu.Unlock()
@@ -208,12 +277,12 @@ func (in *Installer) Start() error {
 		var p Problem
 		switch {
 		case err == nil:
-			in.Logger.Info("Intro Skipper is installed on Overfin's Jellyfin", "version", st.Version)
+			in.Logger.Info(done, "version", st.Version)
 		case errors.As(err, &p):
-			in.Logger.Warn("Intro Skipper wasn't installed", "why", err)
+			in.Logger.Warn(what+" Intro Skipper didn't happen", "why", err)
 		default:
-			in.Logger.Error("installing Intro Skipper failed", "err", err)
-			err = Problem("Installing Intro Skipper failed; Overfin's log says why.")
+			in.Logger.Error(what+" Intro Skipper failed", "err", err)
+			err = Problem(strings.ToUpper(what[:1]) + what[1:] + " Intro Skipper failed; Overfin's log says why.")
 		}
 		in.mu.Lock()
 		defer in.mu.Unlock()

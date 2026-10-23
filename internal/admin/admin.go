@@ -233,6 +233,7 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/tmdb-key", p.signedIn(p.setTMDBKey))
 	mux.HandleFunc("GET /admin/api/intro-skipper", p.signedIn(p.introSkipper))
 	mux.HandleFunc("POST /admin/api/intro-skipper", p.signedIn(p.installIntroSkipper))
+	mux.HandleFunc("DELETE /admin/api/intro-skipper", p.signedIn(p.removeIntroSkipper))
 	mux.HandleFunc("GET /admin/api/languages", p.signedIn(p.languages))
 	mux.HandleFunc("PUT /admin/api/languages", p.signedIn(p.setLanguages))
 	mux.HandleFunc("GET /admin/api/transcoding", p.signedIn(p.transcoding))
@@ -863,13 +864,18 @@ func (p *Panel) introSkipper(w http.ResponseWriter, r *http.Request, s *session)
 		http.NotFound(w, r)
 		return
 	}
-	st, err := p.IntroSkipper.Look(r.Context())
-	if err != nil {
-		p.upstreamProblem(w, err, "looking for Intro Skipper")
-		return
+	// While an install or a removal runs, Jellyfin restarts: the progress
+	// says enough.
+	progress := p.IntroSkipper.Progress()
+	st := progress.Status
+	if !progress.Running {
+		var err error
+		if st, err = p.IntroSkipper.Look(r.Context()); err != nil {
+			p.upstreamProblem(w, err, "looking for Intro Skipper")
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": st, "progress": p.IntroSkipper.Progress(),
-		"version": introskipper.Version})
+	writeJSON(w, http.StatusOK, map[string]any{"status": st, "progress": progress, "version": introskipper.Version})
 }
 
 // installIntroSkipper starts Intro Skipper's install.
@@ -883,6 +889,20 @@ func (p *Panel) installIntroSkipper(w http.ResponseWriter, r *http.Request, s *s
 		return
 	}
 	p.Logger.Info("Intro Skipper's install started in the control panel", "by", s.name)
+	writeJSON(w, http.StatusAccepted, p.IntroSkipper.Progress())
+}
+
+// removeIntroSkipper starts removing Intro Skipper.
+func (p *Panel) removeIntroSkipper(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.IntroSkipper == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := p.IntroSkipper.StartRemoving(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": err.Error()})
+		return
+	}
+	p.Logger.Info("Intro Skipper's removal started in the control panel", "by", s.name)
 	writeJSON(w, http.StatusAccepted, p.IntroSkipper.Progress())
 }
 
