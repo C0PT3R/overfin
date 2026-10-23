@@ -140,6 +140,9 @@ subtitles and attachments) from anywhere.
   account requires its password, attempts are limited, and an account can be
   adopted only once. Administrator accounts are never adopted, so Overfin
   never holds an administrator's token [60].
+- **Overfin taking over the wrong Jellyfin:** it takes over only a fresh
+  one, one that answers to its own key, or one the operator explicitly
+  hands over after seeing what it holds; it never changes another [67].
 
 ## Known limitations
 

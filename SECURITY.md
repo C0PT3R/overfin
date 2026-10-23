@@ -25,6 +25,9 @@ network security expert. So the rules come in two kinds:
     entirely; with an identity provider, it has its own private listener.
   - **Jellyfin and Seerr** are best kept off the internet (Deployment,
     below); exposing them is the operator's choice.
+  - **Access to Jellyfin itself** (rule 67) is closed: its administrators
+    have passwords nobody knows. An admin can open it from the control
+    panel, and close it again.
 
 Every rule not named here is a hard rule.
 
@@ -40,8 +43,8 @@ Every rule not named here is a hard rule.
    allowed values, and free text (such as a search term) is length-capped.
 3. Every call to Jellyfin runs as Overfin's one Jellyfin account: an ordinary
    user of its own, never an administrator, hidden, with every library and no
-   limit of Jellyfin's, made with the admin key (that's provisioning), its
-   token sealed like every other. It holds nothing personal: what each
+   limit of Jellyfin's, made with the key Overfin created for itself
+   (rule 67; that's provisioning), its token sealed like every other. It holds nothing personal: what each
    profile may see, Overfin decides before anything is shown or played
    (rule 28), and what each profile does is Overfin's to keep (rule 40).
    Each playback runs on a Jellyfin device of its own, so playbacks never
@@ -411,21 +414,41 @@ comes from the internet, and media files can be written by anyone.
     whether or not the email has a password, and password tries are
     limited per email. A new password ends the person's other logins.
 
+### Overfin's Jellyfin
+67. Overfin's Jellyfin is dedicated to it, and Overfin never changes
+    anything on any other Jellyfin. It takes a Jellyfin over only when it's
+    fresh (its setup never run: Overfin runs it), when it answers to a key
+    Overfin created, or when the operator hands it over: they give an admin
+    login, see what that server holds, and confirm it's dedicated to
+    Overfin; that login is used once to create Overfin's key, then signed
+    out, and never stored. Overfin uses only keys it created itself, kept
+    sealed like every token, and revokes the keys it made on earlier
+    takeovers. Access to its Jellyfin is closed: every administrator there
+    has a password nobody knows, from the takeover on (a server handed
+    over is closed at once, once Overfin's key is saved). An admin can
+    open access from the control panel, which gives Overfin's own
+    administrator account a new password, shown once with a warning that
+    changes made in Jellyfin may break Overfin and be undone by it, and
+    close it again, which gives every administrator a new password nobody
+    knows, ending every sign-in there, and changes nothing else (other
+    users stay, and other apps' keys, such as Seerr's, are never touched).
+    The settings Overfin needs are its own: it sets them, and sets them
+    back on every start.
+
 ## Deployment
 
-Keeping Jellyfin off the internet is recommended, not required: ideally its
-port is reachable only from Overfin's host and the operator's admin network.
-An operator may expose both, for a transition or for good; then they should
-know that the two manage people differently and don't mix. Overfin's users
-appear in Jellyfin as opaque users; Jellyfin's own users get nothing of
-Overfin (profiles, limits, what Overfin keeps) unless they move over; moving
-an account to Overfin closes its Jellyfin login (migration's default); and
-Overfin's rules protect only what goes through Overfin, while whatever
-reaches Jellyfin directly is Jellyfin's own business. With an identity provider, Overfin's admin
+Overfin needs a Jellyfin of its own (rule 67), on the same media as any
+other the operator runs; their other servers are never touched. Until
+Overfin has set a fresh Jellyfin up, its setup is open to whoever reaches it
+first: keep it reachable only by Overfin until then. Keeping Overfin's
+Jellyfin off the internet is recommended, not required: ideally its port is
+reachable only from Overfin's host and the operator's admin network.
+Overfin's rules protect only what goes through Overfin; whatever reaches
+Jellyfin directly is Jellyfin's own business. With an identity provider, Overfin's admin
 listener must not be reachable from the internet: publish it only on the LAN or a VPN, never
 through the reverse proxy that serves the site (rule 58). Overfin never offers
-a route to Jellyfin's dashboard; operators reach it privately (LAN, VPN, SSH
-tunnel).
+a route to Jellyfin's dashboard; when access is open (rule 67), operators
+reach it privately (LAN, VPN, SSH tunnel).
 
 HTTPS is recommended for any server reachable from the internet: Overfin
 gets its own certificate with `https.domain` (or `OVERFIN_DOMAIN`), or a
