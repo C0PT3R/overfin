@@ -13,10 +13,16 @@ import (
 	"time"
 )
 
+// testToken looks like a read access token; testKey like an API key.
+const (
+	testToken = "eyJhbGciOiJIUzI1NiJ9.test-read-access-token-for-overfin"
+	testKey   = "0123456789abcdef0123456789abcdef"
+)
+
 func fakeTMDB(t *testing.T) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer token" || strings.Contains(r.URL.RawQuery, "token") {
+		if r.Header.Get("Authorization") != "Bearer "+testToken || strings.Contains(r.URL.RawQuery, testToken) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -110,7 +116,7 @@ func fakeTMDB(t *testing.T) *Client {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	c, err := New(srv.URL+"/3", "token")
+	c, err := New(srv.URL+"/3", testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +240,7 @@ func TestClient(t *testing.T) {
 	if _, err := c.Details(ctx, "movie", 12345); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown title: %v", err)
 	}
-	bad, _ := New(c.base.String(), "wrong")
+	bad, _ := New(c.base.String(), "eyJhbGciOiJIUzI1NiJ9.a-wrong-read-access-token-for-tests")
 	if _, err := bad.Details(ctx, "movie", 949); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("wrong key: %v", err)
 	}
@@ -258,7 +264,7 @@ func TestTooManyRequests(t *testing.T) {
 		io.WriteString(w, `{"genres":[{"id":18,"name":"Drama"}]}`)
 	}))
 	defer srv.Close()
-	c, _ := New(srv.URL, "token")
+	c, _ := New(srv.URL, testToken)
 	other := *c // a copy, as the texts' keeper makes: it waits too
 	ctx := context.Background()
 	start := time.Now()
@@ -281,5 +287,35 @@ func TestTooManyRequests(t *testing.T) {
 	c.slow.close(0)
 	if retryAfter(http.Header{"Retry-After": {"9999"}}) != 5*time.Minute || retryAfter(http.Header{}) != 10*time.Second {
 		t.Error("Retry-After bounds")
+	}
+}
+
+// Both kinds of TMDB key work: a read access token as a bearer, an API key
+// in the query; Check says whether TMDB takes it.
+func TestKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ok := r.Header.Get("Authorization") == "Bearer "+testToken ||
+			(r.URL.Query().Get("api_key") == testKey && r.Header.Get("Authorization") == "")
+		if r.URL.Path != "/authentication" || !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		io.WriteString(w, `{"success":true}`)
+	}))
+	defer srv.Close()
+	for _, key := range []string{testToken, testKey} {
+		c, err := New(srv.URL, key)
+		if err != nil || c.Check(context.Background()) != nil {
+			t.Errorf("%s: %v %v", key[:6], err, c.Check(context.Background()))
+		}
+	}
+	wrong, _ := New(srv.URL, "fedcba9876543210fedcba9876543210")
+	if err := wrong.Check(context.Background()); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("a wrong key: %v", err)
+	}
+	for _, bad := range []string{"", "short", "has spaces in it, which no TMDB key has at all…"} {
+		if _, err := New(srv.URL, bad); err == nil {
+			t.Errorf("%q taken as a key", bad)
+		}
 	}
 }

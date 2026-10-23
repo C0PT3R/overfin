@@ -46,6 +46,16 @@ type Features interface {
 	SetFeatures(ctx context.Context, f config.Features) error
 }
 
+// TMDBKeys is where the panel reads and changes the operator's TMDB key.
+type TMDBKeys interface {
+	// TMDBKey says whether there's one, and whether the environment sets
+	// it (then the panel can't change it).
+	TMDBKey() (set, inEnv bool)
+	// SetTMDBKey tests, saves and applies a key; "" removes it. Its error
+	// says what's wrong in plain words.
+	SetTMDBKey(ctx context.Context, key string) (string, error)
+}
+
 // Jellyfin is where the panel reads and changes how Overfin reaches
 // Jellyfin.
 type Jellyfin interface {
@@ -108,6 +118,8 @@ type Panel struct {
 	// TMDB, when set, says whether Overfin has a source for TMDB's data
 	// (TMDB itself, or Seerr).
 	TMDB func() bool
+	// TMDBKeys, when set, shows and changes the operator's TMDB key.
+	TMDBKeys TMDBKeys
 	// OnLanguage, when set, runs after TMDB's language changed.
 	OnLanguage func()
 	// SearchTMDB, when set, searches TMDB for films and series
@@ -214,6 +226,7 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/ratings", p.signedIn(p.setRatings))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
+	mux.HandleFunc("PUT /admin/api/tmdb-key", p.signedIn(p.setTMDBKey))
 	mux.HandleFunc("GET /admin/api/languages", p.signedIn(p.languages))
 	mux.HandleFunc("PUT /admin/api/languages", p.signedIn(p.setLanguages))
 	mux.HandleFunc("GET /admin/api/transcoding", p.signedIn(p.transcoding))
@@ -689,10 +702,19 @@ type ratingsJSON struct {
 	Fetched int    `json:"fetched"`
 	Total   int    `json:"total"`
 	Source  bool   `json:"source"`
+	// Key is whether the operator gave TMDB's key, and whether the
+	// environment sets it.
+	Key struct {
+		Set   bool `json:"set"`
+		InEnv bool `json:"inEnv"`
+	} `json:"key"`
 }
 
 func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
 	out := ratingsJSON{Source: p.TMDB != nil && p.TMDB()}
+	if p.TMDBKeys != nil {
+		out.Key.Set, out.Key.InEnv = p.TMDBKeys.TMDBKey()
+	}
 	var err error
 	if out.Country, err = p.Store.RatingsCountry(ctx); err != nil {
 		return out, err
@@ -826,6 +848,31 @@ func (p *Panel) setJellyfinAccess(w http.ResponseWriter, r *http.Request, s *ses
 	}
 	p.Logger.Info("access to Jellyfin itself was closed in the control panel", "by", s.name)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// setTMDBKey sets or removes the operator's TMDB key.
+func (p *Panel) setTMDBKey(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.TMDBKeys == nil {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Key string `json:"key"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	summary, err := p.TMDBKeys.SetTMDBKey(r.Context(), req.Key)
+	if err != nil {
+		p.upstreamProblem(w, err, "setting TMDB's key")
+		return
+	}
+	out, err := p.ratingsState(r.Context())
+	if err != nil {
+		p.fail(w, "reading TMDB's state", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"summary": summary, "state": out})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

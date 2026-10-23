@@ -443,3 +443,80 @@ func TestSetSeerr(t *testing.T) {
 		t.Error("TMDB's data kept after disconnecting")
 	}
 }
+
+// The panel sets and removes the operator's TMDB key: tested by TMDB, kept
+// sealed, and TMDB's data removed with it.
+func TestSetTMDBKey(t *testing.T) {
+	const key = "0123456789abcdef0123456789abcdef"
+	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("api_key") != key {
+			w.WriteHeader(http.StatusUnauthorized)
+			io.WriteString(w, `{"success":false}`)
+			return
+		}
+		io.WriteString(w, `{"success":true}`)
+	}))
+	defer tmdbSrv.Close()
+	old := tmdbBase
+	tmdbBase = tmdbSrv.URL
+	defer func() { tmdbBase = old }()
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "overfin.db")
+	cfgPath := filepath.Join(dir, "overfin.toml")
+	os.WriteFile(cfgPath, []byte(strings.ReplaceAll(baseConfig, "%DB%", dbPath)), 0o600)
+	cfg, err := config.Load(cfgPath, env("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := keys.Derive(cfg.Secrets.Key)
+	box, _ := seal.New(k.TokenEncryption)
+	db, err := store.Open(context.Background(), dbPath, box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sh, err := newShared(cfg, db, nil, k, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := newGateway(cfgPath, cfg, sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if set, inEnv := g.TMDBKey(); set || inEnv {
+		t.Fatalf("before: %v %v", set, inEnv)
+	}
+	if _, err := g.SetTMDBKey(ctx, "not a key"); err == nil || !strings.Contains(err.Error(), "isn't a TMDB key") {
+		t.Errorf("not a key: %v", err)
+	}
+	if _, err := g.SetTMDBKey(ctx, "ffffffffffffffffffffffffffffffff"); err == nil || !strings.Contains(err.Error(), "refuses") {
+		t.Errorf("refused: %v", err)
+	}
+	if set, _ := g.TMDBKey(); set {
+		t.Error("a refused key is used")
+	}
+	if _, err := g.SetTMDBKey(ctx, " "+key+"\n"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if set, _ := g.TMDBKey(); !set || g.tmdbSource() == nil {
+		t.Error("key not used")
+	}
+	if kept, _, _ := db.TMDBKey(ctx); kept != key {
+		t.Errorf("kept %q", kept)
+	}
+	db.PutTitles(ctx, []store.Title{{Kind: "movie", TMDB: "1", Name: "x"}}, time.Now())
+	if _, err := g.SetTMDBKey(ctx, ""); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if set, _ := g.TMDBKey(); set {
+		t.Error("removed key still used")
+	}
+	if _, ok, _ := db.TMDBKey(ctx); ok {
+		t.Error("removed key still kept")
+	}
+	if ti, _ := db.TitleByTMDB(ctx, "movie", "1"); ti != nil {
+		t.Error("TMDB's data kept after removing the key")
+	}
+}

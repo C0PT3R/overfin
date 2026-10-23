@@ -744,6 +744,69 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 	return "Seerr, at " + url + ": its API key works. Discovery is on.", nil
 }
 
+// TMDBKey says whether TMDB has the operator's key, and whether the
+// environment gives it (then only the environment changes it).
+func (g *gateway) TMDBKey() (set, inEnv bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sh.tmdb != nil, g.cfg.Secrets.TMDBKey != ""
+}
+
+// SetTMDBKey tests and saves the operator's TMDB key, and uses it at once;
+// "" removes it, and TMDB's data with it unless Seerr gives it too, as
+// TMDB's terms ask. Errors say what's wrong in plain words.
+func (g *gateway) SetTMDBKey(ctx context.Context, key string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.cfg.Secrets.TMDBKey != "" {
+		return "", problem("TMDB's key is set in Overfin's environment (OVERFIN_TMDB_KEY): change it there.")
+	}
+	key = strings.TrimSpace(key)
+	var client *tmdb.Client
+	if key != "" {
+		c, err := tmdbClient(g.sh.db, key)
+		if err != nil {
+			return "", problem("That isn't a TMDB key: it's the API key (32 characters) or the API Read Access Token, from your TMDB account's API settings.")
+		}
+		switch err := c.Check(ctx); {
+		case errors.Is(err, tmdb.ErrUnauthorized):
+			return "", problem("TMDB refuses that key.")
+		case err != nil:
+			return "", problemf("TMDB can't be reached (%v).", err)
+		}
+		client = c
+	}
+	old := g.sh.tmdb
+	g.sh.tmdb = client
+	b, err := build(g.cfg, g.sh)
+	if err == nil {
+		err = g.sh.db.SetTMDBKey(ctx, key)
+	}
+	if err == nil && client == nil && g.sh.seerr == nil {
+		err = g.sh.db.ForgetTMDB(ctx)
+	}
+	if err != nil {
+		g.sh.tmdb = old
+		return "", err
+	}
+	g.current.Store(b)
+	if g.sh.titles != nil {
+		g.sh.titles.Wake()
+	}
+	if g.sh.lists != nil {
+		g.sh.lists.Wake()
+	}
+	if g.sh.ratings != nil {
+		g.sh.ratings.Wake()
+	}
+	if client == nil {
+		g.sh.logger.Info("TMDB's key removed in the control panel")
+		return "No TMDB key: Overfin runs on Jellyfin's data.", nil
+	}
+	g.sh.logger.Info("TMDB's key set in the control panel")
+	return "TMDB takes the key: titles, artwork and ratings come now.", nil
+}
+
 // Features returns the feature settings in effect.
 func (g *gateway) Features() config.Features {
 	g.mu.Lock()

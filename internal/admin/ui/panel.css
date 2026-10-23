@@ -322,8 +322,8 @@ td.actions button + button { margin-left: .35rem; }
 .actions-row { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0 1rem; margin-top: .4rem; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .85rem; overflow-wrap: anywhere; }
-.box .row { display: flex; gap: .5rem; flex-wrap: wrap; }
-.box .row input { flex: 1; min-width: 12rem; }
+.box .row, .card .row { display: flex; gap: .5rem; flex-wrap: wrap; }
+.box .row input, .card .row input { flex: 1; min-width: 12rem; }
 .box .list { margin-top: .5rem; max-height: 22rem; overflow-y: auto; }
 .list li > svg { width: 1.1rem; height: 1.1rem; flex: none; color: var(--muted); }
 .candidates li { align-items: flex-start; }

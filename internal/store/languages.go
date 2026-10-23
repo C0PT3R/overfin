@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -100,4 +101,36 @@ func (s *Store) LanguageOf(ctx context.Context, a *Account) (string, error) {
 		return a.Language, nil
 	}
 	return def, nil
+}
+
+// tmdbKeyContext binds the sealed TMDB key to its row.
+const tmdbKeyContext = "tmdb key"
+
+// TMDBKey is the operator's TMDB key, as the panel or the setup saved it;
+// ok is false without one.
+func (s *Store) TMDBKey(ctx context.Context) (key string, ok bool, err error) {
+	var sealed []byte
+	err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'tmdb-key'`).Scan(&sealed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	k, err := s.box.Open(sealed, tmdbKeyContext)
+	if err != nil {
+		return "", false, fmt.Errorf("store: TMDB's key can't be read with this secret key: %w", err)
+	}
+	return string(k), true, nil
+}
+
+// SetTMDBKey saves the operator's TMDB key, sealed; "" forgets it.
+func (s *Store) SetTMDBKey(ctx context.Context, key string) error {
+	if key == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE name = 'tmdb-key'`)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('tmdb-key', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, s.box.Seal([]byte(key), tmdbKeyContext))
+	return err
 }

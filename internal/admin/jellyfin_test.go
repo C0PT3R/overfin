@@ -56,3 +56,32 @@ func TestJellyfinAccess(t *testing.T) {
 		t.Errorf("close: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// memTMDB is the operator's TMDB key as the panel sees it.
+type memTMDB struct{ key string }
+
+func (m *memTMDB) TMDBKey() (bool, bool) { return m.key != "", false }
+
+func (m *memTMDB) SetTMDBKey(_ context.Context, key string) (string, error) {
+	if key == "bad" {
+		return "", Problem("TMDB refuses that key.")
+	}
+	m.key = key
+	return "ok", nil
+}
+
+func TestTMDBKey(t *testing.T) {
+	p, b, _, _ := signedInPanel(t)
+	k := &memTMDB{}
+	p.TMDBKeys = k
+	if rec := b.do("PUT", "/admin/api/tmdb-key", `{"key":"bad"}`, nil); rec.Code != 400 || !strings.Contains(rec.Body.String(), "refuses") {
+		t.Errorf("refused: %d %s", rec.Code, rec.Body)
+	}
+	rec := b.do("PUT", "/admin/api/tmdb-key", `{"key":"good"}`, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"key":{"set":true,"inEnv":false}`) || k.key != "good" {
+		t.Errorf("set: %d %s", rec.Code, rec.Body)
+	}
+	if rec := b.do("GET", "/admin/api/ratings", "", nil); strings.Contains(rec.Body.String(), "good") {
+		t.Errorf("the key is shown: %s", rec.Body)
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/overfin/server/internal/jfsettings"
 	"github.com/overfin/server/internal/store"
 	"github.com/overfin/server/internal/takeover"
+	"github.com/overfin/server/internal/tmdb"
 )
 
 // jellyfinStartup is the language and country a fresh Jellyfin gets.
@@ -287,4 +288,20 @@ func closeAfterHandOver(ctx context.Context, db *store.Store, jf *jellyfin.Clien
 		logger.Info("Overfin's older keys on Jellyfin were revoked", "keys", n)
 	}
 	return nil
+}
+
+// tmdbBase is TMDB's address; tests change it.
+var tmdbBase = tmdb.BaseURL
+
+// tmdbClient is TMDB with the operator's key, in the default language.
+func tmdbClient(db *store.Store, key string) (*tmdb.Client, error) {
+	c, err := tmdb.New(tmdbBase, key)
+	if err != nil {
+		return nil, err
+	}
+	c.Language = func() string {
+		l, _ := db.TMDBLanguage(context.Background())
+		return l
+	}
+	return c, nil
 }

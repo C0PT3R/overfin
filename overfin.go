@@ -350,14 +350,25 @@ func run(logger *slog.Logger) error {
 	} else if changed {
 		logger.Info("TMDB is asked in the default language's region now: titles are fetched again")
 	}
-	// TMDB itself, with the project's own key, in the language the panel
-	// sets.
-	if c, err := tmdb.New(tmdb.BaseURL, tmdb.ProjectToken); err == nil {
-		c.Language = func() string {
-			l, _ := db.TMDBLanguage(context.Background())
-			return l
+	// TMDB itself, with the operator's own key, in the default language.
+	// Without one, Overfin runs on Jellyfin's data (and Seerr's, when it's
+	// connected).
+	tmdbKey := cfg.Secrets.TMDBKey
+	if tmdbKey == "" {
+		if k, ok, err := db.TMDBKey(ctx); err != nil {
+			logger.Warn("TMDB's key can't be read: give it again in the control panel", "err", err)
+		} else if ok {
+			tmdbKey = k
 		}
-		sh.tmdb = c
+	}
+	if tmdbKey != "" {
+		if c, err := tmdbClient(db, tmdbKey); err == nil {
+			sh.tmdb = c
+		} else {
+			logger.Warn("TMDB's key isn't one: give it again in the control panel")
+		}
+	} else {
+		logger.Warn("no TMDB key: Overfin runs on Jellyfin's data; give one in the control panel (Server, TMDB)")
 	}
 	// What TMDB says about the library's titles, kept in the background
 	// (started below) and fetched on demand by the site's pages, which is
@@ -414,7 +425,7 @@ func run(logger *slog.Logger) error {
 	if a := cfg.Admin; a.Enabled() || managed {
 		o := cfg.OIDC
 		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Libraries: libraries{gw}, Transcoding: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
-			TMDB: func() bool { return gw.tmdbSource() != nil },
+			TMDB: func() bool { return gw.tmdbSource() != nil }, TMDBKeys: gw,
 			// A new language: artwork and discovery's lists, read again now.
 			OnLanguage: func() { sh.titles.Wake(); sh.lists.Wake() },
 			Store:      db, Provisioner: newProvisioner(cfg, sh),
