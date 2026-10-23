@@ -436,7 +436,8 @@ comes from the internet, and media files can be written by anyone.
     back on every start. Only when the operator asks (setup wizard or
     control panel), Overfin installs Intro Skipper on its Jellyfin: it adds
     that project's plugin repository, checks that the pinned version's
-    checksum is the one Overfin knows, installs it and restarts Jellyfin;
+    checksum is the one Overfin knows, installs it and restarts Jellyfin
+    (Jellyfin's own plugin updates stay off, so that version stays);
     removing it from the panel takes the plugin and its repository off
     again. Overfin installs no other plugin.
 

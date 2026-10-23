@@ -62,9 +62,10 @@ var librarySettings = []Setting{
 	{"AutomaticallyAddToCollection", false, "Overfin doesn't use Jellyfin's collections"},
 }
 
-// tasksOff are scheduled tasks that only do work nothing uses: they run
-// only if started by hand.
+// tasksOff are scheduled tasks that only do work nothing uses, or undo
+// what Overfin chose: they run only if started by hand.
 var tasksOff = []struct{ Key, Why string }{
+	{"PluginUpdates", "plugins stay at the version Overfin checked"},
 	{"DownloadLyrics", "no music"},
 	{"DownloadSubtitles", "no subtitle downloader is set up"},
 	{"RefreshGuide", "no live TV"},
