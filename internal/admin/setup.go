@@ -85,7 +85,7 @@ func (s *Setup) handler(public bool) http.Handler {
 	mux.HandleFunc("GET /admin/{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, ui, "setup.html")
 	})
-	for _, f := range []string{"setup.js", "panel.css"} {
+	for _, f := range []string{"setup.js", "panel.css", "logo.svg"} {
 		mux.Handle("GET /admin/"+f, files)
 	}
 	mux.HandleFunc("GET /admin/api/setup", func(w http.ResponseWriter, r *http.Request) {

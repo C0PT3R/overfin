@@ -5,12 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}</title>
+<link rel="icon" href="{{.Logo}}" type="image/svg+xml">
 <link rel="stylesheet" href="{{.CSS}}">
 <script src="{{.JS}}" defer></script>
 </head>
 <body data-return="{{.Return}}" data-fresh="{{if .Fresh}}1{{end}}" data-email="{{.Email}}"
       data-code-sent="{{.T.codeSent}}" data-failed="{{.T.failed}}">
 <main>
+  <div class="brand"><img src="{{.Logo}}" alt="" width="40" height="40"><span>Overfin</span></div>
   <h1>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}</h1>
   {{if .Fresh}}<p class="muted">{{.Intro}}</p>{{end}}
 

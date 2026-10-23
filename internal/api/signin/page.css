@@ -40,3 +40,5 @@ p { margin: 0; }
 .error { color: var(--danger); margin-top: 1rem; }
 .error:empty { display: none; }
 [hidden] { display: none !important; }
+.brand { display: flex; align-items: center; gap: .55rem; margin-bottom: 1.4rem; font-weight: 800; font-size: 1.15rem; }
+.brand img { width: 2.4rem; height: 2.4rem; }

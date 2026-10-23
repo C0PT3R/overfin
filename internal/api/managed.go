@@ -35,6 +35,7 @@ const (
 	signinLinkPath = "/api/v1/signin/link"
 	signinJS       = "/api/v1/signin/page.js"
 	signinCSS      = "/api/v1/signin/page.css"
+	signinLogo     = "/api/v1/signin/logo.svg"
 
 	// bindingCookie ties a code to the browser that asked for it (a base
 	// name, as package cookie takes it).
@@ -118,6 +119,7 @@ func (m *Managed) Register(r *plugin.Registrar) error {
 	for pattern, h := range map[string]http.HandlerFunc{
 		"GET " + signinJS:        m.file("signin/page.js", "text/javascript; charset=utf-8"),
 		"GET " + signinCSS:       m.file("signin/page.css", "text/css; charset=utf-8"),
+		"GET " + signinLogo:      m.file("signin/logo.svg", "image/svg+xml"),
 		"POST " + signinPath:     m.start,
 		"POST " + signinCodePath: m.code,
 		"POST " + signinLinkPath: m.link,
@@ -330,7 +332,7 @@ func (m *Managed) page(w http.ResponseWriter, r *http.Request) {
 	lang := pageLang(r)
 	data := map[string]any{
 		"Lang": lang, "T": signinTexts[lang], "Return": ret, "Fresh": fresh,
-		"Codes": m.mailer() != nil, "JS": signinJS, "CSS": signinCSS,
+		"Codes": m.mailer() != nil, "JS": signinJS, "CSS": signinCSS, "Logo": signinLogo,
 	}
 	if fresh {
 		data["Email"] = u.Email
@@ -338,7 +340,7 @@ func (m *Managed) page(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "+
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "+
 		"form-action 'none'; frame-ancestors 'none'; base-uri 'none'")
 	if err := signinPage.Execute(w, data); err != nil {
 		m.Logger.Error("the sign-in page failed", "err", err)
