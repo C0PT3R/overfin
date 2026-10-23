@@ -32,7 +32,9 @@ func (c *Client) Public(ctx context.Context) (Server, error) {
 // about the libraries is kept but their number. Jellyfin's own folders for
 // playlists and collections aren't libraries.
 func (c *Client) CountLibraries(ctx context.Context, admin Auth) (int, error) {
-	var res struct{ Items []struct{ CollectionType string } }
+	var res struct {
+		Items []struct{ CollectionType string }
+	}
 	if err := c.do(ctx, "libraries", http.MethodGet, "/Library/MediaFolders", admin, nil, &res); err != nil {
 		return 0, err
 	}
