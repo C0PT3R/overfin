@@ -335,5 +335,16 @@ td.actions button + button { margin-left: .35rem; }
 body.setup main { max-width: 40rem; margin: 0 auto; padding-top: 3rem; }
 body.setup .brand { margin-bottom: 1.5rem; padding: 0; }
 body.setup #handover, body.setup #survey { margin-top: 1rem; }
+body.setup section .notice { margin: 1rem 0 0; }
+.wizard-progress { height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+.wizard-progress > div { height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+#where { margin: .4rem 0 1rem; }
+.wizard-foot { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
+.wizard-foot .status { flex: 1; min-width: 10rem; font-size: .88rem; color: var(--muted); }
+.wizard-foot .status.error { color: var(--danger); }
+.copyable { display: flex; gap: .5rem; margin: .5rem 0; }
+.copyable input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: .85rem; }
+ol.how { padding-left: 1.3rem; margin: .75rem 0 1rem; }
+ol.how li { margin: .3rem 0; }
 .center { text-align: center; padding: 4rem 1rem; }
 @media (max-width: 1500px) { .split .hide-medium { display: none; } }

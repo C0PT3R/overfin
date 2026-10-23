@@ -12,51 +12,136 @@
 <body class="setup">
 <main>
   <div class="brand"><img class="logo" src="logo.svg" alt=""><div><strong>Overfin</strong><small>Setup</small></div></div>
-  <section id="form">
+  <div class="wizard-progress" aria-hidden="true"><div id="bar"></div></div>
+  <p class="hint" id="where"></p>
+
+  <!-- One section per step; setup.js shows one at a time. -->
+  <section data-step="code" hidden>
     <div class="card-head"><div>
-      <h2>Set up Overfin</h2>
-      <p>The setup code is in Overfin's log (with Docker: <code>docker logs overfin</code>). Everything is checked before it's saved.</p>
+      <h2>Your setup code</h2>
+      <p>Until it's set up, anyone who reaches this page could set Overfin up for themselves. So it asks for a code only Overfin's log shows: whoever can read that log runs this server.</p>
     </div></div>
+    <p>With Docker, this command prints it:</p>
+    <div class="copyable">
+      <input id="command" readonly spellcheck="false" aria-label="Command">
+      <button id="copy" type="button">Copy</button>
+    </div>
+    <p class="hint">If your container isn't named <code>overfin</code>, change that word. The code changes each time Overfin restarts: use the latest.</p>
     <div class="fields">
       <label class="field full"><span>Setup code</span><input id="code" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX"></label>
-      <label class="field full" id="language-field" hidden><span>Default language</span><select id="language"></select><span class="hint">Of the site, titles and emails. You can offer more in the control panel, under Server.</span></label>
     </div>
-    <div id="jellyfin" hidden>
-      <h3>Jellyfin</h3>
-      <p class="hint">Overfin needs a Jellyfin of its own, on your media. A fresh one, Overfin sets up itself. One already set up, Overfin takes only if you hand it over.</p>
-      <div class="fields">
-        <label class="field full" id="url-field"><span>Jellyfin's address, as Overfin reaches it</span><input id="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.10:8096"><span class="hint">Not localhost: in a container, that's Overfin itself.</span></label>
-        <p class="field full" id="fixed" hidden></p>
-      </div>
-      <div id="handover" hidden>
-        <p class="notice"><span id="found"></span> is already set up. To hand it over to Overfin, sign in as one of its administrators: Overfin uses this login once, to make a key of its own, and doesn't keep it.</p>
-        <div class="fields">
-          <label class="field"><span>Its administrator's username</span><input id="jf-username" autocomplete="off" spellcheck="false"></label>
-          <label class="field"><span>Password</span><input id="jf-password" type="password" autocomplete="off"></label>
-        </div>
-      </div>
-      <div id="survey" hidden>
-        <div class="notice warn">
-          <p>It holds <strong id="survey-users"></strong> and <strong id="survey-libraries"></strong>.</p>
-          <p>From now on, Overfin manages it: the settings it needs are its own, and changes made in Jellyfin itself may be undone. Don't hand over a Jellyfin people use directly.</p>
-          <label class="inline"><input id="dedicated" type="checkbox"> This Jellyfin is dedicated to Overfin.</label>
-        </div>
-      </div>
-    </div>
-    <div id="admin" hidden>
-      <h3>You, the first admin</h3>
-      <div class="fields">
-        <label class="field"><span>Your email</span><input id="email" type="email" autocomplete="username" spellcheck="false"><span class="hint">You sign in with it.</span></label>
-        <label class="field"><span>A password</span><input id="password" type="password" autocomplete="new-password"><span class="hint">At least 10 characters.</span></label>
-      </div>
-    </div>
-    <div class="card-foot"><span id="status" class="status"></span><button id="save" class="primary" type="button">Continue</button></div>
   </section>
-  <section id="done" hidden>
-    <div class="card-head"><div><h2>Done</h2><p id="summary"></p></div><span class="badge ok">Set up</span></div>
-    <p id="next-panel">Overfin is starting. In a few seconds, <a href="/admin/">reload this page</a> to sign in to the control panel.</p>
+
+  <section data-step="language" hidden>
+    <div class="card-head"><div>
+      <h2>Default language</h2>
+      <p>Of the site, titles and emails, for new accounts and before anyone signs in. You can offer more languages later in the control panel, under Server: each account then picks its own.</p>
+    </div></div>
+    <div class="fields">
+      <label class="field full"><span>Default language</span><select id="language"></select></label>
+    </div>
+  </section>
+
+  <section data-step="jellyfin" hidden>
+    <div class="card-head"><div>
+      <h2>Jellyfin</h2>
+      <p>Overfin needs a Jellyfin of its own, on your media: it reads your files and streams them through it. A fresh one, Overfin sets up itself. One already set up, Overfin takes only if you hand it over.</p>
+    </div></div>
+    <div class="fields">
+      <label class="field full" id="url-field"><span>Jellyfin's address, as Overfin reaches it</span><input id="url" autocomplete="off" spellcheck="false" placeholder="http://jellyfin:8096"><span class="hint">Not localhost: in a container, that's Overfin itself.</span></label>
+      <p class="field full" id="fixed" hidden></p>
+    </div>
+    <div id="handover" hidden>
+      <p class="notice"><span id="found"></span> is already set up. To hand it over to Overfin, sign in as one of its administrators: Overfin uses this login once, to make a key of its own, and doesn't keep it.</p>
+      <div class="fields">
+        <label class="field"><span>Its administrator's username</span><input id="jf-username" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>Password</span><input id="jf-password" type="password" autocomplete="off"></label>
+      </div>
+    </div>
+    <div id="survey" hidden>
+      <div class="notice warn">
+        <p>It holds <strong id="survey-users"></strong> and <strong id="survey-libraries"></strong>.</p>
+        <p>From now on, Overfin manages it: the settings it needs are its own, and changes made in Jellyfin itself may be undone. Don't hand over a Jellyfin people use directly.</p>
+        <label class="inline"><input id="dedicated" type="checkbox"> This Jellyfin is dedicated to Overfin.</label>
+      </div>
+    </div>
+    <p class="notice" id="jellyfin-done" hidden></p>
+  </section>
+
+  <section data-step="tmdb" hidden>
+    <div class="card-head"><div>
+      <h2>TMDB <span class="badge plain info">Optional</span></h2>
+      <p>TMDB is where Overfin gets titles' names, synopses, artwork and ratings, in your languages, and what to discover. It's free; you need a key of your own, once.</p>
+    </div></div>
+    <ol class="how">
+      <li><a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">Create a TMDB account</a>, and confirm its email.</li>
+      <li>In your account's <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Settings → API</a>, ask for a developer key: personal use is fine.</li>
+      <li>Copy the <strong>API key</strong> or the <strong>API Read Access Token</strong>, and paste it here.</li>
+    </ol>
+    <div class="fields">
+      <label class="field full"><span>TMDB's key</span><input id="tmdb-key" type="password" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <p class="hint">Skipped, Overfin runs on what Jellyfin knows: fewer details, no ratings for kids profiles, no discovery. You can add a key later in the control panel.</p>
+    <p class="notice" id="tmdb-done" hidden></p>
+  </section>
+
+  <section data-step="introskipper" hidden>
+    <div class="card-head"><div>
+      <h2>Intro Skipper <span class="badge plain info">Optional</span></h2>
+      <p>A Jellyfin plugin that finds each episode's intro and credits, so the player offers "Skip intro" and "Skip credits", and goes to the next episode sooner.</p>
+    </div></div>
+    <p>Overfin adds its repository to its Jellyfin, installs version <span id="skipper-version">12.0.5.0</span> (the one Overfin is tested with, checked before it's installed), and restarts Jellyfin. It takes under a minute. Episodes are then analysed in the background.</p>
+    <p class="hint">It's made by the Intro Skipper project, not by Overfin or Jellyfin.</p>
+    <p class="notice" id="skipper-state" hidden></p>
+  </section>
+
+  <section data-step="seerr" hidden>
+    <div class="card-head"><div>
+      <h2>Requests, with Seerr <span class="badge plain info">Optional</span></h2>
+      <p>With Seerr, people can ask for titles you don't have; with Radarr and Sonarr behind it, those titles arrive by themselves. Overfin gives each account its own Seerr user, and sends their requests through it.</p>
+    </div></div>
+    <ol class="how">
+      <li><a href="https://docs.seerr.dev/" target="_blank" rel="noopener">Install Seerr</a> and run its setup, with a Jellyfin that sees the same media: another one, or Overfin's own once you open its access in the control panel.</li>
+      <li>In Seerr, connect Radarr and Sonarr: they fetch what's requested.</li>
+      <li>In Seerr, set what new users may do: permissions, auto-approval, limits. Every account gets those.</li>
+      <li>Give Overfin Seerr's address and its API key (in Seerr's settings, under General).</li>
+    </ol>
+    <div class="fields">
+      <label class="field"><span>Seerr's address, as Overfin reaches it</span><input id="seerr-url" autocomplete="off" spellcheck="false" placeholder="http://seerr:5055"></label>
+      <label class="field"><span>Its API key</span><input id="seerr-key" type="password" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <p class="hint">You can connect it later in the control panel.</p>
+    <p class="notice" id="seerr-done" hidden></p>
+  </section>
+
+  <section data-step="admin" hidden>
+    <div class="card-head"><div>
+      <h2>You, the first admin</h2>
+      <p>The account you sign in with, to the site and to the control panel.</p>
+    </div></div>
+    <div class="fields">
+      <label class="field"><span>Your email</span><input id="email" type="email" autocomplete="username" spellcheck="false"><span class="hint">You sign in with it.</span></label>
+      <label class="field"><span>A password</span><input id="password" type="password" autocomplete="new-password"><span class="hint">At least 10 characters.</span></label>
+    </div>
+    <p class="notice" id="admin-done" hidden>Your account is made.</p>
+  </section>
+
+  <section data-step="done" hidden>
+    <div class="card-head"><div>
+      <h2 id="done-title">Ready</h2>
+      <p id="done-text">Everything is in place. Finish, and Overfin starts.</p>
+    </div></div>
+    <ul id="skipped" class="hint"></ul>
+    <p id="next-panel" hidden>Overfin is starting. In a few seconds, <a href="/admin/">reload this page</a> to sign in to the control panel.</p>
     <p id="next-site" hidden>Overfin is starting. In a few seconds, <a href="/">sign in</a>.</p>
   </section>
+
+  <div class="wizard-foot">
+    <button id="back" type="button">Back</button>
+    <span id="status" class="status" role="status"></span>
+    <button id="skip" type="button" hidden>Skip for now</button>
+    <button id="next" class="primary" type="button">Next</button>
+  </div>
 </main>
 </body>
 </html>

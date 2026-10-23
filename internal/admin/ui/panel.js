@@ -293,7 +293,7 @@ function folderPicker(pick, close) {
 
 // serverView: what Overfin connects to, each part tested before it's saved.
 async function serverView() {
-  const [jellyfin, transcoding, mail, catalog, seerr, ratings, languages] = await Promise.all([
+  const [jellyfin, transcoding, mail, catalog, seerr, ratings, languages, skipper] = await Promise.all([
     api('GET', '/admin/api/jellyfin').catch(() => null),
     api('GET', '/admin/api/transcoding').catch(() => null),
     api('GET', '/admin/api/mail').catch(() => null),
@@ -301,9 +301,42 @@ async function serverView() {
     api('GET', '/admin/api/seerr').catch(() => null),
     api('GET', '/admin/api/ratings').catch(() => null),
     api('GET', '/admin/api/languages').catch(() => null),
+    api('GET', '/admin/api/intro-skipper').catch(() => null),
   ]);
   show(pageHead('Server', 'What Overfin connects to. Every change is tested before it\'s saved, and applies at once.'),
-    h('div', { class: 'cards' }, jellyfinCard(jellyfin), transcodingCard(transcoding), catalogCard(catalog), mailCard(mail), seerrCard(seerr), languagesCard(languages), tmdbCard(ratings)));
+    h('div', { class: 'cards' }, jellyfinCard(jellyfin), transcodingCard(transcoding), catalogCard(catalog), mailCard(mail), seerrCard(seerr), languagesCard(languages), tmdbCard(ratings), introSkipperCard(skipper)));
+}
+
+// introSkipperCard: Intro Skipper on Overfin's Jellyfin, installed from
+// here; an install shows how it goes.
+function introSkipperCard(sk) {
+  if (!sk) return null;
+  const st = status('');
+  const installed = sk.status.installed;
+  const describe = (s) => (s.installed ? `Version ${s.version}: ${s.state === 'Active' ? 'active' : s.state}.` : 'Not installed.');
+  st.set(describe(sk.status), installed && sk.status.state !== 'Active' ? 'error' : '');
+  const watch = async () => {
+    for (;;) {
+      const now = await api('GET', '/admin/api/intro-skipper');
+      if (!now.progress.running) {
+        if (now.progress.error) throw new Error(now.progress.error);
+        toast('Intro Skipper is installed.');
+        serverView();
+        return;
+      }
+      st.set(now.progress.step || 'Installing…');
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  };
+  const install = !installed && h('button', { class: 'primary', type: 'button', onclick: () => busy(install, async () => {
+    if (!confirm(`Overfin adds Intro Skipper's repository to its Jellyfin, installs version ${sk.version}, and restarts Jellyfin: playback stops for a few seconds. Install it?`)) return;
+    await api('POST', '/admin/api/intro-skipper');
+    await watch();
+  }, (err) => st.set(err.message, 'error')) }, 'Install');
+  if (sk.progress.running) busy(install, watch, (err) => st.set(err.message, 'error'));
+  return card({ title: 'Intro Skipper', badge: installed ? badge(sk.status.state === 'Active' ? 'Installed' : sk.status.state, sk.status.state === 'Active' ? 'ok' : 'warn') : badge('Not installed', 'plain'),
+    description: 'A Jellyfin plugin, by the Intro Skipper project, that finds intros and credits: the player then offers to skip them.' },
+  [], [st, install]);
 }
 
 function inFileCard(title, text) {
@@ -590,7 +623,8 @@ function tmdbCard(rt) {
   const keyHint = rt.key.inEnv
     ? 'Set in Overfin\'s environment (OVERFIN_TMDB_KEY): change it there.'
     : h('span', {}, 'Free, once: sign up at ', h('a', { href: 'https://www.themoviedb.org/signup', target: '_blank', rel: 'noopener' }, 'themoviedb.org'),
-      ', then in your account\'s Settings → API, ask for a developer key (personal use). Paste the API key or the API Read Access Token here.');
+      ', then in your account\'s ', h('a', { href: 'https://www.themoviedb.org/settings/api', target: '_blank', rel: 'noopener' }, 'Settings → API'),
+      ', ask for a developer key (personal use is fine).');
   let names = null;
   try { names = new Intl.DisplayNames([navigator.language, 'en'], { type: 'region' }); } catch { names = null; }
   const countries = rt.countries.length ? rt.countries : [rt.country];
@@ -603,6 +637,7 @@ function tmdbCard(rt) {
     ['home', 'Watchable at home']].map(([v, t]) => h('option', { value: v }, t)));
   shown.value = rt.shown;
   const describe = (r) => {
+    if (!r.source && !r.key.set) return ['Without TMDB, no title can be rated, so kids profiles see nothing.', 'error'];
     if (!r.source) return ['TMDB can\'t be reached: no title can be rated, so kids profiles see nothing.', 'error'];
     if (!r.countries.length) return ['Fetching the rating scales from TMDB… Kids profiles see nothing until titles are rated.', ''];
     return [`${r.fetched.toLocaleString()} of ${r.total.toLocaleString()} films and series rated.`, ''];
@@ -624,7 +659,8 @@ function tmdbCard(rt) {
   return card({ title: 'TMDB', badge: rt.source ? badge('Reachable', 'ok') : badge(rt.key.set ? 'Unreachable' : 'No key', 'err'),
     description: 'Where titles, artwork and ratings come from. Without it, they come from Jellyfin only.' },
   [
-    setting('Key', keyHint, h('div', { class: 'row' }, key, testKey, removeKey)),
+    setting('Key', rt.key.inEnv ? keyHint : 'The API key or the API Read Access Token.', h('div', { class: 'row' }, key, testKey, removeKey)),
+    !rt.key.inEnv && !rt.key.set && h('p', { class: 'hint' }, keyHint),
     keySt,
     setting('Ratings country', 'Kids profiles\' limits use this country\'s ratings. A title with none there is hidden from them.', country),
     setting('Titles shown', 'Of those no library has, in discovery and requests. A title a library has is always shown.', shown),
