@@ -36,11 +36,11 @@ email = ""                      # optional: Let's Encrypt's contact
 # media; keeping it off the internet is recommended. A fresh Jellyfin,
 # Overfin sets up itself when it starts, and makes its own key there, kept
 # sealed in the database. One already set up, Overfin takes only if you hand
-# it over on the setup page, with its administrator's login. Without an
-# address here, the setup page asks for it. The page needs the one-time code
-# from Overfin's log; it's at /admin/ on the site's own address with managed
-# sign-in (where it also makes the first admin), and on the control
-# panel's.
+# it over in the setup wizard, with its administrator's login. Without an
+# address here (or in OVERFIN_JELLYFIN_URL), the wizard asks for it. The
+# wizard needs the one-time code from Overfin's log; it's at /admin/ on the
+# site's own address with managed sign-in (where it also makes the first
+# admin), and on the control panel's.
 url = "http://192.0.2.10:8096"
 
 [identity]

@@ -264,6 +264,10 @@ provider.
    ~~Simpler: Pocket ID instead~~ done: Caddy, Overfin and Pocket ID
    (passkeys), Pocket ID set up by Overfin itself, its settings all in
    `compose.yaml` and `.env`. Overfin itself never handles passwords.
+   *Since 0.4:* Overfin's own sign-in is the default and it does HTTPS
+   itself, so the bundle is Overfin and its own Jellyfin, nothing else:
+   Caddy, Pocket ID and `setup.sh` are gone; identity providers stay a
+   setting.
 3. **A first-run setup page**, on the private panel address: ~~Jellyfin's
    address and key~~ done, tested before they're saved and kept in the
    database (the key sealed), opened only with a one-time code printed in
@@ -277,6 +281,9 @@ provider.
    Pocket ID those anyway and writes them for Overfin too, and by hand the
    page could verify neither the client secret nor the reverse proxy's
    address.
+   *Since 0.4:* a wizard, one step per screen (the code, the default
+   language, Jellyfin, TMDB, Intro Skipper, Seerr, the first admin), each
+   saved as it's done, and each also in the control panel.
 4. ~~**Overfin serves the site itself**~~ Done: the core serves the site
    its build includes; the official build bundles overfin-web (the former
    demo site, now
@@ -299,6 +306,20 @@ provider.
    database it protects, for a new database only: an existing database
    without its key is a lost key, so Overfin stops and says how to recover.
    Operators who want more still supply their own.
+
+## 0.4: Overfin's own Jellyfin (done)
+
+Jellyfin is Overfin's backend, not a server it shares (SECURITY.md rule
+67): Overfin sets up a fresh one itself, or takes one only when its
+administrator hands it over, keeps the settings it needs there and sets
+them back on every start, and never changes any other Jellyfin. Access to
+Jellyfin itself is closed, and opened from the panel when needed. Also in
+it: libraries from the panel, the GPU chosen from a list and tested on the
+server's own videos, Intro Skipper installed on request (a checked
+version), bringing history over from another Jellyfin (copy only),
+languages per account (texts per language), invitation links on the
+site's own address, one theme for every page with light and dark per
+profile, and the setup wizard.
 
 ## Milestone 4: Overfin owns people, Jellyfin plays media
 
@@ -382,9 +403,8 @@ own do), so a title looks the same wherever it is.
    from kids, and a playback for anything not in the catalog is refused.
    Jellyfin's own parental limits are no longer used: its ratings come from
    other sources and would disagree with Overfin's.
-   *Ratings: done.* Overfin's own, from TMDB (itself, with the Overfin
-   project's own key, shipped with Overfin, so operators never need one; or
-   through Seerr):
+   *Ratings: done.* Overfin's own, from TMDB (itself, with the operator's
+   own token since 0.4; or through Seerr):
    the operator picks the ratings country, each kids profile has a film
    ceiling and a series ceiling on that country's scales, and every
    certification a title has there must be within it. *Libraries and hidden
@@ -631,9 +651,9 @@ nothing beyond what that needs.
   time and once a week. TMDB's terms are kept: its data is kept five
   months at most without being fetched again (six allowed), all of it is
   deleted when Seerr is disconnected, and the site shows TMDB's
-  attribution. ~~TMDB itself~~ Done: with the Overfin project's own key,
-  shipped with Overfin as Jellyfin and Seerr ship theirs, so discovery is
-  always on, and Seerr is a second source (and, later, requests). Kids
+  attribution. ~~TMDB itself~~ Done: with the operator's own read access
+  token (since 0.4; no key is shipped, so one server's use never puts
+  another's at risk), and Seerr is a second source (and, later, requests). Kids
   profiles see what their ceilings allow (milestone 4,
   step 3). Next: search, curated lists.
 - **Discovery**: trending, popular and upcoming titles, search, a title's

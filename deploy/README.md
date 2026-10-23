@@ -1,130 +1,87 @@
-# Running Overfin, all in one
+# Overfin and its Jellyfin, on one machine
 
-This folder runs Overfin with everything it needs on one machine: Caddy for
-HTTPS and Pocket ID for logins. People sign in with a passkey (their phone,
-their computer, a security key): no passwords. Overfin sets Pocket ID up
-by itself, so there's nothing to click through there.
+This folder runs Overfin with a Jellyfin of its own: Overfin sets that
+Jellyfin up on its first start, keeps the settings it needs there, and is
+the only one that talks to it. Nobody signs in to Jellyfin itself.
 
 ## Before you start
 
-- A machine with Docker and Docker Compose, ports **80 and 443** open to the
-  internet.
-- Two names pointing to it: your site (`example.org`) and its sign-in
-  (`auth.example.org`).
-- A **Jellyfin 12** server this machine can reach, and **not** reachable
-  from the internet. In Jellyfin's dashboard, make an API key for Overfin.
-- Optional: an SMTP server for emails. With one, people who lost their
-  passkey can sign in with a code sent by email.
+- A machine with Docker and Docker Compose, with your films and series on
+  it (or mounted on it).
+- For the internet: a domain pointing to the machine, and ports **80 and
+  443** open to it. Without one, Overfin serves plain http, for your LAN.
 
-## Setting up
-
-Get this folder from the release you want, then run the setup:
+## Starting it
 
 ```sh
-git clone --depth 1 --branch v0.2.0 https://github.com/overfin/server overfin
-cd overfin/deploy
-./setup.sh
+mkdir overfin && cd overfin
+curl -fsSLO https://raw.githubusercontent.com/overfin/server/v0.4.0/deploy/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/overfin/server/v0.4.0/deploy/.env.example
+```
+
+In `.env`, set `MEDIA_DIR` to your media folder, and `OVERFIN_DOMAIN` to
+your domain if you have one. Then:
+
+```sh
 docker compose up -d
 ```
 
-`setup.sh` asks for the two names, your site's name, your email and, if
-you want emails, the SMTP server. Before writing anything, it shows a
-summary, with where each name points, to confirm. It generates every
-secret into `.env` (readable by you only: keep a copy somewhere safe) and
-writes `overfin.toml`. Made a mistake? Run `./setup.sh` again: it asks the
-same questions with your answers as defaults and keeps every secret; then
-`docker compose up -d`. The site people use is overfin-web, Overfin's own
-web client, served by Overfin itself; to serve your own client instead,
-see `[site]` in Overfin's README.
+On Fedora, RHEL and other SELinux systems, Jellyfin can't read the media
+folder until it's labeled for containers: add `,z` after `:ro` on the media
+line of `compose.yaml`.
 
-The image is Overfin's release set in `.env` (`OVERFIN_IMAGE`); from a
-checkout of the repository, `docker compose build overfin` builds it
-instead.
+## Setting it up
 
-After a minute or two:
-
-1. **Connect Jellyfin**, in Overfin's setup page, on the control panel's
-   address (see below: `ssh -L 8081:localhost:8081 your-server`, then
-   `http://localhost:8081`). It asks for the setup code, printed in
-   `docker compose logs overfin`, Jellyfin's address and an API key made in
-   its dashboard. Jellyfin's address is the one Overfin's container reaches
-   it by: its address on your network, never `localhost` (inside the
-   container, that's Overfin itself). Everything is tested before it's
-   saved, and Overfin starts right after. Until then, the site says it's
-   being set up. Later, the control panel's Settings change Jellyfin's
-   address or key.
-2. **Sign in for the first time.** Overfin made your account in Pocket ID,
-   with the email you gave. Get a sign-in link (it works once, for an hour):
-
-   ```sh
-   docker compose exec -u 1000:1000 pocket-id /app/pocket-id one-time-access-token you@example.org
-   ```
-
-   Open it, and add a passkey when Pocket ID asks. You're Pocket ID's admin,
-   and Overfin's.
-3. **Invite people**, from the control panel's Invites tab. An invitation
-   link leads to Pocket ID, where the person makes their account and their
-   passkey; then they open the site (it's also on Pocket ID's page, under
-   "My apps"). Sign-ups are only by invitation.
-4. **Open `https://example.org`** and log in.
-
-## The control panel
-
-Overfin's control panel only answers on the machine itself. From your
-computer:
+Open the machine's address in a browser. The setup wizard asks first for a
+one-time code from Overfin's log, so nobody else can set your server up
+before you do. This prints it:
 
 ```sh
-ssh -L 8081:localhost:8081 your-server
+docker logs overfin | grep -o '"code":"[^"]*' | tail -1 | cut -d'"' -f4
 ```
 
-then open `http://localhost:8081` and sign in. To let someone else in, add
-them to the `overfin-admins` group in Pocket ID (its admin pages, at
-`https://auth.example.org`).
+The code changes each time Overfin restarts. Then the wizard asks, one step
+at a time: the default language, a TMDB token (it says how to get one;
+skippable), Intro Skipper (skippable), Seerr (skippable), and your email
+and a password, as the first admin.
 
-## What's where
+Then, in the control panel (`/admin/`):
 
-| | |
-| --- | --- |
-| `compose.yaml` | The three containers and their network |
-| `Caddyfile` | HTTPS for the site (served by Overfin) and the sign-in |
-| `.env`, `overfin.toml` | Written by `setup.sh`; private to this install |
+- **Libraries**: add yours, with folders under `/media`, where the compose
+  file puts `MEDIA_DIR`.
+- **Server, Email**: an SMTP server, so people can sign in with a code sent
+  by email. Without one, they use passwords, or sign-in links you make.
+- **Server, Transcoding**: your GPU, once Jellyfin has it (below).
+- **People**: add them, or switch invitations on.
 
-At each start, Overfin makes sure Pocket ID has its login client (with its
-secret and return addresses) and the `overfin-admins` group; it makes your
-account only while Pocket ID has nobody. Pocket ID's settings all come from
-`compose.yaml` and `.env`, not from its admin pages: sign-ups only by
-invitation, emails when an SMTP server is set, and no usage reports sent to
-Pocket ID's makers.
+## A GPU for converting videos
 
-Each container receives only the secrets it needs. Nothing gets the Docker
-socket.
+Uncomment the lines for yours under `jellyfin` in `compose.yaml` (Intel or
+AMD: `/dev/dri`; NVIDIA: the `deploy` block, with the NVIDIA Container
+Toolkit installed), run `docker compose up -d`, then choose it in the
+control panel and test it on your own videos.
 
-## Upgrading and backups
+## Looking inside Jellyfin
 
-Versions are set in `.env` (`OVERFIN_IMAGE`, `POCKET_ID_TAG`, `CADDY_TAG`).
-Change one, then `docker compose up -d`. Read Pocket ID's release notes
-before a major upgrade.
+Jellyfin publishes no port: only Overfin reaches it, on this project's own
+network. To look inside, open access in the control panel (Server,
+Jellyfin), which gives Overfin's administrator account there a new
+password, shown once. Then uncomment Jellyfin's `ports:` line and run
+`docker compose up -d`: it publishes Jellyfin on this machine only (reach
+it with `ssh -L 8096:localhost:8096 <the machine>`), or on your LAN if you
+put the machine's LAN address instead. Changes made there may break
+Overfin, or be undone by it. Close access again from the panel when you're
+done.
 
-Back up `.env`, `overfin.toml` and the Docker volumes (`overfin-data`,
-`overfin-secrets`, `pocket-id-data`). `overfin-secrets` holds the secret
-key Overfin generated on its first start: without it, what Overfin stores
-can't be read. Keep its copy apart from the others. Pocket ID's data is
-encrypted with `POCKET_ID_ENCRYPTION_KEY`, in `.env`: keep it too.
+## Updating
 
-## From Authentik
+Set the new release's images in `compose.yaml` (or take the release's
+`compose.yaml`), then `docker compose pull && docker compose up -d`.
+Overfin migrates its database by itself. Jellyfin's version comes with
+Overfin's releases: keep the one the compose file names.
 
-Earlier versions of this folder ran Authentik. `setup.sh` won't touch such
-a folder: moving people over means matching each Authentik account to a
-Pocket ID one, by email, before Overfin's accounts can follow. Keep the
-Authentik version running until that's done.
+## Backups
 
-## If something's off
-
-- `docker compose exec overfin /overfin -check` tests the setup (the
-  secret key, Jellyfin and its key, the sign-in) and says in plain words
-  what's wrong, changing nothing. If Overfin isn't running,
-  `docker compose run --rm --no-deps overfin -check` does the same.
-- `docker compose logs -f overfin` (or `pocket-id`, `caddy`).
-- The sign-in link expired, or was used? Run the command again.
-- Caddy needs both names to point to this machine, with ports 80 and 443
-  open, to get its certificates.
+`overfin-secrets` holds Overfin's secret key, `overfin-data` everything
+else; `jellyfin-config` is Jellyfin's. Back the secret key up apart from
+the rest.

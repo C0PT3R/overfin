@@ -7,18 +7,21 @@ profiles, kids limits that hold, invitations, requests and a clean web app.
 Share your library with family and friends without putting Jellyfin itself
 on the internet, and without giving anyone a Jellyfin account.
 
-It's one container. Start it, open it in a browser, and its setup page asks
+Overfin comes with a Jellyfin of its own, in one compose file. Tell it where
+your media is, start it, open it in a browser, and its setup wizard asks
 for the rest.
 
 ```sh
-docker run -d --name overfin -p 8080:8080 \
-  -v overfin-data:/data -v overfin-secrets:/secrets \
-  ghcr.io/overfin/overfin:0.3.0
+mkdir overfin && cd overfin
+curl -fsSLO https://raw.githubusercontent.com/overfin/server/v0.4.0/deploy/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/overfin/server/v0.4.0/deploy/.env.example
+# set MEDIA_DIR in .env to your films and series, then:
+docker compose up -d
 ```
 
-Then open `http://<the machine>:8080`. Getting it on the internet with
-HTTPS, behind your own proxy, or with your own identity provider: see
-[Running it](#running-it).
+Then open `http://<the machine>`. Getting it on the internet with HTTPS,
+behind your own proxy, with a Jellyfin you run yourself, or with your own
+identity provider: see [Running it](#running-it).
 
 <p>
   <img src="docs/screenshots/home.jpg" alt="The home page: a slideshow of titles over rows of trending films" width="72%">
@@ -44,20 +47,29 @@ HTTPS, behind your own proxy, or with your own identity provider: see
   title your libraries don't have can be requested (with Seerr).
 - **Watching in the browser**: played as is whenever the browser can,
   subtitles, audio tracks, quality choice, seek previews, skipping intros
-  (when Jellyfin has their markers), the next episode lined up, and
-  picking up where they left off on any device.
+  and credits (with Intro Skipper, which the setup offers to install), the
+  next episode lined up, and picking up where they left off on any device.
+- **Their language and their look**: each account picks its language among
+  those you offer (the site, titles' names and synopses, emails), and each
+  profile light, dark, or the device's.
 - **Continue watching, a watchlist, favorites and watched marks** per
   profile; and the right to download what's kept about them, or delete it.
 
 **For you, running it**
 
-- **One container**: HTTPS by itself (Let's Encrypt) when you give it a
-  domain, behind your own reverse proxy, or plain http on a LAN.
+- **Overfin and its own Jellyfin, in one compose file**: Overfin sets
+  Jellyfin up and keeps its settings, and nothing else talks to it. HTTPS
+  by itself (Let's Encrypt) when you give it a domain, behind your own
+  reverse proxy, or plain http on a LAN.
+- **A setup wizard**, one step at a time: the default language, TMDB,
+  Intro Skipper, Seerr, and you, its first admin.
 - **A control panel**: people and their accounts, invitations, templates
-  (how many streams and profiles an account gets), limits, email, Jellyfin
-  and Seerr connections, fixing titles Jellyfin matched wrong.
-- **Bringing people over** from Jellyfin, their watch history included,
-  with their old username and password, once.
+  (how many streams and profiles an account gets), limits, languages,
+  libraries, the GPU that converts videos (tested on your own files),
+  email, Seerr, fixing titles Jellyfin matched wrong.
+- **Bringing people over** from another Jellyfin, their watch history
+  included, with their old username and password, once. Nothing changes on
+  that server.
 - **Your own identity provider** instead of Overfin's sign-in, if you have
   one: OpenID Connect (Authentik, Pocket ID…) or a proxy's forward auth.
 - **An API** for your own apps, and a key-protected one for tools such as
@@ -105,35 +117,74 @@ The main gaps (details in [ROADMAP.md](ROADMAP.md)):
 - A live view of who's watching.
 - Email notices (sign-in codes are there).
 - SDKs other than JavaScript.
-- Jellyfin 10.11 support.
 
 The API specification also describes endpoints that aren't served yet; they
 are marked `x-status: planned`.
 
 ## Running it
 
-You need a **Jellyfin 12** server, ideally not reachable from the internet
-(see [SECURITY.md](SECURITY.md), Deployment), with an API key made in its
-dashboard, and **Docker** (or Go 1.26). Overfin uses the key only to manage
-its own Jellyfin account, never to browse or play.
+You need **Docker** with Compose, and your media on the same machine.
+Overfin needs a **Jellyfin of its own** (Jellyfin 12): the compose file
+runs one, which Overfin sets up by itself on its first start, and manages
+from then on. A Jellyfin you already use stays yours and untouched: see
+[Your own Jellyfin](#your-own-jellyfin).
 
-**1. Run it** with the command at the top: no configuration file is needed.
-(The version from the [releases](https://github.com/overfin/server/releases);
-`docker build -t overfin .` builds it from source instead.)
+**1. Start it** with the commands at the top. [.env](deploy/.env.example)
+has two settings: `MEDIA_DIR`, your films and series (Jellyfin only reads
+them), and `OVERFIN_DOMAIN`, optional (see below). On Fedora, RHEL and
+other SELinux systems, add `,z` after `:ro` on the media line of
+`compose.yaml`, so Jellyfin may read the folder.
 
-**2. Set it up in your browser.** Open `http://<the machine>:8080`: the
-setup page asks for the one-time code in Overfin's log
-(`docker logs overfin`), Jellyfin's address and API key, and your email and
-a password, for you, its first admin. Then sign in.
+**2. Set it up in your browser.** Open `http://<the machine>`. The setup
+wizard first asks for a one-time code, so nobody else can set up your
+server before you do; this prints it:
+
+```sh
+docker logs overfin | grep -o '"code":"[^"]*' | tail -1 | cut -d'"' -f4
+```
+
+Then, one step at a time: the default language, a TMDB token (free; the
+wizard says how to get one, or skip it), Intro Skipper (optional), Seerr
+(optional), and your email and a password, for you, its first admin.
+
+**3. Add your libraries** in the control panel (`/admin/`, Libraries), with
+folders under `/media`, where the compose file puts `MEDIA_DIR`.
 
 That's all. People sign in with their email: with a code Overfin sends
 there, or a password they set. Without an email server, they sign in with
-a password, or with a one-time sign-in link you make for them. The control
-panel is at `/admin/`, for admins: add people there, connect an email
-server (Settings, Email), switch invitations on.
+a password, or with a one-time sign-in link you make for them. In the
+control panel: add people, connect an email server (Server, Email), switch
+invitations on, choose your GPU (Server, Transcoding; the compose file
+says how to give Jellyfin one).
 
 Overfin keeps its secret key in `overfin-secrets` and everything else in
-`overfin-data`: back both up, apart.
+`overfin-data`: back both up, apart. Jellyfin's data is in
+`jellyfin-config`.
+
+**Jellyfin itself** is closed: nobody signs in to it, and the compose file
+publishes no port for it. To look inside, open access in the control panel
+(Server, Jellyfin), and uncomment its `ports:` line, which publishes it on
+the machine itself only (reach it through an SSH tunnel), or on your LAN
+address. Changes made there may break Overfin, or be undone by it.
+
+### Your own Jellyfin
+
+To run Overfin alone, next to a Jellyfin you run yourself:
+
+```sh
+docker run -d --name overfin -p 8080:8080 \
+  -v overfin-data:/data -v overfin-secrets:/secrets \
+  ghcr.io/overfin/overfin:0.4.0
+```
+
+and give the wizard Jellyfin's address (or set `OVERFIN_JELLYFIN_URL`).
+That Jellyfin must be **Overfin's alone**: Overfin sets the settings it
+needs there, and sets them back on every start. A fresh Jellyfin, Overfin
+sets up itself. One already set up, it takes only if you hand it over: the
+wizard asks for one of its administrators' login, used once, shows what
+that server holds, and waits for you to confirm it's dedicated to Overfin.
+A Jellyfin people use directly is never a good fit: run a second one for
+Overfin, on the same media folders.
 
 ### On the internet, with HTTPS
 
@@ -144,8 +195,11 @@ domain at the machine, open ports 80 and 443, and run it with your domain:
 docker run -d --name overfin -p 80:8080 -p 443:8443 \
   -e OVERFIN_DOMAIN=media.example.org \
   -v overfin-data:/data -v overfin-secrets:/secrets \
-  ghcr.io/overfin/overfin:0.3.0
+  ghcr.io/overfin/overfin:0.4.0
 ```
+
+With the compose file, set `OVERFIN_DOMAIN` in `.env` instead: it already
+publishes ports 80 and 443.
 
 It renews the certificate by itself, and sends plain-http visitors to
 HTTPS. The setup code keeps a fresh install yours, but do the setup right
@@ -204,9 +258,8 @@ its pages private.
 ### Signing in through your identity provider
 
 Instead of Overfin's own sign-in, people can sign in through an OpenID
-Connect provider (`identity.mode = "oidc"`), or a reverse proxy's forward
-auth (`"forwardauth"`). [deploy/](deploy) runs Overfin with Caddy and
-Pocket ID (passkey logins) in one compose file, set up by a script.
+Connect provider (`identity.mode = "oidc"`), such as Authentik or Pocket
+ID, or a reverse proxy's forward auth (`"forwardauth"`).
 
 By hand: make a confidential OpenID client at your provider with the
 redirect URL `https://media.example.org/api/v1/auth/callback`, allowed to
@@ -269,13 +322,14 @@ admin group there, and invitation links lead to a one-person sign-up link
 
 ### Moving people over from Jellyfin
 
-Switch migration on in the control panel, let everyone sign in (with
-Overfin's own sign-in, add them in the panel or invite them; with an
-identity provider, give them a login there), and announce a date. On their first visit, people choose to bring
-their previous account and enter its old username and password once. By
-default that's a move: the old login and Jellyfin apps stop working for them
-at once. Mode "link" keeps the old login working until you press "Move
-linked accounts" in its tab. Nobody loses anything by being late.
+Switch migration on in the control panel and give it your other Jellyfin's
+address, let everyone sign in (with Overfin's own sign-in, add them in the
+panel or invite them; with an identity provider, give them a login there),
+and announce it. On their first visit, people choose to bring their history
+and enter their old username and password once: what they watched, where
+they stopped and their favorites are copied into their new account. Nothing
+changes on your other server, so both can run side by side for as long as
+you like.
 
 Overfin never names Jellyfin to the people using your site: speak of their
 "previous account", or your old service's name.
@@ -293,22 +347,26 @@ watchlist are always on; the rest is switched on in the control panel.
 | Invitations | Invitations and invite templates | Switch |
 | Migration | Bringing Jellyfin accounts over | Switch |
 | Catalog | The library's index, matched to TMDB | Always on |
-| Discovery | Trending, popular and upcoming titles, from TMDB | Always on; kids profiles see what their ceilings allow |
+| Discovery | Trending, popular and upcoming titles, from TMDB | With a TMDB token or Seerr; kids profiles see what their ceilings allow |
 | Requests | Asking for titles no library has, through Seerr | When Seerr is connected |
 
 Everything people see about a title, its text and its images, comes from
-TMDB, in the language set in the panel; Jellyfin's own metadata and images
-are never shown (being moved over: ROADMAP.md, milestone 5). TMDB's data
-comes from TMDB itself, with the Overfin project's own key, shipped with
-Overfin as Jellyfin and Seerr ship theirs: you need no key of your own.
+TMDB, in each account's language. For that, Overfin needs **your own TMDB
+token** (TMDB's "API Read Access Token": free, and the setup wizard says
+how to get one), given in the wizard, the control panel (Server, TMDB) or
+`OVERFIN_TMDB_TOKEN`. No token is shipped with Overfin: each server uses
+its own. Without one, Overfin runs on what Jellyfin knows: fewer details,
+no discovery, and kids profiles see nothing, since their limits need
+TMDB's age ratings.
+
 Overfin asks TMDB by itself, by title, never saying who's asking; browsers
 never contact TMDB. It keeps TMDB's data as its terms allow (six months at
 most), and overfin-web shows TMDB's attribution. The pictures of the
 titles your libraries have are kept on disk ahead of time, in `artwork/`
 next to the database, so browsing the library never waits for TMDB; the
-others are fetched when first shown. The key is TMDB's free,
-non-commercial one: a site that charges for access needs TMDB's commercial
-terms. Seerr, when connected, is a second source, and takes requests.
+others are fetched when first shown. TMDB's free API is for non-commercial
+use: a site that charges for access needs TMDB's commercial terms. Seerr,
+when connected, is a second source, and takes requests.
 
 Each account asks Seerr through a Seerr user of its own, which Overfin makes
 and names after the account (the name the control panel shows), so Seerr's
