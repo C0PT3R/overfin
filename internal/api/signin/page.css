@@ -34,5 +34,17 @@ p { margin: 0; }
 .error { color: var(--danger); margin-top: 1rem; }
 .error:empty { display: none; }
 [hidden] { display: none !important; }
-.brand { display: flex; align-items: center; gap: .55rem; margin-bottom: 1.4rem; font-weight: 800; font-size: 1.15rem; }
-.brand img { width: 2.4rem; height: 2.4rem; }
+.brand { display: flex; align-items: center; margin-bottom: 1.4rem; font-weight: 800; font-size: 1.15rem; }
+/* Overfin's banner, or the operator's: as tall as the logo was, never too
+   wide. With a banner for light pages, each shows on its own. */
+.brand svg, .brand img { display: block; height: 2.4rem; width: auto; max-width: 100%; object-fit: contain; object-position: left; }
+.brand img.light { display: none; }
+:root[data-theme="light"] .brand img.light { display: block; }
+:root[data-theme="light"] .brand img.dark { display: none; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .brand img.light { display: block; }
+  :root:not([data-theme]) .brand img.dark { display: none; }
+}
+.brand .name { font-size: 1.4rem; }
+.powered { display: flex; align-items: center; justify-content: center; gap: .45rem; margin-top: 1.6rem; font-size: .8rem; color: var(--muted); }
+.powered svg { height: 1.15rem; width: auto; color: var(--text); }

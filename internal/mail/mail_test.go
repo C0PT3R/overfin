@@ -77,6 +77,19 @@ func TestSend(t *testing.T) {
 	}
 }
 
+// The site's own name, when given, is the sender's.
+func TestSenderName(t *testing.T) {
+	port, got := fakeSMTP(t)
+	s := &Sender{Host: "127.0.0.1", Port: port, TLS: "none", From: "Movies <noreply@example.org>",
+		Name: func() string { return "zecopter" }}
+	if err := s.Send(context.Background(), "someone@example.org", "Votre code de connexion", "Code : 123456"); err != nil {
+		t.Fatal(err)
+	}
+	if all := <-got; !strings.Contains(all, "From: \"zecopter\" <noreply@example.org>") {
+		t.Errorf("sender:\n%s", all)
+	}
+}
+
 func TestRefusesBadInput(t *testing.T) {
 	s := &Sender{Host: "127.0.0.1", Port: 1, TLS: "none", From: "noreply@example.org"}
 	for _, to := range []string{"", "a@b.org, c@d.org", "Name <a@b.org>", "x\r\nBcc: e@f.org"} {

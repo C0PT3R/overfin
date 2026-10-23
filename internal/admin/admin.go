@@ -233,6 +233,11 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
 	mux.HandleFunc("PUT /admin/api/tmdb-token", p.signedIn(p.setTMDBToken))
+	mux.HandleFunc("GET /admin/api/branding", p.signedIn(p.branding))
+	mux.HandleFunc("PUT /admin/api/branding", p.signedIn(p.setBranding))
+	mux.HandleFunc("GET "+brandingFiles+"{kind}", p.signedIn(p.brandingFile))
+	mux.HandleFunc("PUT "+brandingFiles+"{kind}", p.signedIn(p.uploadBrandingFile))
+	mux.HandleFunc("DELETE "+brandingFiles+"{kind}", p.signedIn(p.removeBrandingFile))
 	mux.HandleFunc("GET /admin/api/intro-skipper", p.signedIn(p.introSkipper))
 	mux.HandleFunc("POST /admin/api/intro-skipper", p.signedIn(p.installIntroSkipper))
 	mux.HandleFunc("DELETE /admin/api/intro-skipper", p.signedIn(p.removeIntroSkipper))
@@ -357,15 +362,21 @@ func sameOrigin(next http.Handler) http.Handler {
 				return
 			}
 		}
-		// Requests with a body must be JSON, which HTML forms can't send.
-		// DELETE has no body, and browsers never send it cross-site
+		// Requests with a body must be JSON, which HTML forms can't send,
+		// except branding files, which carry an image type (neither can a
+		// form). DELETE has no body, and browsers never send it cross-site
 		// without the server's consent.
 		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
-			if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+			mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			switch {
+			case mt == "application/json":
+				r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+			case strings.HasPrefix(mt, "image/") && r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, brandingFiles):
+				r.Body = http.MaxBytesReader(w, r.Body, maxBrandingFile)
+			default:
 				http.Error(w, "Requests must be JSON", http.StatusUnsupportedMediaType)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		}
 		next.ServeHTTP(w, r)
 	})

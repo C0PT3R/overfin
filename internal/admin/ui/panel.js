@@ -55,6 +55,8 @@ const icons = {
   key: ['M15 7a4 4 0 1 1-3.87 5H4v3h3v3h3v-3h1.13', 'M15.5 8.5h.01'],
   puzzle: ['M10 4h4v3a2 2 0 1 0 4 0V4h2v6h-3a2 2 0 1 0 0 4h3v6h-6v-3a2 2 0 1 0-4 0v3H4v-6h3a2 2 0 1 0 0-4H4V4h6z'],
   folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
+  palette: ['M12 3a9 9 0 1 0 0 18c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1.1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.3-4-7.8-9-7.8z',
+    'M7.5 10.5h.01', 'M12 7.5h.01', 'M16.5 10.5h.01'],
 };
 
 async function api(method, path, body) {
@@ -287,6 +289,78 @@ function folderPicker(pick, close) {
   typed.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); open(typed.value); } });
   open('');
   return box;
+}
+
+// ---- Branding ------------------------------------------------------------------
+
+// The files branding may have: what each is for.
+const brandingKinds = [
+  ['logo', 'Logo', 'Square: the icon in browser tabs. Without one, Overfin\'s.'],
+  ['banner-dark', 'Banner', 'Your logo and your name as one picture, with a transparent background, for dark pages: about 4:1, at least 64 pixels tall. It\'s shown as tall as the header\'s logo, never wider than a few centimeters. Without one, your name shows as text.'],
+  ['banner-light', 'Banner for light pages', 'Optional: when the banner doesn\'t suit light pages. Without one, the banner shows on both.'],
+];
+
+// brandingView: the operator's own name, logo and banners, instead of
+// Overfin's, wherever people look. The control panel stays Overfin's.
+async function brandingView() {
+  let b = await api('GET', '/admin/api/branding');
+  const draw = () => {
+    const st = status('');
+    const on = h('input', { type: 'checkbox', 'aria-label': 'Use your own branding' });
+    on.checked = b.on;
+    const name = h('input', { autocomplete: 'off', spellcheck: 'false', maxlength: 40, value: b.name, 'aria-label': 'Name' });
+    const save = h('button', { class: 'primary', type: 'button', onclick: () => busy(save, async () => {
+      b = await api('PUT', '/admin/api/branding', { on: on.checked, name: name.value });
+      toast(b.on ? 'Your branding is on.' : 'Overfin\'s branding is back.');
+      draw();
+    }, (err) => st.set(err.message, 'error')) }, 'Save');
+    const main = card({ title: 'Your branding', badge: b.on ? badge('On', 'ok') : badge('Overfin\'s', 'plain'),
+      description: 'On, your site shows your name, logo and banner instead of Overfin\'s: the site, its sign-in page, emails\' sender. It then says "Powered by Overfin", discreetly. The control panel stays Overfin\'s.' },
+    [setting('Use your own branding', 'Off, everything shows Overfin\'s, and your files stay here unused.', on),
+      setting('Name', 'Your site\'s name: in browser tabs, and as the sender of its emails.', name)],
+    [st, save]);
+
+    const fileRows = brandingKinds.map(([kind, label, hint]) => {
+      const rst = status('');
+      const url = b.files[kind];
+      const picker = h('input', { type: 'file', accept: 'image/*', hidden: true });
+      const upload = h('button', { type: 'button', onclick: () => picker.click() }, url ? 'Replace…' : 'Upload…');
+      picker.addEventListener('change', () => busy(upload, async () => {
+        const file = picker.files[0];
+        if (!file) return;
+        const type = file.type || (file.name.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : '');
+        const res = await fetch(`/admin/api/branding/files/${kind}`, { method: 'PUT', headers: { 'Content-Type': type }, body: file });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(out.detail || (res.status === 415 ? 'That isn\'t an image.' : `HTTP ${res.status}`));
+        b = out;
+        toast(`${label} saved.`);
+        draw();
+      }, (err) => rst.set(err.message, 'error')));
+      const remove = url && h('button', { type: 'button', class: 'danger', onclick: () => busy(remove, async () => {
+        b = await api('DELETE', `/admin/api/branding/files/${kind}`);
+        draw();
+      }, (err) => rst.set(err.message, 'error')) }, 'Remove');
+      const preview = url
+        ? h('div', { class: `brand-preview ${kind === 'banner-light' ? 'light' : 'dark'}${kind === 'logo' ? ' square' : ''}` }, h('img', { src: url, alt: label }))
+        : h('div', { class: 'hint' }, 'None.');
+      return h('div', { class: 'brand-file' },
+        h('div', {}, h('div', { class: 'label' }, label), h('div', { class: 'hint' }, hint), rst),
+        preview, h('div', { class: 'row' }, picker, upload, remove));
+    });
+    const files = card({ title: 'Files', description: 'Kept as you upload them: SVG, PNG, WebP… 4 MB at most each.' }, fileRows);
+
+    // The site's header, as people will see it, on dark and light pages.
+    const banner = (light) => {
+      const src = light ? (b.files['banner-light'] || b.files['banner-dark']) : b.files['banner-dark'];
+      return src ? h('img', { src, alt: b.name }) : h('strong', {}, b.name || 'Your name');
+    };
+    const preview = card({ title: 'Preview', description: 'The top of your site, on dark and on light pages.' },
+      [h('div', { class: 'brand-preview header dark' }, banner(false)), h('div', { class: 'brand-preview header light' }, banner(true))]);
+
+    show(pageHead('Branding', 'Your site\'s name, logo and banner, instead of Overfin\'s.'),
+      h('div', { class: 'cards' }, main, files, preview));
+  };
+  draw();
 }
 
 // ---- Server --------------------------------------------------------------------
@@ -1252,6 +1326,7 @@ function show(...nodes) {
 const views = {
   server: { label: 'Server', icon: icons.server, view: () => serverView() },
   features: { label: 'Features & limits', icon: icons.sliders, view: () => featuresView() },
+  branding: { label: 'Branding', icon: icons.palette, view: () => brandingView() },
   people: { label: 'People', icon: icons.people, view: () => peopleView() },
   templates: { label: 'Templates', icon: icons.layers, view: () => templatesView() },
   libraries: { label: 'Libraries', icon: icons.folder, view: () => librariesView() },
@@ -1289,6 +1364,7 @@ async function start() {
     h('div', { class: 'group' }, 'Server'),
     link('server', views.server.label, views.server.icon),
     link('features', views.features.label, views.features.icon),
+    link('branding', views.branding.label, views.branding.icon),
     h('div', { class: 'group' }, 'People'),
     link('people', views.people.label, views.people.icon),
     link('templates', views.templates.label, views.templates.icon),

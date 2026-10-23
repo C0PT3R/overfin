@@ -34,6 +34,9 @@ type Sender struct {
 	Password string
 	// Timeout bounds a whole sending; 30 seconds when zero.
 	Timeout time.Duration
+	// Name, when set, gives the sender's display name instead of From's
+	// (the site's own name, with the operator's branding); "" keeps From's.
+	Name func() string
 }
 
 // ErrAddress: an address isn't one email address.
@@ -44,6 +47,11 @@ func (s *Sender) Send(ctx context.Context, to, subject, body string) error {
 	from, err := mail.ParseAddress(s.From)
 	if err != nil {
 		return fmt.Errorf("mail: the sender: %w", err)
+	}
+	if s.Name != nil {
+		if name := s.Name(); name != "" {
+			from.Name = name
+		}
 	}
 	rcpt, err := mail.ParseAddress(to)
 	if err != nil || rcpt.Address != to {

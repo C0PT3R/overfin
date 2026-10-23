@@ -99,8 +99,16 @@ func (sh *shared) mailer() api.Mailer {
 }
 
 // senderFor is the SMTP server with these settings.
-func senderFor(m config.Mail, password string) *mail.Sender {
-	return &mail.Sender{Host: m.Host, Port: m.Port, TLS: m.TLS, From: m.From, Username: m.Username, Password: password}
+func senderFor(m config.Mail, password string, db *store.Store) *mail.Sender {
+	return &mail.Sender{Host: m.Host, Port: m.Port, TLS: m.TLS, From: m.From, Username: m.Username, Password: password,
+		// With the operator's branding on, emails come from their site's
+		// name.
+		Name: func() string {
+			if br, err := db.Branding(context.Background()); err == nil && br.On {
+				return br.Name
+			}
+			return ""
+		}}
 }
 
 func newProvisioner(cfg *config.Config, sh *shared) *provision.Provisioner {
@@ -135,7 +143,7 @@ type built struct {
 func build(cfg *config.Config, sh *shared) (*built, error) {
 	logger, db, k := sh.logger, sh.db, sh.keys
 	if cfg.Mail.Enabled() {
-		sh.mail.Store(senderFor(cfg.Mail, cfg.Secrets.MailPassword))
+		sh.mail.Store(senderFor(cfg.Mail, cfg.Secrets.MailPassword, sh.db))
 		sh.mailInFile = true
 	}
 	var ids *identity.Resolver
@@ -237,6 +245,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images, PINs: checker},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, Service: sh.service,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
+		api.Branding{Store: db},
 	}
 	plugins = append(plugins, signIn...)
 	if cfg.Plugins.Enabled("library") {
@@ -986,7 +995,7 @@ func (g *gateway) SetMail(ctx context.Context, m config.Mail, password, testTo s
 	if m.Username != "" && password == "" {
 		return "", problem("With a username, the SMTP server's password is needed too.")
 	}
-	s := senderFor(m, password)
+	s := senderFor(m, password, g.sh.db)
 	if err := s.Send(ctx, testTo, "Overfin can send emails",
 		"This test comes from Overfin's control panel: sign-in codes will arrive like it.\n"); err != nil {
 		return "", problemf("A test email to %s didn't go through, so nothing changed: %v", testTo, err)

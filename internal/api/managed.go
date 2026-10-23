@@ -28,6 +28,7 @@ import (
 	"github.com/overfin/server/internal/problem"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/theme"
 )
 
 const (
@@ -333,7 +334,23 @@ func (m *Managed) page(w http.ResponseWriter, r *http.Request) {
 	lang := pageLang(r)
 	data := map[string]any{
 		"Lang": lang, "T": signinTexts[lang], "Return": ret, "Fresh": fresh,
-		"Codes": m.mailer() != nil, "JS": signinJS, "CSS": signinCSS, "Logo": signinLogo,
+		"Codes": m.mailer() != nil, "JS": signinJS, "CSS": signinCSS, "Icon": signinLogo,
+		"Banner": template.HTML(theme.Banner),
+	}
+	// The operator's branding, when on: their banner (Overfin's then shows
+	// below, "powered by"), their name in the title, their logo as the icon.
+	if br, err := m.Store.Branding(r.Context()); err == nil && br.On {
+		data["Custom"], data["Name"] = true, BrandName(br)
+		file := func(kind string) string {
+			if at, ok := br.Files[kind]; ok {
+				return fmt.Sprintf("/api/v1/branding/%s?v=%d", kind, at.Unix())
+			}
+			return ""
+		}
+		data["BannerDark"], data["BannerLight"] = file("banner-dark"), file("banner-light")
+		if logo := file("logo"); logo != "" {
+			data["Icon"] = logo
+		}
 	}
 	if fresh {
 		data["Email"] = u.Email

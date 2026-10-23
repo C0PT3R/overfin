@@ -1,0 +1,13 @@
+<svg class="overfin-banner" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 330 100" overflow="visible" role="img" aria-label="Overfin">
+  <defs>
+    <linearGradient id="ofb-fin" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#7B5CF0"/><stop offset="1" stop-color="#3FA9F5"/></linearGradient>
+    <linearGradient id="ofb-o" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF4D5E"/><stop offset="1" stop-color="#FF8A3D"/></linearGradient>
+    <mask id="ofb-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect width="100" height="100" fill="#fff"/>
+      <path d="M30 92 C38 76 46 60 56 46 C58.5 43 62 44 61.5 48 C60 62 63 77 72 92 Z" fill="#000" stroke="#000" stroke-width="13" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <circle cx="50" cy="47" r="35" fill="none" stroke="url(#ofb-o)" stroke-width="8" mask="url(#ofb-cut)"/>
+  <path d="M30 92 C38 76 46 60 56 46 C58.5 43 62 44 61.5 48 C60 62 63 77 72 92 Z" fill="url(#ofb-fin)" stroke="url(#ofb-fin)" stroke-width="4" stroke-linejoin="round"/>
+  <text x="122" y="72" fill="currentColor" font-family="inherit" font-size="60" font-weight="800" letter-spacing=".6">Overfin</text>
+</svg>

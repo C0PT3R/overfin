@@ -13,6 +13,13 @@ import (
 //go:embed theme.css
 var CSS []byte
 
+// Banner is Overfin's banner, its logo and its name as one picture, to put
+// in a page as it is: the name takes the page's text color, so it suits
+// dark and light pages.
+//
+//go:embed banner.svg
+var Banner string
+
 var etag = func() string {
 	sum := sha256.Sum256(CSS)
 	return `"` + hex.EncodeToString(sum[:12]) + `"`

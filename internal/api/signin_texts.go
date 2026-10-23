@@ -5,6 +5,7 @@ package api
 var signinTexts = map[string]map[string]string{
 	"en": {
 		"title":            "Sign in",
+		"poweredBy":        "Powered by",
 		"freshTitle":       "Confirm it's you",
 		"freshIntro":       "To go on, confirm it's really you ({email}).",
 		"email":            "Email",
@@ -39,6 +40,7 @@ var signinTexts = map[string]map[string]string{
 	},
 	"fr": {
 		"title":            "Connexion",
+		"poweredBy":        "Propulsé par",
 		"freshTitle":       "Confirmez que c’est vous",
 		"freshIntro":       "Pour continuer, confirmez que c’est bien vous ({email}).",
 		"email":            "Adresse courriel",

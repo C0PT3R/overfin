@@ -296,6 +296,20 @@ body.setup section .notice { margin: 1rem 0 0; }
 .copyable { display: flex; gap: .5rem; margin: .5rem 0; }
 .copyable input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: .85rem; }
 ol.how { padding-left: 1.3rem; margin: .75rem 0 1rem; }
+
+/* Branding: each file with its preview, and the site's header as it will
+   look, on the site's own dark and light colors. */
+.brand-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem 1rem; padding: .9rem 0; border-top: 1px solid var(--border); }
+.brand-file:first-child { border-top: none; padding-top: 0; }
+.brand-file > .row, .brand-file > .brand-preview, .brand-file > .hint { grid-column: 1 / -1; }
+.brand-file .label { font-weight: 550; }
+.brand-preview { display: flex; align-items: center; padding: .7rem 1rem; border-radius: var(--radius-s); border: 1px solid var(--border); min-height: 3.2rem; }
+.brand-preview.dark { background: #0c0d11; color: #ececf0; }
+.brand-preview.light { background: #f4f5f8; color: #1b1e25; }
+.brand-preview img { height: 1.9rem; width: auto; max-width: 12rem; object-fit: contain; object-position: left; }
+.brand-preview.square img { width: 2.5rem; height: 2.5rem; }
+.brand-preview.header { margin-top: .6rem; }
+.brand-preview.header strong { font-size: 1.15rem; font-weight: 800; }
 ol.how li { margin: .3rem 0; }
 .center { text-align: center; padding: 4rem 1rem; }
 @media (max-width: 1500px) { .split .hide-medium { display: none; } }

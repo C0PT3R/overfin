@@ -380,7 +380,7 @@ func run(logger *slog.Logger) error {
 			if err := json.Unmarshal(raw, &m); err != nil {
 				logger.Warn("email's settings can't be read: set email up again in the control panel", "err", err)
 			} else {
-				sh.mail.Store(senderFor(m, pw))
+				sh.mail.Store(senderFor(m, pw, db))
 			}
 		}
 	}

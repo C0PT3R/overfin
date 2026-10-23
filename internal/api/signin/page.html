@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}</title>
-<link rel="icon" href="{{.Logo}}" type="image/svg+xml">
+<title>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}{{if .Custom}} · {{.Name}}{{end}}</title>
+<link rel="icon" href="{{.Icon}}">
 <link rel="stylesheet" href="/api/v1/theme.css">
 <link rel="stylesheet" href="{{.CSS}}">
 <script src="{{.JS}}" defer></script>
@@ -13,7 +13,12 @@
 <body data-return="{{.Return}}" data-fresh="{{if .Fresh}}1{{end}}" data-email="{{.Email}}"
       data-code-sent="{{.T.codeSent}}" data-failed="{{.T.failed}}">
 <main>
-  <div class="brand"><img src="{{.Logo}}" alt="" width="40" height="40"><span>Overfin</span></div>
+  <div class="brand">
+    {{- if not .Custom}}{{.Banner}}
+    {{- else if .BannerDark}}<img class="banner{{if .BannerLight}} dark{{end}}" src="{{.BannerDark}}" alt="{{.Name}}">
+      {{- if .BannerLight}}<img class="banner light" src="{{.BannerLight}}" alt="{{.Name}}">{{end}}
+    {{- else}}<span class="name">{{.Name}}</span>{{end -}}
+  </div>
   <h1>{{if .Fresh}}{{.T.freshTitle}}{{else}}{{.T.title}}{{end}}</h1>
   {{if .Fresh}}<p class="muted">{{.Intro}}</p>{{end}}
 
@@ -48,6 +53,7 @@
   </form>
 
   <p id="error" class="error" role="alert"></p>
+  {{if .Custom}}<p class="powered">{{.T.poweredBy}} {{.Banner}}</p>{{end}}
 </main>
 </body>
 </html>
