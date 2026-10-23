@@ -306,7 +306,7 @@ func run(logger *slog.Logger) error {
 	}
 	// The Jellyfin settings Overfin needs are its own: set back on every
 	// start (rule 67).
-	ownSettings(ctx, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey, logger)
+	ownSettings(ctx, db, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey, logger)
 
 	sh, err := newShared(cfg, db, moduleDBs, k, logger)
 	if err != nil {
@@ -395,7 +395,7 @@ func run(logger *slog.Logger) error {
 
 	if a := cfg.Admin; a.Enabled() || managed {
 		o := cfg.OIDC
-		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Libraries: libraries{gw}, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
+		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Libraries: libraries{gw}, Transcoding: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
 			TMDB: func() bool { return gw.tmdbSource() != nil },
 			// A new language: artwork and discovery's lists, read again now.
 			OnLanguage: func() { sh.titles.Wake(); sh.lists.Wake() },

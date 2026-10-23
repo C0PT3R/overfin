@@ -92,24 +92,28 @@ func show(v any) string {
 }
 
 // Plan is what differs from Overfin's settings on the server, changing
-// nothing.
-func Plan(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth) ([]Change, error) {
-	return run(ctx, jf, admin, false)
+// nothing. transcoding are the settings of the GPU chosen, if one was.
+func Plan(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, transcoding ...Setting) ([]Change, error) {
+	return run(ctx, jf, admin, false, transcoding)
 }
 
 // Apply sets back what differs, and returns what it changed.
-func Apply(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth) ([]Change, error) {
-	return run(ctx, jf, admin, true)
+func Apply(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, transcoding ...Setting) ([]Change, error) {
+	return run(ctx, jf, admin, true, transcoding)
 }
 
-func run(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, apply bool) ([]Change, error) {
+func run(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, apply bool, transcoding []Setting) ([]Change, error) {
 	var changes []Change
 	for _, doc := range documents {
 		s, err := jf.Settings(ctx, admin, doc.Name)
 		if err != nil {
 			return changes, err
 		}
-		found := differences(s, doc.Settings, doc.Name)
+		want := doc.Settings
+		if doc.Name == "encoding" {
+			want = append(slices.Clone(want), transcoding...)
+		}
+		found := differences(s, want, doc.Name)
 		if apply && len(found) > 0 {
 			if err := jf.SetSettings(ctx, admin, doc.Name, s); err != nil {
 				return changes, err

@@ -20,9 +20,11 @@ import (
 	"github.com/overfin/server/internal/catalog"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
+	"github.com/overfin/server/internal/gpu"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
+	"github.com/overfin/server/internal/jfsettings"
 	"github.com/overfin/server/internal/keys"
 	"github.com/overfin/server/internal/mail"
 	"github.com/overfin/server/internal/oidc"
@@ -367,6 +369,7 @@ type gateway struct {
 
 	mu      sync.Mutex // one reload at a time
 	mailMu  sync.Mutex // one email change at a time
+	gpuMu   sync.Mutex // one transcoding test or change at a time
 	cfg     *config.Config
 	current atomic.Pointer[built]
 }
@@ -512,9 +515,7 @@ func (g *gateway) JellyfinAccess(ctx context.Context) (bool, time.Time, error) {
 // kept), or closes it: every administrator gets a password nobody knows
 // (SECURITY.md rule 67).
 func (g *gateway) SetJellyfinAccess(ctx context.Context, open bool) (name, password string, err error) {
-	g.mu.Lock()
-	a := jellyfin.Auth{Token: g.cfg.Secrets.JellyfinAdminKey, DeviceID: "overfin-admin"}
-	g.mu.Unlock()
+	a := g.adminAuth()
 	if open {
 		name, password, err = takeover.OpenAccess(ctx, g.sh.jf, a)
 	} else {
@@ -524,6 +525,58 @@ func (g *gateway) SetJellyfinAccess(ctx context.Context, open bool) (name, passw
 		return "", "", forPage(err)
 	}
 	return name, password, g.sh.db.SetJellyfinAccess(ctx, open)
+}
+
+// adminAuth is the key Overfin made on its Jellyfin.
+func (g *gateway) adminAuth() jellyfin.Auth {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return jellyfin.Auth{Token: g.cfg.Secrets.JellyfinAdminKey, DeviceID: "overfin-admin"}
+}
+
+// Transcoding is the GPU family chosen, and its device.
+func (g *gateway) Transcoding(ctx context.Context) (family, device string, err error) {
+	return g.sh.db.Transcoding(ctx)
+}
+
+// TestTranscoding tests a GPU family on a few videos; the settings it
+// tries are put back after.
+func (g *gateway) TestTranscoding(ctx context.Context, family, device string) ([]gpu.Result, error) {
+	f, ok := gpu.Find(family)
+	if !ok {
+		return nil, admin.Problem("Overfin doesn't know that GPU.")
+	}
+	if !g.gpuMu.TryLock() {
+		return nil, admin.Problem("A test is running already.")
+	}
+	defer g.gpuMu.Unlock()
+	res, err := gpu.Test(ctx, g.sh.jf, g.adminAuth(), f, device)
+	var p gpu.Problem
+	if errors.As(err, &p) {
+		return nil, admin.Problem(p)
+	}
+	return res, err
+}
+
+// SetTranscoding saves the GPU family chosen and sets Jellyfin's
+// transcoding to it now; it's set back at every start too.
+func (g *gateway) SetTranscoding(ctx context.Context, family, device string) error {
+	f, ok := gpu.Find(family)
+	if !ok {
+		return admin.Problem("Overfin doesn't know that GPU.")
+	}
+	if !g.gpuMu.TryLock() {
+		return admin.Problem("A test is running: wait for it.")
+	}
+	defer g.gpuMu.Unlock()
+	if err := g.sh.db.SetTranscoding(ctx, f.ID, device); err != nil {
+		return err
+	}
+	changes, err := jfsettings.Apply(ctx, g.sh.jf, g.adminAuth(), f.Settings(device)...)
+	for _, c := range changes {
+		g.sh.logger.Info("a Jellyfin setting was set back to Overfin's", "change", c.String())
+	}
+	return err
 }
 
 // source is where TMDB's data comes from: TMDB itself, with the project's

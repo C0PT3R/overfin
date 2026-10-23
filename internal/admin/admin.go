@@ -100,6 +100,8 @@ type Panel struct {
 	Jellyfin Jellyfin
 	// Libraries, when set, manages the libraries of Overfin's Jellyfin.
 	Libraries Libraries
+	// Transcoding, when set, chooses the GPU Overfin's Jellyfin uses.
+	Transcoding Transcoding
 	// Catalog, when set, shows where the catalog's index stands.
 	Catalog Catalog
 	// Seerr, when set, shows and changes Seerr's connection.
@@ -213,6 +215,9 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/ratings", p.signedIn(p.setRatings))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
+	mux.HandleFunc("GET /admin/api/transcoding", p.signedIn(p.transcoding))
+	mux.HandleFunc("POST /admin/api/transcoding/test", p.signedIn(p.testTranscoding))
+	mux.HandleFunc("PUT /admin/api/transcoding", p.signedIn(p.setTranscoding))
 	mux.HandleFunc("GET /admin/api/libraries", p.signedIn(p.libraries))
 	mux.HandleFunc("POST /admin/api/libraries", p.signedIn(p.addLibrary))
 	mux.HandleFunc("PATCH /admin/api/libraries/{name}", p.signedIn(p.changeLibrary))

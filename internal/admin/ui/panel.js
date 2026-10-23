@@ -293,15 +293,16 @@ function folderPicker(pick, close) {
 
 // serverView: what Overfin connects to, each part tested before it's saved.
 async function serverView() {
-  const [jellyfin, mail, catalog, seerr, ratings] = await Promise.all([
+  const [jellyfin, transcoding, mail, catalog, seerr, ratings] = await Promise.all([
     api('GET', '/admin/api/jellyfin').catch(() => null),
+    api('GET', '/admin/api/transcoding').catch(() => null),
     api('GET', '/admin/api/mail').catch(() => null),
     api('GET', '/admin/api/catalog').catch(() => null),
     api('GET', '/admin/api/seerr').catch(() => null),
     api('GET', '/admin/api/ratings').catch(() => null),
   ]);
   show(pageHead('Server', 'What Overfin connects to. Every change is tested before it\'s saved, and applies at once.'),
-    h('div', { class: 'cards' }, jellyfinCard(jellyfin), catalogCard(catalog), mailCard(mail), seerrCard(seerr), tmdbCard(ratings)));
+    h('div', { class: 'cards' }, jellyfinCard(jellyfin), transcodingCard(transcoding), catalogCard(catalog), mailCard(mail), seerrCard(seerr), tmdbCard(ratings)));
 }
 
 function inFileCard(title, text) {
@@ -361,6 +362,72 @@ function jellyfinAccess(a) {
   };
   draw(!!a?.open, a?.since);
   return box;
+}
+
+// transcodingCard chooses the GPU Jellyfin transcodes with: what each
+// family decodes and encodes, a test on a few of your own videos, and the
+// choice, set back at every start.
+function transcodingCard(t) {
+  if (!t) return null;
+  const families = t.families;
+  const vendors = [...new Set(families.map((f) => f.vendor).filter(Boolean))];
+  const choose = h('select', { 'aria-label': 'GPU' },
+    !t.family && h('option', { value: '' }, 'Choose your GPU'),
+    families.filter((f) => !f.vendor).map((f) => h('option', { value: f.id }, f.name)),
+    vendors.map((v) => h('optgroup', { label: v }, families.filter((f) => f.vendor === v).map((f) => h('option', { value: f.id }, `${f.name} (${f.examples})`)))));
+  choose.value = t.family || '';
+  const device = h('input', { class: 'mono', value: t.device || t.defaultDevice, autocomplete: 'off', spellcheck: 'false' });
+  const deviceField = field('Device', device, 'The GPU\'s render device, as Jellyfin sees it; the first one is usually ' + t.defaultDevice + '.');
+  const about = h('div', {});
+  const results = h('div', {});
+  const st = status(t.family ? 'In use.' : 'Not chosen yet: Jellyfin keeps its own setting.');
+  let tested = '';
+  const chosen = () => families.find((f) => f.id === choose.value);
+  const draw = () => {
+    const f = chosen();
+    deviceField.hidden = !f?.device;
+    fill(results);
+    fill(about, f && h('div', { class: 'box' },
+      h('div', {}, h('strong', {}, 'Decodes: '), f.decodes?.length ? f.decodes.join(', ') : 'nothing: the processor does it'),
+      h('div', {}, h('strong', {}, 'Encodes: '), f.encodes?.length ? f.encodes.join(', ') : 'nothing: the processor does it'),
+      f.note && h('div', { class: 'hint' }, f.note)));
+  };
+  choose.addEventListener('change', draw);
+  const body = () => ({ family: choose.value, device: device.value });
+  const test = h('button', { type: 'button', onclick: () => {
+    if (!choose.value) return st.set('Choose a GPU first.', 'error');
+    busy(test, async () => {
+      st.set('Testing on a few of your videos: up to a minute. Meanwhile, new playbacks use the settings tested.');
+      fill(results);
+      const { results: r } = await api('POST', '/admin/api/transcoding/test', body());
+      const ok = r.every((x) => x.ok);
+      const slow = r.some((x) => x.ok && x.speed < 1);
+      tested = ok ? choose.value + ' ' + device.value : '';
+      st.set(ok ? (slow ? 'It works, but too slowly for some videos.' : 'It works.') : 'It doesn\'t work for every video: see why below.', ok && !slow ? 'ok' : 'error');
+      fill(results, h('div', { class: 'table-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Video'), h('th', {}, 'Result'), h('th', { class: 'num' }, 'First picture'), h('th', { class: 'num' }, 'Speed'))),
+        h('tbody', {}, r.map((x) => h('tr', {},
+          h('td', {}, h('div', {}, x.kind), h('div', { class: 'hint' }, x.title)),
+          h('td', {}, x.ok ? badge(x.speed < 1 ? 'Too slow' : 'Works', x.speed < 1 ? 'warn' : 'ok') : badge('Fails', 'err'),
+            x.reason && h('div', { class: 'hint mono' }, x.reason)),
+          h('td', { class: 'num' }, x.ok ? `${x.firstPicture} s` : ''),
+          h('td', { class: 'num' }, x.ok ? `${x.speed}×` : '')))))));
+    }, (err) => st.set(err.message, 'error'));
+  } }, 'Test');
+  const use = h('button', { class: 'primary', type: 'button', onclick: () => {
+    if (!choose.value) return st.set('Choose a GPU first.', 'error');
+    if (tested !== choose.value + ' ' + device.value && !confirm('Use it without a test that worked? Playbacks may fail if it doesn\'t suit your GPU.')) return;
+    busy(use, async () => {
+      await api('PUT', '/admin/api/transcoding', body());
+      st.set('In use.', 'ok');
+      toast('Jellyfin transcodes with it now.');
+    }, (err) => st.set(err.message, 'error'));
+  } }, 'Use it');
+  draw();
+  const current = families.find((f) => f.id === t.family);
+  return card({ title: 'Transcoding', badge: current ? badge(current.vendor ? `${current.vendor} ${current.name}` : current.name, 'ok') : badge('Not chosen', 'plain'),
+    description: 'The GPU Jellyfin converts videos with, when a device can\'t play them as they are. Test it on your own videos before using it.' },
+  [h('div', { class: 'fields' }, field('GPU', choose, '', true), deviceField), about, results], [st, test, use]);
 }
 
 function catalogCard(c) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/overfin/server/internal/admin"
 	"github.com/overfin/server/internal/config"
+	"github.com/overfin/server/internal/gpu"
 	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/jfsettings"
 	"github.com/overfin/server/internal/store"
@@ -171,6 +172,16 @@ func takeOver(ctx context.Context, db *store.Store, fixed string, req admin.Jell
 	return url, key, ans, nil
 }
 
+// transcodingSettings are the Jellyfin settings of the GPU family chosen;
+// none until one is.
+func transcodingSettings(family, device string) []jfsettings.Setting {
+	f, ok := gpu.Find(family)
+	if !ok {
+		return nil
+	}
+	return f.Settings(device)
+}
+
 // forPage makes errors written for people admin.Problems, which the setup
 // page shows as they are; it only says other errors failed, and logs them.
 func forPage(err error) error {
@@ -238,15 +249,19 @@ func handOverInTerminal(ctx context.Context, db *store.Store, fixed string, in i
 	return url, key, nil
 }
 
-// ownSettings sets back the Jellyfin settings Overfin owns, and logs each
-// it changed. A failure doesn't stop Overfin: it tries again at its next
-// start.
-func ownSettings(ctx context.Context, url, key string, logger *slog.Logger) {
+// ownSettings sets back the Jellyfin settings Overfin owns, those of the
+// GPU chosen included, and logs each it changed. A failure doesn't stop
+// Overfin: it tries again at its next start.
+func ownSettings(ctx context.Context, db *store.Store, url, key string, logger *slog.Logger) {
 	jf, err := jellyfin.New(url, Version)
 	if err != nil {
 		return
 	}
-	changes, err := jfsettings.Apply(ctx, jf, jellyfin.Auth{Token: key, DeviceID: "overfin-admin"})
+	family, device, err := db.Transcoding(ctx)
+	if err != nil {
+		logger.Warn("the GPU chosen can't be read", "err", err)
+	}
+	changes, err := jfsettings.Apply(ctx, jf, jellyfin.Auth{Token: key, DeviceID: "overfin-admin"}, transcodingSettings(family, device)...)
 	for _, c := range changes {
 		logger.Info("a Jellyfin setting was set back to Overfin's", "change", c.String())
 	}

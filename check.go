@@ -141,13 +141,13 @@ func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
 	// The address in the configuration, else as saved; the key Overfin
 	// made, as saved.
 	url, key := cfg.Jellyfin.URL, ""
+	var box *seal.Box
 	if cfg.Secrets.Key != nil && fileExists(cfg.Storage.Path) {
 		k, err := keys.Derive(cfg.Secrets.Key)
 		if err != nil {
 			return // already said, with the secret key
 		}
-		box, err := seal.New(k.TokenEncryption)
-		if err != nil {
+		if box, err = seal.New(k.TokenEncryption); err != nil {
 			c.fail("Jellyfin: %v", err)
 			return
 		}
@@ -183,7 +183,11 @@ func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
 			return
 		}
 		c.ok("%s", found.summary)
-		changes, err := jfsettings.Plan(ctx, jf, jellyfin.Auth{Token: key, DeviceID: "overfin-check"})
+		family, device := "", ""
+		if box != nil {
+			family, device, _ = store.ReadTranscoding(ctx, cfg.Storage.Path, box)
+		}
+		changes, err := jfsettings.Plan(ctx, jf, jellyfin.Auth{Token: key, DeviceID: "overfin-check"}, transcodingSettings(family, device)...)
 		switch {
 		case err != nil:
 			c.fail("Jellyfin's settings can't be read: %v", err)

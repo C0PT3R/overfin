@@ -1188,6 +1188,39 @@ func (s *Store) SetJellyfinAccess(ctx context.Context, open bool) error {
 	return err
 }
 
+// Transcoding is the GPU family chosen for Jellyfin's transcoding, and its
+// device; "" until one is chosen.
+func (s *Store) Transcoding(ctx context.Context) (family, device string, err error) {
+	var v []byte
+	err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'transcoding'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	family, device, _ = strings.Cut(string(v), " ")
+	return family, device, nil
+}
+
+// SetTranscoding saves the GPU family chosen, and its device.
+func (s *Store) SetTranscoding(ctx context.Context, family, device string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('transcoding', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, []byte(family+" "+device))
+	return err
+}
+
+// ReadTranscoding is Transcoding for the database at path, opened
+// read-only (for overfin -check).
+func ReadTranscoding(ctx context.Context, path string, box *seal.Box) (family, device string, err error) {
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return "", "", fmt.Errorf("store: %w", err)
+	}
+	defer db.Close()
+	return (&Store{db: db, box: box}).Transcoding(ctx)
+}
+
 // ReadJellyfin is Jellyfin for the database at path, opened read-only so
 // nothing changes (for overfin -check).
 func ReadJellyfin(ctx context.Context, path string, box *seal.Box) (url, key string, ok bool, err error) {
