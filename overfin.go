@@ -31,6 +31,7 @@ import (
 	"github.com/overfin/server/internal/connector"
 	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/images"
+	"github.com/overfin/server/internal/introskipper"
 	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/keys"
 	"github.com/overfin/server/internal/oidc"
@@ -259,6 +260,15 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 	}
+	// Intro Skipper's installs: on the Jellyfin the setup wizard has, then
+	// on the gateway's.
+	skipper := &introskipper.Installer{Logger: logger, Jellyfin: func() (*jellyfin.Client, jellyfin.Auth, bool) {
+		if cfg.Jellyfin.URL == "" || cfg.Secrets.JellyfinAdminKey == "" {
+			return nil, jellyfin.Auth{}, false
+		}
+		jf, err := jellyfin.New(cfg.Jellyfin.URL, Version)
+		return jf, jellyfin.Auth{Token: cfg.Secrets.JellyfinAdminKey, DeviceID: "overfin-admin"}, err == nil
+	}}
 	if !haveJellyfin || !haveAdmin {
 		if !managed && adminSrv == nil {
 			return errors.New("no Jellyfin of Overfin's own yet: switch on the control panel ([admin]), " +
@@ -296,6 +306,13 @@ func run(logger *slog.Logger) error {
 					return "", err
 				}
 				return "TMDB takes the key.", nil
+			}
+		}
+		// Intro Skipper, unless it's there.
+		setup.IntroSkipper = skipper
+		if haveJellyfin {
+			if st, err := skipper.Look(ctx); err != nil || st.Installed {
+				setup.IntroSkipper = nil
 			}
 		}
 		if !haveAdmin {
@@ -397,6 +414,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	skipper.Jellyfin = func() (*jellyfin.Client, jellyfin.Auth, bool) { return sh.jf, gw.adminAuth(), true }
 	// The service account follows the configuration's admin key.
 	sh.service.Provisioner = gw.Provisioner
 	site.set(gw)
@@ -439,7 +457,7 @@ func run(logger *slog.Logger) error {
 	if a := cfg.Admin; a.Enabled() || managed {
 		o := cfg.OIDC
 		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Libraries: libraries{gw}, Transcoding: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
-			TMDB: func() bool { return gw.tmdbSource() != nil }, TMDBKeys: gw,
+			TMDB: func() bool { return gw.tmdbSource() != nil }, TMDBKeys: gw, IntroSkipper: skipper,
 			// A new language: artwork and discovery's lists, read again now.
 			OnLanguage: func() { sh.titles.Wake(); sh.lists.Wake() },
 			Store:      db, Provisioner: newProvisioner(cfg, sh),

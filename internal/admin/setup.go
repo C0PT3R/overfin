@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/overfin/server/internal/introskipper"
 	"github.com/overfin/server/internal/lang"
 	"github.com/overfin/server/internal/password"
 )
@@ -44,6 +45,9 @@ type Setup struct {
 	// TMDB, when set, offers TMDB's key: it tests and saves one, and says
 	// so. The step may be skipped.
 	TMDB func(ctx context.Context, key string) (string, error)
+	// IntroSkipper, when set, offers to install Intro Skipper on Overfin's
+	// Jellyfin, once it has one. The step may be skipped.
+	IntroSkipper *introskipper.Installer
 	// FirstAdmin, when set, asks for the first admin's email and password,
 	// and makes them (with the password's hash).
 	FirstAdmin func(ctx context.Context, email, passwordHash string) error
@@ -65,12 +69,13 @@ const (
 	stepLanguage = "language"
 	stepJellyfin = "jellyfin"
 	stepTMDB     = "tmdb"
+	stepSkipper  = "introskipper"
 	stepAdmin    = "admin"
 	stepDone     = "done"
 )
 
 // optional are the steps that may be skipped.
-var optional = map[string]bool{stepTMDB: true}
+var optional = map[string]bool{stepTMDB: true, stepSkipper: true}
 
 // Problem is what's wrong, in plain words for the operator, shown as is.
 // Other errors are logged, and the page only says it failed.
@@ -183,6 +188,7 @@ func (s *Setup) handler(public bool) http.Handler {
 	mux.HandleFunc("POST /admin/api/setup/language", s.step(s.language))
 	mux.HandleFunc("POST /admin/api/setup/jellyfin", s.step(s.jellyfin))
 	mux.HandleFunc("POST /admin/api/setup/tmdb", s.step(s.tmdb))
+	mux.HandleFunc("POST /admin/api/setup/introskipper", s.step(s.introSkipper))
 	mux.HandleFunc("POST /admin/api/setup/admin", s.step(s.admin))
 	mux.HandleFunc("POST /admin/api/setup/finish", s.step(s.finish))
 	return sameOrigin(headers(mux))
@@ -198,7 +204,7 @@ func (s *Setup) stepList() []string {
 			id  string
 			ask bool
 		}{{stepLanguage, s.Language != nil}, {stepJellyfin, s.Jellyfin != nil},
-			{stepTMDB, s.TMDB != nil}, {stepAdmin, s.FirstAdmin != nil}} {
+			{stepTMDB, s.TMDB != nil}, {stepSkipper, s.IntroSkipper != nil}, {stepAdmin, s.FirstAdmin != nil}} {
 			if st.ask {
 				s.steps = append(s.steps, st.id)
 			}
@@ -355,6 +361,32 @@ func (s *Setup) tmdb(w http.ResponseWriter, r *http.Request, body json.RawMessag
 	writeJSON(w, http.StatusOK, map[string]string{"summary": summary})
 }
 
+// introSkipper starts Intro Skipper's install when asked, and says where
+// it stands; the page asks again until it's done.
+func (s *Setup) introSkipper(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
+	var req struct {
+		Start bool `json:"start"`
+	}
+	if !decodeStep(w, body, &req) {
+		return
+	}
+	if s.IntroSkipper == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if req.Start {
+		if err := s.IntroSkipper.Start(); err != nil {
+			unusable(w, err.Error()) // only ever a Problem
+			return
+		}
+	}
+	p := s.IntroSkipper.Progress()
+	if p.Done {
+		s.saved[stepSkipper] = true
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 func (s *Setup) admin(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
 	var req struct {
 		Email    string `json:"email"`
@@ -393,6 +425,10 @@ func (s *Setup) admin(w http.ResponseWriter, r *http.Request, body json.RawMessa
 // finish ends the wizard once every step that can't be skipped is done.
 func (s *Setup) finish(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
 	if !decodeStep(w, body, &struct{}{}) {
+		return
+	}
+	if s.IntroSkipper != nil && s.IntroSkipper.Progress().Running {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "Intro Skipper is still being installed.", "step": stepSkipper})
 		return
 	}
 	for _, id := range s.steps {

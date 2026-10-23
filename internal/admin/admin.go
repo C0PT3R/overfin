@@ -31,6 +31,7 @@ import (
 	"github.com/overfin/server/internal/connector"
 	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/images"
+	"github.com/overfin/server/internal/introskipper"
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
@@ -120,6 +121,9 @@ type Panel struct {
 	TMDB func() bool
 	// TMDBKeys, when set, shows and changes the operator's TMDB key.
 	TMDBKeys TMDBKeys
+	// IntroSkipper, when set, shows Intro Skipper's state on Overfin's
+	// Jellyfin, and installs it.
+	IntroSkipper *introskipper.Installer
 	// OnLanguage, when set, runs after TMDB's language changed.
 	OnLanguage func()
 	// SearchTMDB, when set, searches TMDB for films and series
@@ -227,6 +231,8 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
 	mux.HandleFunc("PUT /admin/api/tmdb-key", p.signedIn(p.setTMDBKey))
+	mux.HandleFunc("GET /admin/api/intro-skipper", p.signedIn(p.introSkipper))
+	mux.HandleFunc("POST /admin/api/intro-skipper", p.signedIn(p.installIntroSkipper))
 	mux.HandleFunc("GET /admin/api/languages", p.signedIn(p.languages))
 	mux.HandleFunc("PUT /admin/api/languages", p.signedIn(p.setLanguages))
 	mux.HandleFunc("GET /admin/api/transcoding", p.signedIn(p.transcoding))
@@ -848,6 +854,36 @@ func (p *Panel) setJellyfinAccess(w http.ResponseWriter, r *http.Request, s *ses
 	}
 	p.Logger.Info("access to Jellyfin itself was closed in the control panel", "by", s.name)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// introSkipper says whether Intro Skipper is on Overfin's Jellyfin, and
+// where an install stands.
+func (p *Panel) introSkipper(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.IntroSkipper == nil {
+		http.NotFound(w, r)
+		return
+	}
+	st, err := p.IntroSkipper.Look(r.Context())
+	if err != nil {
+		p.upstreamProblem(w, err, "looking for Intro Skipper")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": st, "progress": p.IntroSkipper.Progress(),
+		"version": introskipper.Version})
+}
+
+// installIntroSkipper starts Intro Skipper's install.
+func (p *Panel) installIntroSkipper(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.IntroSkipper == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := p.IntroSkipper.Start(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": err.Error()})
+		return
+	}
+	p.Logger.Info("Intro Skipper's install started in the control panel", "by", s.name)
+	writeJSON(w, http.StatusAccepted, p.IntroSkipper.Progress())
 }
 
 // setTMDBKey sets or removes the operator's TMDB key.

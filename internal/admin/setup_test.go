@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/overfin/server/internal/introskipper"
+	"github.com/overfin/server/internal/jellyfin"
 )
 
 // newSetup is a setup page with a Jellyfin step like Overfin's: a server at
@@ -277,5 +280,22 @@ func TestSetupTMDB(t *testing.T) {
 	post(h, local, "jellyfin", `{"code":"K7QM-2XRP","url":"http://fresh:8096"}`)
 	if rec := post(h, local, "finish", `{"code":"K7QM-2XRP"}`); rec.Code != 204 || done != 1 {
 		t.Errorf("finish: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// Intro Skipper's step: optional, and only once Overfin has a Jellyfin.
+func TestSetupIntroSkipper(t *testing.T) {
+	s, _ := newSetup()
+	s.IntroSkipper = &introskipper.Installer{Logger: s.Logger,
+		Jellyfin: func() (*jellyfin.Client, jellyfin.Auth, bool) { return nil, jellyfin.Auth{}, false }}
+	h := s.Handler()
+	if got := get(h, local); !strings.Contains(got, `{"id":"introskipper","done":false,"optional":true}`) {
+		t.Errorf("what it asks: %s", got)
+	}
+	if rec := post(h, local, "introskipper", `{"code":"K7QM-2XRP","start":true}`); rec.Code != 422 || !strings.Contains(rec.Body.String(), "no Jellyfin") {
+		t.Errorf("without Jellyfin: %d %s", rec.Code, rec.Body)
+	}
+	if rec := post(h, local, "introskipper", `{"code":"K7QM-2XRP"}`); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"running":false`) {
+		t.Errorf("where it stands: %d %s", rec.Code, rec.Body)
 	}
 }
