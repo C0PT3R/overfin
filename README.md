@@ -1,22 +1,67 @@
 # Overfin
 
-Overfin is your own streaming service on top of a Jellyfin server: a
-server and its own apps, with your brand on all of it. The web app,
-[overfin-web](https://github.com/overfin/web), comes first; mobile
-and TV apps will follow. This repository is the server.
+**Your own streaming service, on top of Jellyfin.**
 
-The server sits in front of Jellyfin, which browsers never reach through
-it, and which can stay off the internet entirely (recommended). It holds everything that matters: who people
-are (its own sign-in or your identity provider's, accounts and profiles,
-invitations), what each profile may see, limits, and a control panel to
-manage it all. The apps hold the experience, and nothing else.
+Overfin puts a proper front door on your Jellyfin server: its own sign-in,
+profiles, kids limits that hold, invitations, requests and a clean web app.
+Share your library with family and friends without putting Jellyfin itself
+on the internet, and without giving anyone a Jellyfin account.
 
-Every app, official or not, talks to the server through the same public,
-documented API. That's what lets the official apps connect to any Overfin
-server, someone else's included, and what lets anyone build a site or an
-app of their own: since the server enforces the rules, a client of your own
-can do everything the official ones do, with total freedom on looks and
-feel.
+It's one container. Start it, open it in a browser, and its setup page asks
+for the rest.
+
+```sh
+docker run -d --name overfin -p 8080:8080 \
+  -v overfin-data:/data -v overfin-secrets:/secrets \
+  ghcr.io/overfin/overfin:0.3.0
+```
+
+Then open `http://<the machine>:8080`. Getting it on the internet with
+HTTPS, behind your own proxy, or with your own identity provider: see
+[Running it](#running-it).
+
+<p>
+  <img src="docs/screenshots/home.jpg" alt="The home page: a slideshow of titles over rows of trending films" width="72%">
+  <img src="docs/screenshots/phone.jpg" alt="The home page on a phone" width="24%">
+</p>
+<p>
+  <img src="docs/screenshots/film.jpg" alt="A film's page: poster, logo, rating, play and list buttons, cast" width="48%">
+  <img src="docs/screenshots/library.jpg" alt="A library: posters in a grid with sort and filters" width="48%">
+</p>
+
+## What you get
+
+**For the people watching**
+
+- **Signing in with their email**: a code sent there, or a password. No
+  Jellyfin account, no app to install.
+- **Profiles**, each with its own history and an optional PIN. **Kids
+  profiles** see only titles rated within their limits, on real age
+  ratings from TMDB for the country you choose: everything else is hidden
+  everywhere, not just greyed out, and can't be played.
+- **A catalog that looks the part**: posters, logos and backdrops from
+  TMDB, cast pages, users' scores, search, trending and upcoming titles. A
+  title your libraries don't have can be requested (with Seerr).
+- **Watching in the browser**: played as is whenever the browser can,
+  subtitles, audio tracks, quality choice, seek previews, skipping intros
+  (when Jellyfin has their markers), the next episode lined up, and
+  picking up where they left off on any device.
+- **Continue watching, a watchlist, favorites and watched marks** per
+  profile; and the right to download what's kept about them, or delete it.
+
+**For you, running it**
+
+- **One container**: HTTPS by itself (Let's Encrypt) when you give it a
+  domain, behind your own reverse proxy, or plain http on a LAN.
+- **A control panel**: people and their accounts, invitations, templates
+  (how many streams and profiles an account gets), limits, email, Jellyfin
+  and Seerr connections, fixing titles Jellyfin matched wrong.
+- **Bringing people over** from Jellyfin, their watch history included,
+  with their old username and password, once.
+- **Your own identity provider** instead of Overfin's sign-in, if you have
+  one: OpenID Connect (Authentik, Pocket ID…) or a proxy's forward auth.
+- **An API** for your own apps, and a key-protected one for tools such as
+  Stewarr.
 
 ```
 browser ──▶ the site (overfin-web, or your own)
@@ -25,106 +70,54 @@ browser ──▶ the site (overfin-web, or your own)
                           └──▶  its own sign-in, or your identity provider
 ```
 
+Every app, official or not, talks to Overfin through the same public,
+documented API, so a site or an app of your own can do everything the
+official ones do, with total freedom on looks and feel. This repository is
+the server; [overfin-web](https://github.com/overfin/web) is its web app.
+
 ## Where it stands
 
-Overfin is young. It started in October 2026, its releases are early
-pre-releases (0.x), and it's developed by one person with AI assistance. In
-practice:
+Overfin is young: it started in October 2026, its releases are early
+pre-releases (0.x), and it's developed by one person with AI assistance.
 
-- **It runs one real server**, every day, with its own web client
-  (overfin-web), against Jellyfin 12. That is the extent of its real-world use.
+- **It runs one real server**, every day, against Jellyfin 12, with its
+  own sign-in. That is the extent of its real-world use so far.
+- **Browser only.** There are no TV or phone apps yet, and Jellyfin's own
+  apps don't go through Overfin: people who move to it watch in a browser
+  (phones included).
+- **Jellyfin 12 only.**
+- **HTTPS by itself is new**: tested, but not yet run on a real domain.
+  Behind a reverse proxy is the well-trodden path.
 - **Releases are pre-releases.** Each comes as a signed image for x86 and
   ARM (`ghcr.io/overfin/overfin`). The API, the settings and the database
   can still change between versions; the database migrates itself.
-- **Its own sign-in is new.** Overfin signing people in itself (the
-  default) is tested, not yet used for real. Of identity providers,
-  Authentik and Pocket ID have been used for real; any OpenID Connect
-  provider should work, but none other has been tested.
-- **Browser only.** There's no login for native apps yet, and Jellyfin's own
-  apps don't go through Overfin, so people who move to it watch in a
-  browser.
-- **Jellyfin 12 only.**
-- **Its security rules are written down and tested, but nobody else has
-  reviewed them yet.**
+- **Its security rules are written down and tested, but nobody outside the
+  project has reviewed them yet.**
 
 Try it, read it, build on it; don't make something you depend on rely on it
 yet.
 
-## What works
-
-**Logging in and accounts**
-
-- Overfin's own sign-in: an email and a code sent there, or a password;
-  without an email server, passwords and one-time links an admin hands
-  over. Or sign-in through your OpenID Connect provider (or a reverse
-  proxy's forward auth), re-checked every few minutes. Deleting things,
-  changing a PIN or downloading one's data asks to confirm it's you.
-- Accounts with Netflix-style profiles, each with its own watch history and
-  optional PIN. Kids profiles have ceilings, one for films and one for
-  series, on Overfin's own ratings from TMDB in the country the operator
-  picks: titles above them, or with no rating there, are hidden everywhere,
-  even from direct links, and can't be played. The account's owner can
-  also give any profile only some libraries, and hide tags from it.
-- People can download what's held about them and delete their account.
-
-**Watching** (through the API, the SDK and overfin-web)
-
-- Browsing titles, in a library or not, described by TMDB: libraries,
-  filters, sorting, shuffle, continue watching (next episodes included),
-  recently added, series → seasons → episodes, discovery. Watched,
-  favorites and the watchlist work on any title.
-- Playback: Overfin picks direct play, repackaging or transcoding from what
-  the browser says it can play. WebVTT subtitles, audio tracks, "skip
-  intro", resume on any device, streams that recover by themselves, one
-  device taking over from another.
-- A watchlist per profile: movies, whole shows, seasons or single episodes.
-
-**Running the server**
-
-- A control panel on a private address only: feature switches that apply at
-  once, every account with its profiles and devices, account templates
-  (streams and profiles allowed), access end dates, disabling, deleting,
-  PIN unlocks.
-- Invitations made from invite templates, with an optional "accounts only by
-  invitation".
-- Migration: people bring their existing Jellyfin account and its history,
-  once, with its username and password.
-- Real names in the panel, read live from Authentik or Pocket ID through
-  an optional connector. With Pocket ID, Overfin also sets up its own login
-  client there, and invitations come with a sign-up link.
-- Stream limits per account, a server-wide transcode cap, a bitrate cap.
-
 ## What's missing
 
-The main gaps, roughly in the order they're planned (details in
-[ROADMAP.md](ROADMAP.md)):
+The main gaps (details in [ROADMAP.md](ROADMAP.md)):
 
-- Invitations that include the identity provider's sign-up (today, invited
-  people need a login there first).
+- TV and phone apps, and a sign-in for native apps.
 - A live view of who's watching.
 - Email notices (sign-in codes are there).
-- A login for native apps, and SDKs other than JavaScript.
-- Seek-bar previews, search, favorites, a TMDB catalog, Seerr requests.
+- SDKs other than JavaScript.
 - Jellyfin 10.11 support.
 
 The API specification also describes endpoints that aren't served yet; they
 are marked `x-status: planned`.
 
-## Trying it
+## Running it
 
 You need a **Jellyfin 12** server, ideally not reachable from the internet
 (see [SECURITY.md](SECURITY.md), Deployment), with an API key made in its
 dashboard, and **Docker** (or Go 1.26). Overfin uses the key only to manage
 its own Jellyfin account, never to browse or play.
 
-**1. Run it.** No configuration file is needed:
-
-```sh
-docker run -d --name overfin -p 8080:8080 \
-  -v overfin-data:/data -v overfin-secrets:/secrets \
-  ghcr.io/overfin/overfin:0.2.0
-```
-
+**1. Run it** with the command at the top: no configuration file is needed.
 (The version from the [releases](https://github.com/overfin/server/releases);
 `docker build -t overfin .` builds it from source instead.)
 
@@ -151,7 +144,7 @@ domain at the machine, open ports 80 and 443, and run it with your domain:
 docker run -d --name overfin -p 80:8080 -p 443:8443 \
   -e OVERFIN_DOMAIN=media.example.org \
   -v overfin-data:/data -v overfin-secrets:/secrets \
-  ghcr.io/overfin/overfin:0.2.0
+  ghcr.io/overfin/overfin:0.3.0
 ```
 
 It renews the certificate by itself, and sends plain-http visitors to
@@ -330,8 +323,8 @@ Other apps can read some of what Overfin knows, with a key you make for
 each in the control panel's **Apps** tab (shown once, revocable). For now,
 how much each film and series is watched, for apps that weigh what to
 keep (such as Stewarr): totals per title only, never anything per person.
-They ask the control panel's address, which answers only on private
-networks:
+They ask the control panel's address (the site's, or its own private
+listener when you gave it one):
 
 ```
 GET /apps/v1/watch-stats[?since=2026-10-22T00:00:00Z]
@@ -368,8 +361,10 @@ input. Among its rules: every route is declared (no passthrough to
 Jellyfin), Jellyfin tokens never reach the browser and are encrypted at
 rest, Overfin reaches Jellyfin as one locked-down account and decides
 itself what each profile may see, images are
-re-encoded, nothing is collected for analytics, and the control panel is
-never on the internet.
+re-encoded, nothing is collected for analytics, and between Overfin servers (planned
+sharing) nothing is ever trusted by default. What depends on your setup
+(HTTPS, where the control panel answers) has a secure default you may
+relax for your own server.
 
 The rules are in [SECURITY.md](SECURITY.md), the threats they answer in
 [THREAT_MODEL.md](THREAT_MODEL.md). Remember they haven't been reviewed by
@@ -397,11 +392,17 @@ playbacks; `-recover-tokens` gets you going again if the secret key is lost
 
 ## AI-assisted development
 
-Overfin is developed with the help of AI. Much of the code and documentation
-is written together with Claude (Anthropic), and commits it contributed to
-carry a `Co-Authored-By: Claude` trailer. Every change is reviewed by a human
-maintainer, and the security-critical paths (login, sessions, stream
-authorization) are read line by line.
+Said plainly: most of Overfin's code and documentation is written by Claude
+(Anthropic's AI), and commits it wrote carry a `Co-Authored-By: Claude`
+trailer. The maintainer decides what gets built and how it should behave,
+and runs every change on a real server with a real library. Each change
+passes the tests, vet, staticcheck and govulncheck before it's pushed.
+
+That isn't the same as an independent security review, and Overfin hasn't
+had one yet. The security-sensitive parts (sign-in, sessions, who may play
+what) are written down in [SECURITY.md](SECURITY.md) and
+[THREAT_MODEL.md](THREAT_MODEL.md) so they can be checked; reviews and
+reports are very welcome.
 
 ## License
 
