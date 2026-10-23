@@ -56,6 +56,12 @@ type Jellyfin interface {
 	// SetJellyfin tests and applies a new address for the same server.
 	// Its error says what's wrong in plain words.
 	SetJellyfin(ctx context.Context, url string) (string, error)
+	// JellyfinAccess tells whether access to Jellyfin itself is open, and
+	// since when.
+	JellyfinAccess(ctx context.Context) (open bool, since time.Time, err error)
+	// SetJellyfinAccess opens access, returning the account and its new
+	// password (shown once), or closes it.
+	SetJellyfinAccess(ctx context.Context, open bool) (name, password string, err error)
 }
 
 // Seerr is where the panel reads and changes Seerr's connection.
@@ -206,6 +212,7 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("GET /admin/api/ratings", p.signedIn(p.ratings))
 	mux.HandleFunc("PUT /admin/api/ratings", p.signedIn(p.setRatings))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
+	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
 	mux.HandleFunc("GET /admin/api/libraries", p.signedIn(p.libraries))
 	mux.HandleFunc("POST /admin/api/libraries", p.signedIn(p.addLibrary))
 	mux.HandleFunc("PATCH /admin/api/libraries/{name}", p.signedIn(p.changeLibrary))
@@ -605,7 +612,15 @@ func (p *Panel) jellyfin(w http.ResponseWriter, r *http.Request, s *session) {
 		return
 	}
 	url, inFile := p.Jellyfin.Jellyfin()
-	writeJSON(w, http.StatusOK, map[string]any{"url": url, "inFile": inFile})
+	open, since, err := p.Jellyfin.JellyfinAccess(r.Context())
+	if err != nil {
+		p.Logger.Error("reading Jellyfin's access failed", "err", err)
+	}
+	access := map[string]any{"open": open}
+	if open {
+		access["since"] = since
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"url": url, "inFile": inFile, "access": access})
 }
 
 func (p *Panel) catalog(w http.ResponseWriter, r *http.Request, s *session) {
@@ -814,6 +829,33 @@ func (p *Panel) setJellyfin(w http.ResponseWriter, r *http.Request, s *session) 
 	}
 	url, _ := p.Jellyfin.Jellyfin()
 	writeJSON(w, http.StatusOK, map[string]string{"summary": summary, "url": url})
+}
+
+// setJellyfinAccess opens or closes access to Jellyfin itself. The new
+// password goes to the admin who opened it, once.
+func (p *Panel) setJellyfinAccess(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.Jellyfin == nil {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Open bool `json:"open"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	name, password, err := p.Jellyfin.SetJellyfinAccess(r.Context(), req.Open)
+	if err != nil {
+		p.upstreamProblem(w, err, "changing Jellyfin's access")
+		return
+	}
+	if req.Open {
+		p.Logger.Warn("access to Jellyfin itself was opened in the control panel", "by", s.name)
+		writeJSON(w, http.StatusOK, map[string]string{"username": name, "password": password})
+		return
+	}
+	p.Logger.Info("access to Jellyfin itself was closed in the control panel", "by", s.name)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

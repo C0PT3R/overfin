@@ -96,3 +96,58 @@ func TestOtherServerIsLeftAlone(t *testing.T) {
 		t.Errorf("after the handover: %+v, %v", found, err)
 	}
 }
+
+func TestAccess(t *testing.T) {
+	ctx := context.Background()
+	f, jf := newFake(t, true)
+	f.Users["alice"] = takeovertest.User{Password: "secret", Admin: true}
+	f.Users["bob"] = takeovertest.User{Password: "pw"}
+	f.Keys["seerr-key"] = "Seerr"
+	key, err := takeover.HandOver(ctx, jf, "alice", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := jellyfin.Auth{Token: key, DeviceID: "t"}
+
+	// Closed: no administrator's password is known any more; others stay.
+	if err := takeover.CloseAccess(ctx, jf, a); err != nil {
+		t.Fatal(err)
+	}
+	if f.Users["alice"].Password == "secret" || f.Users["bob"].Password != "pw" {
+		t.Errorf("after closing: %+v", f.Users)
+	}
+	if _, err := takeover.Inspect(ctx, jf, "alice", "secret"); !errors.Is(err, takeover.ErrLogin) {
+		t.Errorf("alice still signs in: %v", err)
+	}
+
+	// Opened: Overfin's own administrator, made since there's none, with
+	// the password given once.
+	name, password, err := takeover.OpenAccess(ctx, jf, a)
+	if err != nil || name != takeover.AdminName || len(password) < 20 {
+		t.Fatalf("OpenAccess = %q, %q, %v", name, password, err)
+	}
+	if u := f.Users[takeover.AdminName]; !u.Admin || u.Password != password {
+		t.Errorf("Overfin's administrator: %+v", u)
+	}
+	if _, err := takeover.Inspect(ctx, jf, name, password); err != nil {
+		t.Errorf("signing in with the new password: %v", err)
+	}
+	// Again: the same account, a new password.
+	_, again, err := takeover.OpenAccess(ctx, jf, a)
+	if err != nil || again == password || f.Users[takeover.AdminName].Password != again {
+		t.Errorf("again: %q %v", again, err)
+	}
+
+	// A second handover leaves two keys of Overfin's: the older one goes,
+	// Seerr's stays.
+	newer, err := takeover.HandOver(ctx, jf, takeover.AdminName, again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := takeover.Tidy(ctx, jf, jellyfin.Auth{Token: newer, DeviceID: "t"}, newer); err != nil || n != 1 {
+		t.Errorf("Tidy = %d, %v", n, err)
+	}
+	if _, ok := f.Keys[key]; ok || f.Keys[newer] != takeover.AppName || f.Keys["seerr-key"] != "Seerr" {
+		t.Errorf("keys: %v", f.Keys)
+	}
+}

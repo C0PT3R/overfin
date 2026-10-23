@@ -1161,6 +1161,33 @@ func (s *Store) SetJellyfin(ctx context.Context, url, key, serverID string) erro
 	return tx.Commit()
 }
 
+// JellyfinAccess tells whether access to Jellyfin itself is open, and
+// since when; closed until an admin opens it.
+func (s *Store) JellyfinAccess(ctx context.Context) (open bool, since time.Time, err error) {
+	var v []byte
+	err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'jellyfin-access'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, time.Time{}, nil
+	}
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	since, err = time.Parse(time.RFC3339, string(v))
+	return err == nil, since, err
+}
+
+// SetJellyfinAccess records access to Jellyfin itself as opened now, or
+// closed.
+func (s *Store) SetJellyfinAccess(ctx context.Context, open bool) error {
+	if !open {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE name = 'jellyfin-access'`)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('jellyfin-access', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, []byte(time.Now().UTC().Format(time.RFC3339)))
+	return err
+}
+
 // ReadJellyfin is Jellyfin for the database at path, opened read-only so
 // nothing changes (for overfin -check).
 func ReadJellyfin(ctx context.Context, path string, box *seal.Box) (url, key string, ok bool, err error) {

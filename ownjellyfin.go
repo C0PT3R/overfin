@@ -87,6 +87,11 @@ func ownJellyfin(ctx context.Context, cfg *config.Config, db *store.Store, logge
 				return "", "", false, err
 			}
 		}
+		if n, err := takeover.Tidy(ctx, jf, jellyfin.Auth{Token: savedKey, DeviceID: "overfin-admin"}, savedKey); err != nil {
+			logger.Warn("Overfin's older keys on Jellyfin couldn't be revoked", "err", err)
+		} else if n > 0 {
+			logger.Info("Overfin's older keys on Jellyfin were revoked", "keys", n)
+		}
 		return url, savedKey, true, nil
 	default:
 		logger.Warn("this Jellyfin was set up by someone else, or Overfin's key for it is gone: "+
@@ -150,8 +155,14 @@ func takeOver(ctx context.Context, db *store.Store, fixed string, req admin.Jell
 	if err != nil {
 		return "", "", ans, err
 	}
+	// Saved before access is closed: Overfin never loses its way in.
 	if err := db.SetJellyfin(ctx, url, key, found.Server.ID); err != nil {
 		return "", "", ans, err
+	}
+	if found.State == takeover.Other {
+		if err := closeAfterHandOver(ctx, db, jf, key, logger); err != nil {
+			return "", "", ans, err
+		}
 	}
 	how := map[takeover.State]string{takeover.Fresh: "set up", takeover.Ours: "found again", takeover.Other: "handed over"}[found.State]
 	logger.Info("setup page: Overfin's Jellyfin is "+how, "jellyfin", url)
@@ -217,7 +228,11 @@ func handOverInTerminal(ctx context.Context, db *store.Store, fixed string, in i
 	if key, err = takeover.HandOver(ctx, jf, username, password); err != nil {
 		return "", "", err
 	}
+	// Saved before access is closed: Overfin never loses its way in.
 	if err := db.SetJellyfin(ctx, url, key, found.Server.ID); err != nil {
+		return "", "", err
+	}
+	if err := closeAfterHandOver(ctx, db, jf, key, slog.New(slog.NewTextHandler(out, nil))); err != nil {
 		return "", "", err
 	}
 	return url, key, nil
@@ -238,4 +253,23 @@ func ownSettings(ctx context.Context, url, key string, logger *slog.Logger) {
 	if err != nil {
 		logger.Warn("setting Jellyfin's settings back failed; Overfin tries again at its next start", "err", err)
 	}
+}
+
+// closeAfterHandOver closes access to a Jellyfin just handed over, as to
+// every Jellyfin of Overfin's (SECURITY.md rule 67), and revokes the keys
+// earlier takeovers made there.
+func closeAfterHandOver(ctx context.Context, db *store.Store, jf *jellyfin.Client, key string, logger *slog.Logger) error {
+	a := jellyfin.Auth{Token: key, DeviceID: "overfin-admin"}
+	if err := takeover.CloseAccess(ctx, jf, a); err != nil {
+		return err
+	}
+	if err := db.SetJellyfinAccess(ctx, false); err != nil {
+		return err
+	}
+	if n, err := takeover.Tidy(ctx, jf, a, key); err != nil {
+		logger.Warn("Overfin's older keys on Jellyfin couldn't be revoked", "err", err)
+	} else if n > 0 {
+		logger.Info("Overfin's older keys on Jellyfin were revoked", "keys", n)
+	}
+	return nil
 }

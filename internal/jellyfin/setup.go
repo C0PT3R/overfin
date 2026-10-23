@@ -98,10 +98,37 @@ func (c *Client) Me(ctx context.Context, a Auth) (name string, admin bool, err e
 	return me.Name, me.Policy.IsAdministrator, nil
 }
 
+// User is one of the server's users.
+type User struct {
+	ID    string
+	Name  string
+	Admin bool
+}
+
+// Users is the server's users. Admin only.
+func (c *Client) Users(ctx context.Context, admin Auth) ([]User, error) {
+	var res []struct {
+		Id, Name string
+		Policy   struct{ IsAdministrator bool }
+	}
+	if err := c.do(ctx, "users", http.MethodGet, "/Users", admin, nil, &res); err != nil {
+		return nil, err
+	}
+	users := make([]User, 0, len(res))
+	for _, u := range res {
+		id, err := NormalizeID(u.Id)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, User{ID: id, Name: u.Name, Admin: u.Policy.IsAdministrator})
+	}
+	return users, nil
+}
+
 // UserNames is the names of the server's users. Admin only.
 func (c *Client) UserNames(ctx context.Context, admin Auth) ([]string, error) {
-	var users []struct{ Name string }
-	if err := c.do(ctx, "users", http.MethodGet, "/Users", admin, nil, &users); err != nil {
+	users, err := c.Users(ctx, admin)
+	if err != nil {
 		return nil, err
 	}
 	names := make([]string, len(users))
@@ -109,4 +136,28 @@ func (c *Client) UserNames(ctx context.Context, admin Auth) ([]string, error) {
 		names[i] = u.Name
 	}
 	return names, nil
+}
+
+// KeysOf is the API keys made for app. Admin only.
+func (c *Client) KeysOf(ctx context.Context, admin Auth, app string) ([]string, error) {
+	all, err := c.keys(ctx, admin)
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for k, name := range all {
+		if name == app {
+			keys = append(keys, k)
+		}
+	}
+	return keys, nil
+}
+
+// DeleteKey revokes an API key. Admin only.
+func (c *Client) DeleteKey(ctx context.Context, admin Auth, key string) error {
+	k, err := NormalizeID(key)
+	if err != nil {
+		return errors.New("jellyfin: malformed key")
+	}
+	return c.do(ctx, "delete key", http.MethodDelete, "/Auth/Keys/"+k, admin, nil, nil)
 }

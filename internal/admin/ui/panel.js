@@ -311,7 +311,12 @@ function inFileCard(title, text) {
 
 function jellyfinCard(j) {
   if (!j) return null;
-  if (j.inFile) return inFileCard('Jellyfin', j.url);
+  const description = 'Overfin\'s own Jellyfin, where your media is read. Overfin is the only one that talks to it, with a key it made itself.';
+  if (j.inFile) {
+    return card({ title: 'Jellyfin', badge: badge('Connected', 'ok'), description },
+      [h('div', { class: 'box' }, h('div', {}, j.url), h('div', { class: 'hint' }, "Set in Overfin's configuration file: change it there.")),
+        jellyfinAccess(j.access)]);
+  }
   const url = h('input', { value: j.url, autocomplete: 'off', spellcheck: 'false' });
   const st = status('Connected.');
   const save = h('button', { class: 'primary', type: 'button', onclick: () => busy(save, async () => {
@@ -321,10 +326,41 @@ function jellyfinCard(j) {
     st.set(out.summary, 'ok');
     toast('Jellyfin saved.');
   }, (err) => st.set(err.message, 'error')) }, 'Test and save');
-  return card({ title: 'Jellyfin', badge: badge('Connected', 'ok'), description: 'Overfin\'s own Jellyfin, where your media is read. Overfin is the only one that talks to it, with a key it made itself.' },
-    h('div', { class: 'fields' },
+  return card({ title: 'Jellyfin', badge: badge('Connected', 'ok'), description },
+    [h('div', { class: 'fields' },
       field('Address', url, 'As Overfin reaches it; a new address for the same server. Not localhost: in a container, that\'s Overfin itself.', true)),
+    jellyfinAccess(j.access)],
     [st, save]);
+}
+
+// jellyfinAccess opens or closes access to Jellyfin itself: closed, nobody
+// can sign in there; opened, Overfin's administrator account gets a new
+// password, shown here once.
+function jellyfinAccess(a) {
+  const box = h('div', {});
+  const draw = (open, since) => {
+    const button = h('button', { type: 'button', class: open ? 'small' : 'small danger', onclick: () => {
+      if (!open && !confirm('Open access to Jellyfin itself? Changes made there may break Overfin, and Overfin sets the settings it needs back when it starts.')) return;
+      busy(button, async () => {
+        const out = await api('PUT', '/admin/api/jellyfin/access', { open: !open });
+        if (open) {
+          toast('Access to Jellyfin closed.');
+          draw(false);
+          return;
+        }
+        draw(true, new Date().toISOString());
+        box.append(secret(`Sign in to Jellyfin as ${out.username} with this password:`, out.password,
+          'Shown once, never kept. Close access when you\'re done: that ends every sign-in there.'));
+      });
+    } }, open ? 'Close access' : 'Open access');
+    fill(box, h('h3', {}, 'Access to Jellyfin itself'),
+      open
+        ? h('p', { class: 'notice warn' }, `Open since ${when(since)}. Changes made in Jellyfin may break Overfin, and the settings it needs are set back when it starts.`)
+        : h('p', { class: 'hint' }, 'Closed: nobody can sign in to Jellyfin itself, and Overfin doesn\'t need anyone to. Open it only to look inside, for a while.'),
+      h('div', { class: 'actions-row' }, button));
+  };
+  draw(!!a?.open, a?.since);
+  return box;
 }
 
 function catalogCard(c) {

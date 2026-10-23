@@ -111,7 +111,15 @@ func TestTakeOverOnSetupPage(t *testing.T) {
 	if err != nil || !ans.Done || got != otherURL || other.Keys[key] != takeover.AppName {
 		t.Fatalf("handed over: %q %+v %v", got, ans, err)
 	}
-	if !slices.Equal(other.Writes, []string{"POST /Auth/Keys"}) || other.Keys["seerr-key"] != "Seerr" || len(other.Tokens) != 0 {
+	// Overfin's key, then access closed: alice's password nobody knows.
+	// Nothing else changed.
+	if !slices.Equal(other.Writes, []string{"POST /Auth/Keys", "POST /Users/Password alice"}) || other.Keys["seerr-key"] != "Seerr" || len(other.Tokens) != 0 {
 		t.Errorf("changed %v, keys %v, still signed in %d", other.Writes, other.Keys, len(other.Tokens))
+	}
+	if other.Users["alice"].Password == "secret" {
+		t.Error("access is still open")
+	}
+	if open, _, _ := db.JellyfinAccess(ctx); open {
+		t.Error("recorded as open")
 	}
 }

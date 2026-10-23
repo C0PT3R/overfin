@@ -73,9 +73,9 @@ func libraryFolders(folders []string) ([]string, error) {
 	return out, nil
 }
 
-// libraryProblem answers an error from Libraries: in plain words when it
+// upstreamProblem answers an error from Jellyfin's side: in plain words when it
 // is, otherwise logged.
-func (p *Panel) libraryProblem(w http.ResponseWriter, err error, what string) {
+func (p *Panel) upstreamProblem(w http.ResponseWriter, err error, what string) {
 	var plain Problem
 	if errors.As(err, &plain) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": string(plain)})
@@ -92,7 +92,7 @@ func (p *Panel) libraries(w http.ResponseWriter, r *http.Request, s *session) {
 	}
 	libs, err := p.Libraries.List(r.Context())
 	if err != nil {
-		p.libraryProblem(w, err, "listing libraries")
+		p.upstreamProblem(w, err, "listing libraries")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": libs})
@@ -123,7 +123,7 @@ func (p *Panel) addLibrary(w http.ResponseWriter, r *http.Request, s *session) {
 		err = p.Libraries.Add(r.Context(), name, req.Kind, folders)
 	}
 	if err != nil {
-		p.libraryProblem(w, err, "adding a library")
+		p.upstreamProblem(w, err, "adding a library")
 		return
 	}
 	p.Logger.Info("a library was added in the control panel", "library", name, "by", s.name)
@@ -156,7 +156,7 @@ func (p *Panel) changeLibrary(w http.ResponseWriter, r *http.Request, s *session
 		err = p.Libraries.Change(r.Context(), name, newName, folders)
 	}
 	if err != nil {
-		p.libraryProblem(w, err, "changing a library")
+		p.upstreamProblem(w, err, "changing a library")
 		return
 	}
 	p.Logger.Info("a library was changed in the control panel", "library", name, "by", s.name)
@@ -170,7 +170,7 @@ func (p *Panel) removeLibrary(w http.ResponseWriter, r *http.Request, s *session
 	}
 	name := r.PathValue("name")
 	if err := p.Libraries.Remove(r.Context(), name); err != nil {
-		p.libraryProblem(w, err, "removing a library")
+		p.upstreamProblem(w, err, "removing a library")
 		return
 	}
 	p.Logger.Info("a library was removed in the control panel", "library", name, "by", s.name)
@@ -183,7 +183,7 @@ func (p *Panel) scanLibraries(w http.ResponseWriter, r *http.Request, s *session
 		return
 	}
 	if err := p.Libraries.Scan(r.Context()); err != nil {
-		p.libraryProblem(w, err, "starting a scan")
+		p.upstreamProblem(w, err, "starting a scan")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -209,7 +209,7 @@ func (p *Panel) browseFolders(w http.ResponseWriter, r *http.Request, s *session
 		folders, err = p.Libraries.Browse(r.Context(), dir)
 	}
 	if err != nil {
-		p.libraryProblem(w, err, "listing folders")
+		p.upstreamProblem(w, err, "listing folders")
 		return
 	}
 	parent := ""

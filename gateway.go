@@ -35,6 +35,7 @@ import (
 	"github.com/overfin/server/internal/server"
 	"github.com/overfin/server/internal/site"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/takeover"
 	"github.com/overfin/server/internal/tmdb"
 )
 
@@ -498,6 +499,31 @@ func (g *gateway) SetJellyfin(ctx context.Context, url string) (string, error) {
 	g.cfg = &cfg
 	g.sh.logger.Info("Jellyfin changed in the control panel", "jellyfin", url)
 	return found.summary, nil
+}
+
+// JellyfinAccess tells whether access to Jellyfin itself is open, and
+// since when.
+func (g *gateway) JellyfinAccess(ctx context.Context) (bool, time.Time, error) {
+	return g.sh.db.JellyfinAccess(ctx)
+}
+
+// SetJellyfinAccess opens access to Jellyfin itself, giving Overfin's
+// administrator account there a new password (returned, shown once, never
+// kept), or closes it: every administrator gets a password nobody knows
+// (SECURITY.md rule 67).
+func (g *gateway) SetJellyfinAccess(ctx context.Context, open bool) (name, password string, err error) {
+	g.mu.Lock()
+	a := jellyfin.Auth{Token: g.cfg.Secrets.JellyfinAdminKey, DeviceID: "overfin-admin"}
+	g.mu.Unlock()
+	if open {
+		name, password, err = takeover.OpenAccess(ctx, g.sh.jf, a)
+	} else {
+		err = takeover.CloseAccess(ctx, g.sh.jf, a)
+	}
+	if err != nil {
+		return "", "", forPage(err)
+	}
+	return name, password, g.sh.db.SetJellyfinAccess(ctx, open)
 }
 
 // source is where TMDB's data comes from: TMDB itself, with the project's

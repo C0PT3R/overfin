@@ -2,7 +2,10 @@
 package takeovertest
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +24,23 @@ type Jellyfin struct {
 	Tokens    map[string]string // login token → user name
 	LoggedOut int
 	Writes    []string // what changed, in order
+	made      int      // keys made so far
+}
+
+// UserID is the ID the fake gives a user.
+func UserID(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return hex.EncodeToString(sum[:16])
+}
+
+// byID is the name of the user with id.
+func (f *Jellyfin) byID(id string) string {
+	for n := range f.Users {
+		if UserID(n) == id {
+			return n
+		}
+	}
+	return ""
 }
 
 // User is one of its users.
@@ -108,11 +128,34 @@ func (f *Jellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case route == "GET /Library/MediaFolders":
 		reply(map[string]any{"Items": []any{map[string]string{}}})
 	case route == "GET /Users":
-		var users []map[string]string
-		for n := range f.Users {
-			users = append(users, map[string]string{"Name": n})
+		var users []map[string]any
+		for n, u := range f.Users {
+			users = append(users, map[string]any{"Id": UserID(n), "Name": n, "Policy": map[string]bool{"IsAdministrator": u.Admin}})
 		}
 		reply(users)
+	case route == "POST /Users/Password":
+		n := f.byID(r.URL.Query().Get("userId"))
+		u := f.Users[n]
+		u.Password = body["NewPw"].(string)
+		f.Users[n] = u
+		f.Writes = append(f.Writes, route+" "+n)
+	case route == "POST /Users/New":
+		n := body["Name"].(string)
+		f.Users[n] = User{Password: body["Password"].(string)}
+		f.Writes = append(f.Writes, route+" "+n)
+		reply(map[string]string{"Id": UserID(n)})
+	case strings.HasPrefix(route, "GET /Users/"):
+		n := f.byID(strings.TrimPrefix(r.URL.Path, "/Users/"))
+		reply(map[string]any{"Policy": map[string]any{"IsAdministrator": f.Users[n].Admin, "IsHidden": false}})
+	case strings.HasPrefix(route, "POST /Users/") && strings.HasSuffix(route, "/Policy"):
+		n := f.byID(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/Users/"), "/Policy"))
+		u := f.Users[n]
+		u.Admin = body["IsAdministrator"] == true
+		f.Users[n] = u
+		f.Writes = append(f.Writes, "POST /Users/Policy "+n)
+	case strings.HasPrefix(route, "DELETE /Auth/Keys/"):
+		delete(f.Keys, strings.TrimPrefix(r.URL.Path, "/Auth/Keys/"))
+		f.Writes = append(f.Writes, "DELETE /Auth/Keys")
 	case route == "GET /Auth/Keys":
 		var items []map[string]string
 		for k, app := range f.Keys {
@@ -120,7 +163,8 @@ func (f *Jellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(map[string]any{"Items": items})
 	case route == "POST /Auth/Keys":
-		k := "key-" + r.URL.Query().Get("app") + "-" + string(rune('a'+len(f.Keys)))
+		f.made++
+		k := fmt.Sprintf("%032x", f.made)
 		f.Keys[k] = r.URL.Query().Get("app")
 		f.Writes = append(f.Writes, route)
 	default:

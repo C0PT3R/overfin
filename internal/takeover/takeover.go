@@ -146,3 +146,70 @@ func withAdmin(ctx context.Context, jf *jellyfin.Client, username, password stri
 	}
 	return do(a)
 }
+
+// CloseAccess gives every administrator of the server a password nobody
+// knows, so nobody signs in to Jellyfin itself; Overfin works with its key.
+// Other users and other apps' keys stay as they are.
+func CloseAccess(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth) error {
+	users, err := jf.Users(ctx, admin)
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		if !u.Admin {
+			continue
+		}
+		if err := jf.SetPassword(ctx, admin, u.ID, rand.Text()); err != nil {
+			return fmt.Errorf("takeover: closing %s: %w", u.Name, err)
+		}
+	}
+	return nil
+}
+
+// OpenAccess gives Overfin's administrator (AdminName, made if it's
+// missing) a new password, and returns it: shown once, never kept.
+func OpenAccess(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth) (name, password string, err error) {
+	users, err := jf.Users(ctx, admin)
+	if err != nil {
+		return "", "", err
+	}
+	password = rand.Text()
+	for _, u := range users {
+		if u.Name == AdminName {
+			if !u.Admin {
+				return "", "", Problem("Jellyfin has a user named " + AdminName + " who isn't an administrator.")
+			}
+			return AdminName, password, jf.SetPassword(ctx, admin, u.ID, password)
+		}
+	}
+	id, err := jf.CreateUser(ctx, admin, AdminName, password)
+	if err != nil {
+		return "", "", err
+	}
+	policy, err := jf.UserPolicy(ctx, admin, id)
+	if err != nil {
+		return "", "", err
+	}
+	policy["IsAdministrator"] = true
+	return AdminName, password, jf.SetUserPolicy(ctx, admin, id, policy)
+}
+
+// Tidy revokes the keys Overfin made on earlier takeovers, keeping key, and
+// says how many it revoked.
+func Tidy(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, key string) (int, error) {
+	keys, err := jf.KeysOf(ctx, admin, AppName)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, k := range keys {
+		if k == key {
+			continue
+		}
+		if err := jf.DeleteKey(ctx, admin, k); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
