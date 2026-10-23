@@ -102,8 +102,20 @@ export class Overfin {
   me() { return this.request('GET', '/me'); }
   /** Creates a fresh account. */
   createAccount() { return this.request('POST', '/me', {}); }
-  /** Brings an existing media server account, with its history. The password is used once. */
+  /** Starts a new account with the history of one on the server this site replaces. The password is used once. */
   claimAccount(username, password) { return this.request('POST', '/me/claim', { username, password }); }
+  /**
+   * Whether the active profile may bring its history from the server this
+   * site replaces: migration on, never done for this account, not a kids
+   * profile. Resolves with { available }; rejects with 404 when the
+   * server has no migration.
+   */
+  historyCopy() { return this.request('GET', '/me/history/copy'); }
+  /**
+   * Copies the history of an account on that other server into the active
+   * profile, with its username and password there (used once, not kept).
+   */
+  copyHistory(username, password) { return this.request('POST', '/me/history/copy', { username, password }); }
   /**
    * Deletes the account and everything Overfin holds about it. Owner only;
    * needs a fresh login (step-up). Resolves with { history: 'deleted' | 'kept' }.

@@ -883,7 +883,6 @@ function accountDetail(a, templates, reload, people) {
       h('div', { class: 'hint' }, [
         p.kind === 'kids' && (p.movieCeiling && p.seriesCeiling ? `Films up to ${p.movieCeiling}, series up to ${p.seriesCeiling}` : 'Limits not chosen yet'),
         p.hasPin ? (p.pinLocked ? 'PIN locked' : 'PIN set') : 'No PIN',
-        p.linked && 'old login still works (linked)',
       ].filter(Boolean).join(' · '))), unlock);
   });
   const devices = a.sessions.map((s) => {
@@ -923,10 +922,28 @@ function accountDetail(a, templates, reload, people) {
       field('Access ends', expires, 'Empty: never.', true)),
     h('div', { class: 'actions-row' }, save),
     h('h3', {}, `Profiles (${a.profiles.length})`), h('ul', { class: 'list' }, profiles),
+    a.historyCopiedAt && historyCopy(a, reload),
     h('h3', {}, `Signed-in devices (${a.sessions.length})`),
     devices.length ? h('ul', { class: 'list' }, devices) : h('p', { class: 'hint' }, 'None.'),
     h('div', { class: 'danger-zone' }, toggleAccess, remove),
   ];
+}
+
+// historyCopy says when the account brought a history from another server,
+// and lets it bring one again: if the wrong one came, or the wrong person
+// took someone's.
+function historyCopy(a, reload) {
+  const again = h('button', { type: 'button', class: 'small', onclick: () => {
+    if (!confirm('Let this account bring a history again? What was copied stays; the account it came from can be copied again, by anyone with its login.')) return;
+    busy(again, async () => {
+      await api('DELETE', `/admin/api/accounts/${a.id}/history-copy`);
+      toast('This account may bring a history again.');
+      reload(a.id);
+    });
+  } }, 'Allow it again');
+  return [h('h3', {}, 'History brought over'),
+    h('div', { class: 'box' }, h('div', {}, `From the other server, ${when(a.historyCopiedAt)}.`),
+      h('div', { class: 'actions-row' }, again))];
 }
 
 // ---- Templates -----------------------------------------------------------------

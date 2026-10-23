@@ -187,6 +187,90 @@ func (p *Provisioner) allowed(id identity.Identity) error {
 	return nil
 }
 
+// copied is a history read from another server.
+type copied struct {
+	server, user string
+	states       []store.Personal
+	skipped      int
+}
+
+// fetch signs in to the other server as the person (subject, for limiting
+// failed tries), checks that their account there wasn't copied already,
+// reads their history and signs out. Callers hold p.mu.
+func (p *Provisioner) fetch(ctx context.Context, from *jellyfin.Client, username, password string, history History,
+	subject string, now time.Time) (copied, error) {
+	server, err := from.Public(ctx)
+	if err != nil {
+		return copied{}, err
+	}
+	token, userID, err := from.Authenticate(ctx, "overfin-migration", username, password)
+	if err != nil {
+		if jellyfin.IsStatus(err, http.StatusUnauthorized) || jellyfin.IsStatus(err, http.StatusForbidden) ||
+			jellyfin.IsStatus(err, http.StatusNotFound) || jellyfin.IsStatus(err, http.StatusBadRequest) {
+			p.attempts.fail(subject, now)
+			p.Logger.Info("history copy failed: wrong credentials", "user", p.logID(subject))
+			return copied{}, ErrClaimFailed
+		}
+		return copied{}, err
+	}
+	a := jellyfin.Auth{Token: token, DeviceID: "overfin-migration"}
+	defer func() {
+		if err := from.Logout(context.WithoutCancel(ctx), a); err != nil {
+			p.Logger.Warn("could not sign out of the other server", "err", err)
+		}
+	}()
+	// Checked under the lock, so two people can't copy the same account.
+	if into, err := p.Store.CopiedInto(ctx, server.ID, userID); err != nil {
+		return copied{}, err
+	} else if into != "" {
+		p.Logger.Warn("history copy refused: copied into another account already", "user", p.logID(subject))
+		return copied{}, ErrClaimNotAllowed
+	}
+	states, skipped, err := history(ctx, from, a, userID)
+	if err != nil {
+		return copied{}, err
+	}
+	return copied{server: server.ID, user: userID, states: states, skipped: skipped}, nil
+}
+
+// CopyInto copies the history someone had on another Jellyfin server into
+// one of their profiles here, merged with what's there, as CopyIn does for
+// a new account: once per account (until an admin allows it again), never
+// into a kids profile.
+func (p *Provisioner) CopyInto(ctx context.Context, subject, accountID string, profile *store.Profile, from *jellyfin.Client,
+	username, password string, history History) error {
+	if profile.Kind == "kids" {
+		return ErrClaimNotAllowed
+	}
+	now := time.Now()
+	if !p.attempts.allow(subject, now) {
+		return ErrRateLimited
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, done, err := p.Store.AccountCopy(ctx, accountID); err != nil {
+		return err
+	} else if done {
+		return ErrClaimNotAllowed
+	}
+	got, err := p.fetch(ctx, from, username, password, history, subject, now)
+	if err != nil {
+		return err
+	}
+	// Merged first: a merge done twice is the same, so if the record
+	// fails, trying again is harmless.
+	if err := p.Store.MergePersonal(ctx, profile.ID, got.states); err != nil {
+		return err
+	}
+	if err := p.Store.RecordCopy(ctx, got.server, got.user, accountID); err != nil {
+		return err
+	}
+	p.attempts.reset(subject)
+	p.Logger.Info("a history was copied into an account", "user", p.logID(subject), "account", accountID,
+		"titles", len(got.states), "left out", got.skipped)
+	return nil
+}
+
 // History reads what a user did on another Jellyfin server, signed in as
 // them (personal.FromServer).
 type History func(ctx context.Context, jf *jellyfin.Client, a jellyfin.Auth, userID string) ([]store.Personal, int, error)
@@ -225,34 +309,7 @@ func (p *Provisioner) CopyIn(ctx context.Context, id identity.Identity, from *je
 		return nil, nil, err
 	}
 
-	server, err := from.Public(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	token, userID, err := from.Authenticate(ctx, "overfin-migration", username, password)
-	if err != nil {
-		if jellyfin.IsStatus(err, http.StatusUnauthorized) || jellyfin.IsStatus(err, http.StatusForbidden) ||
-			jellyfin.IsStatus(err, http.StatusNotFound) || jellyfin.IsStatus(err, http.StatusBadRequest) {
-			p.attempts.fail(id.Subject, now)
-			p.Logger.Info("history copy failed: wrong credentials", "user", p.logID(id.Subject))
-			return nil, nil, ErrClaimFailed
-		}
-		return nil, nil, err
-	}
-	a := jellyfin.Auth{Token: token, DeviceID: "overfin-migration"}
-	defer func() {
-		if err := from.Logout(context.WithoutCancel(ctx), a); err != nil {
-			p.Logger.Warn("could not sign out of the other server", "err", err)
-		}
-	}()
-	// Checked under the lock, so two people can't copy the same account.
-	if into, err := p.Store.CopiedInto(ctx, server.ID, userID); err != nil {
-		return nil, nil, err
-	} else if into != "" {
-		p.Logger.Warn("history copy refused: copied into another account already", "user", p.logID(id.Subject))
-		return nil, nil, ErrClaimNotAllowed
-	}
-	states, skipped, err := history(ctx, from, a, userID)
+	got, err := p.fetch(ctx, from, username, password, history, id.Subject, now)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -261,7 +318,8 @@ func (p *Provisioner) CopyIn(ctx context.Context, id identity.Identity, from *je
 	if err != nil {
 		return nil, nil, err
 	}
-	err = p.Store.RecordCopy(ctx, server.ID, userID, acct.ID)
+	err = p.Store.RecordCopy(ctx, got.server, got.user, acct.ID)
+	states, skipped := got.states, got.skipped
 	if err == nil {
 		err = p.Store.MergePersonal(ctx, owner.ID, states)
 	}

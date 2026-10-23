@@ -162,6 +162,45 @@ func (v visitor) Copy(w http.ResponseWriter, from, username, password string) bo
 	return err == nil
 }
 
+// callerHistory is the core's side of feature.History.
+type callerHistory struct {
+	l Library
+	c *Caller
+}
+
+func (h callerHistory) Copied(ctx context.Context) (bool, error) {
+	_, done, err := h.l.Provisioner.Store.AccountCopy(ctx, h.c.Account.ID)
+	return done, err
+}
+
+func (h callerHistory) Copy(w http.ResponseWriter, r *http.Request, from, username, password string) bool {
+	if username == "" || len(username) > 128 || password == "" || len(password) > 256 {
+		problem.Send(w, problem.InvalidRequest, "")
+		return false
+	}
+	old, err := jellyfin.New(from, "overfin")
+	if config.CheckJellyfinURL(from) != nil || err != nil {
+		h.l.Logger.Error("migration: the other server's address isn't usable", "from", from)
+		problem.Send(w, problem.Internal, "")
+		return false
+	}
+	err = h.l.Provisioner.CopyInto(r.Context(), h.c.Account.Subject, h.c.Account.ID, h.c.Profile, old, username, password, personal.FromServer)
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, provision.ErrClaimFailed):
+		problem.Send(w, problem.ClaimFailed, "")
+	case errors.Is(err, provision.ErrClaimNotAllowed):
+		problem.Send(w, problem.ClaimNotAllowed, "")
+	case errors.Is(err, provision.ErrRateLimited):
+		problem.Send(w, problem.RateLimited, "")
+	default:
+		h.l.Logger.Error("copying a history failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+	}
+	return err == nil
+}
+
 // offerName is a setup offer's member name in account-setup-required.
 var offerName = regexp.MustCompile(`^[a-z][A-Za-z0-9]{0,31}$`)
 
@@ -193,7 +232,7 @@ func SetupOffers(mounts []Mount) (map[string]string, error) {
 func CallerFor(l Library, c *Caller) *feature.Caller {
 	return &feature.Caller{
 		AccountID: c.Account.ID, ProfileID: c.Profile.ID, Kind: c.Profile.Kind, Owner: c.IsOwner(),
-		Backend: profileBackend{l: l, p: c.Profile},
+		Backend: profileBackend{l: l, p: c.Profile}, History: callerHistory{l: l, c: c},
 	}
 }
 

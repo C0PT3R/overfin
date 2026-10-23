@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/overfin/server/internal/connector"
@@ -25,6 +24,9 @@ type accountJSON struct {
 	Status    string      `json:"status"` // active, disabled, expired
 	ExpiresAt string      `json:"expiresAt,omitempty"`
 	Template  templateRef `json:"template"`
+	// HistoryCopiedAt is when a history from another server was copied
+	// in (migration), which it may do once until allowed again.
+	HistoryCopiedAt string `json:"historyCopiedAt,omitempty"`
 	// Person is who the identity provider says this is, live from the
 	// connector; absent without one, or when the provider doesn't know.
 	Person   *connector.Person `json:"person,omitempty"`
@@ -41,8 +43,6 @@ type adminProfile struct {
 	SeriesCeiling string `json:"seriesCeiling,omitempty"`
 	HasPIN        bool   `json:"hasPin"`
 	PINLocked     bool   `json:"pinLocked"`
-	// Linked: adopted in "link" mode, so its Jellyfin login still works.
-	Linked bool `json:"linked"`
 }
 
 type adminSession struct {
@@ -67,6 +67,11 @@ func (p *Panel) accountJSON(r *http.Request, a *store.Account) (accountJSON, err
 	if !a.Expires.IsZero() {
 		out.ExpiresAt = a.Expires.Format(time.RFC3339)
 	}
+	if at, done, err := p.Store.AccountCopy(ctx, a.ID); err != nil {
+		return out, err
+	} else if done {
+		out.HistoryCopiedAt = at.Format(time.RFC3339)
+	}
 	profiles, err := p.Store.Profiles(ctx, a.ID)
 	if err != nil {
 		return out, err
@@ -83,8 +88,7 @@ func (p *Panel) accountJSON(r *http.Request, a *store.Account) (accountJSON, err
 			ownerName = pr.Name
 		}
 		out.Profiles = append(out.Profiles, adminProfile{ID: pr.ID, Name: pr.Name, Kind: pr.Kind, Owner: pr.Owner,
-			MovieCeiling: pr.MovieCeiling, SeriesCeiling: pr.SeriesCeiling, HasPIN: pr.HasPIN, PINLocked: locks[pr.ID],
-			Linked: pr.JellyfinUsername != "" && !strings.HasPrefix(pr.JellyfinUsername, "of-")})
+			MovieCeiling: pr.MovieCeiling, SeriesCeiling: pr.SeriesCeiling, HasPIN: pr.HasPIN, PINLocked: locks[pr.ID]})
 	}
 	sessions, err := p.Store.Sessions(ctx, a.ID)
 	if err != nil {
@@ -245,6 +249,21 @@ func (p *Panel) endSession(w http.ResponseWriter, r *http.Request, _ *session) {
 	} else if err != nil {
 		p.fail(w, "ending a session", err)
 		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// allowHistoryCopy lets an account bring a history from another server
+// again, and frees the accounts it came from to be copied again. What was
+// copied stays.
+func (p *Panel) allowHistoryCopy(w http.ResponseWriter, r *http.Request, s *session) {
+	n, err := p.Store.ForgetCopies(r.Context(), r.PathValue("id"))
+	if err != nil {
+		p.fail(w, "allowing a history copy again", err)
+		return
+	}
+	if n > 0 {
+		p.Logger.Info("an account may bring a history again", "account", r.PathValue("id"), "by", s.name)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -122,6 +122,23 @@ type Caller struct {
 	// profile's own limits (a kids rating ceiling, say) apply to everything
 	// it returns.
 	Backend Backend
+	// History brings what the caller did on another Jellyfin server into
+	// this profile.
+	History History
+}
+
+// History is bringing a history from another Jellyfin server into the
+// caller's profile, for the migration module.
+type History interface {
+	// Copied reports whether the account brought one in already: it may
+	// once, until an admin allows it again.
+	Copied(ctx context.Context) (bool, error)
+	// Copy signs in to the server at from as the caller, with their
+	// username and password there, copies their history into this profile
+	// (merged with what's here) and signs out; nothing changes on that
+	// server, and the password is never kept. It answers the request
+	// itself, and reports whether it worked.
+	Copy(w http.ResponseWriter, r *http.Request, from, username, password string) bool
 }
 
 // Backend is the media backend seen as one profile.

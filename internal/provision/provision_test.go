@@ -415,3 +415,47 @@ func TestDeletingAnAccountDeletesItsSeerrUser(t *testing.T) {
 		t.Errorf("Seerr users deleted: %v", deleted)
 	}
 }
+
+// Someone with an account brings their history into the profile they're
+// on, once, merged with what's there; kids profiles can't.
+func TestCopyInto(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeJellyfin{}
+	p := setup(t, fake, "")
+	acct, owner, err := p.Create(ctx, identity.Identity{Subject: "me"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What the profile did here already stays.
+	if err := p.Store.MergePersonal(ctx, owner.ID, []store.Personal{{Title: "movie/tmdb/949", PlayCount: 5}}); err != nil {
+		t.Fatal(err)
+	}
+	kids := &store.Profile{ID: owner.ID, Kind: "kids"}
+	if err := p.CopyInto(ctx, "me", acct.ID, kids, p.Jellyfin, "alice", alicePass, history); !errors.Is(err, ErrClaimNotAllowed) || len(fake.logins) != 0 {
+		t.Errorf("into a kids profile: %v, logins %v", err, fake.logins)
+	}
+	if err := p.CopyInto(ctx, "me", acct.ID, owner, p.Jellyfin, "alice", alicePass, history); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := p.Store.PersonalStates(ctx, owner.ID, []string{"movie/tmdb/949", "series/tmdb/1399/s1/e2"})
+	if !got["movie/tmdb/949"].Played || got["movie/tmdb/949"].PlayCount != 5 || got["series/tmdb/1399/s1/e2"].PositionMs != 60_000 {
+		t.Errorf("merged: %+v", got)
+	}
+	if fake.logouts != 1 {
+		t.Errorf("signed out %d times", fake.logouts)
+	}
+	// Once per account: another login, even a right one, is refused…
+	if err := p.CopyInto(ctx, "me", acct.ID, owner, p.Jellyfin, "boss", adminPass, history); !errors.Is(err, ErrClaimNotAllowed) {
+		t.Errorf("a second copy: %v", err)
+	}
+	// …until an admin allows it again; alice's account is free again too.
+	if n, err := p.Store.ForgetCopies(ctx, acct.ID); err != nil || n != 1 {
+		t.Fatalf("ForgetCopies = %d, %v", n, err)
+	}
+	if _, _, err := copyFrom(p, identity.Identity{Subject: "someone"}, "alice", alicePass, nil); err != nil {
+		t.Errorf("alice's history, freed: %v", err)
+	}
+	if err := p.CopyInto(ctx, "me", acct.ID, owner, p.Jellyfin, "boss", adminPass, history); err != nil {
+		t.Errorf("allowed again: %v", err)
+	}
+}

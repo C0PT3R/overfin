@@ -421,3 +421,25 @@ func (s *Store) RecordCopy(ctx context.Context, serverID, userID, account string
 		VALUES (?, ?, ?, ?)`, serverID, userID, account, time.Now().Unix())
 	return err
 }
+
+// AccountCopy is when a history from another server was copied into the
+// account; ok is false if none was.
+func (s *Store) AccountCopy(ctx context.Context, accountID string) (at time.Time, ok bool, err error) {
+	var unix sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `SELECT max(copied_at) FROM history_copies WHERE account_id = ?`, accountID).Scan(&unix)
+	if err != nil || !unix.Valid {
+		return time.Time{}, false, err
+	}
+	return time.Unix(unix.Int64, 0), true, nil
+}
+
+// ForgetCopies forgets the histories copied into an account, so it may
+// bring one again, and the accounts they came from may be copied again.
+// What was copied stays.
+func (s *Store) ForgetCopies(ctx context.Context, accountID string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM history_copies WHERE account_id = ?`, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

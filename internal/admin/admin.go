@@ -230,6 +230,7 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PATCH /admin/api/accounts/{id}", p.signedIn(p.changeAccount))
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}", p.signedIn(p.deleteAccount))
 	mux.HandleFunc("DELETE /admin/api/accounts/{id}/sessions/{session}", p.signedIn(p.endSession))
+	mux.HandleFunc("DELETE /admin/api/accounts/{id}/history-copy", p.signedIn(p.allowHistoryCopy))
 	mux.HandleFunc("POST /admin/api/profiles/{id}/unlock-pin", p.signedIn(p.unlockPIN))
 	mux.HandleFunc("GET /admin/api/apps", p.signedIn(p.appKeys))
 	mux.HandleFunc("POST /admin/api/apps", p.signedIn(p.createAppKey))

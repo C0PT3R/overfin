@@ -332,6 +332,9 @@ export class Overfin {
   me(): Promise<Me>;
   createAccount(): Promise<Me>;
   claimAccount(username: string, password: string): Promise<Me>;
+  /** Migration only: whether the active profile may bring its history. */
+  historyCopy(): Promise<{ available: boolean }>;
+  copyHistory(username: string, password: string): Promise<void>;
   logout(): Promise<{ logoutUrl?: string }>;
   /** Managed sign-in only. */
   signinInfo(): Promise<{ email: string; hasPassword: boolean; codes: boolean }>;

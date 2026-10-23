@@ -300,6 +300,79 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
 
+  /me/history/copy:
+    get:
+      operationId: historyCopy
+      summary: Whether the active profile may bring its history
+      description: |
+        Only when the operator switches migration on. `available` is true
+        when the other server is named, this account never brought a
+        history in (or an admin allowed it again), and the active profile
+        isn't a kids profile.
+      tags: [account]
+      responses:
+        "200":
+          description: Whether it's offered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available]
+                properties:
+                  available:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: copyHistory
+      summary: Bring the history of an account on another server
+      description: |
+        As `POST /me/claim`, for someone with an account already: the
+        history (what they watched, where they stopped, their favorites) is
+        copied into the active profile, merged with what's there. Nothing
+        changes on the other server; the password is used for that one
+        sign-in, never stored or logged. Once per account, until an admin
+        allows it again; never into a kids profile. Failed attempts are
+        limited per user.
+      tags: [account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              additionalProperties: false
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+      responses:
+        "204":
+          description: Copied.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Wrong username or password, deliberately without
+            saying which (`claim-failed`); or not allowed (`claim-not-allowed`)
+            because this account brought a history already, that account's
+            history went into another account, or the profile is a kids
+            profile.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /invite:
     get:
       operationId: openInvitation

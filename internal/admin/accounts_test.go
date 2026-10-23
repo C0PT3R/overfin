@@ -61,7 +61,7 @@ func TestAccounts(t *testing.T) {
 
 	rec := b.do("GET", "/admin/api/accounts", "", nil)
 	body := rec.Body.String()
-	for _, want := range []string{`"subject":"person-1"`, `"status":"active"`, `"pinLocked":true`, `"device":"Firefox on Linux"`, `"linked":false`} {
+	for _, want := range []string{`"subject":"person-1"`, `"status":"active"`, `"pinLocked":true`, `"device":"Firefox on Linux"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("list lacks %s: %s", want, body)
 		}
@@ -203,4 +203,27 @@ func between(s, start, end string) string {
 	}
 	v, _, _ := strings.Cut(after, end)
 	return v
+}
+
+// An account that brought a history in says when; an admin can let it
+// bring one again.
+func TestAllowHistoryCopy(t *testing.T) {
+	_, b, db, _ := signedInPanel(t)
+	ctx := context.Background()
+	acct, _, _ := db.CreateAccount(ctx, "person-9", store.NewOwner{Name: "Main"})
+	if err := db.RecordCopy(ctx, "old-server", "old-user", acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rec := b.do("GET", "/admin/api/accounts", "", nil); !strings.Contains(rec.Body.String(), `"historyCopiedAt"`) {
+		t.Errorf("not shown: %s", rec.Body)
+	}
+	if rec := b.do("DELETE", "/admin/api/accounts/"+acct.ID+"/history-copy", "", nil); rec.Code != 204 {
+		t.Fatalf("allow again: %d %s", rec.Code, rec.Body)
+	}
+	if _, done, _ := db.AccountCopy(ctx, acct.ID); done {
+		t.Error("still recorded")
+	}
+	if into, _ := db.CopiedInto(ctx, "old-server", "old-user"); into != "" {
+		t.Error("the old account isn't free")
+	}
 }

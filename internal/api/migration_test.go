@@ -11,8 +11,8 @@ import (
 // through the visitor route the core guards.
 func TestMigrationClaim(t *testing.T) {
 	srv, _ := newServer(t)
-	claim := func(who, body string) (int, string) {
-		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/me/claim", strings.NewReader(body))
+	post := func(who, path, body string) (int, string) {
+		req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
 		req.Header.Set("Remote-User", who)
 		req.Header.Set("Content-Type", "application/json")
 		res, err := client(srv, who).Do(req)
@@ -23,6 +23,7 @@ func TestMigrationClaim(t *testing.T) {
 		b, _ := io.ReadAll(res.Body)
 		return res.StatusCode, string(b)
 	}
+	claim := func(who, body string) (int, string) { return post(who, "/api/v1/me/claim", body) }
 
 	// A visitor is told they can bring their account, and how.
 	if code, body := getAs(t, srv, "newcomer", "/api/v1/me"); code != 404 || !strings.Contains(body, `"claim":"copy"`) {
@@ -51,5 +52,25 @@ func TestMigrationClaim(t *testing.T) {
 	// And an old account comes over once.
 	if code, body := claim("someone-else", `{"username":"old","password":"pw"}`); code != 403 || !strings.Contains(body, "claim-not-allowed") {
 		t.Errorf("claiming it again: %d %s", code, body)
+	}
+
+	// Someone with an account brings their history later, once.
+	if code, body := post("member", "/api/v1/me", "{}"); code != 201 {
+		t.Fatalf("a fresh account: %d %s", code, body)
+	}
+	if code, body := getAs(t, srv, "member", "/api/v1/me/history/copy"); code != 200 || !strings.Contains(body, `"available":true`) {
+		t.Errorf("offered: %d %s", code, body)
+	}
+	if code, body := post("member", "/api/v1/me/history/copy", `{"username":"old2","password":"nope"}`); code != 403 || !strings.Contains(body, "claim-failed") {
+		t.Errorf("wrong password: %d %s", code, body)
+	}
+	if code, body := post("member", "/api/v1/me/history/copy", `{"username":"old2","password":"pw"}`); code != 204 {
+		t.Fatalf("copy: %d %s", code, body)
+	}
+	if code, body := getAs(t, srv, "member", "/api/v1/me/history/copy"); code != 200 || !strings.Contains(body, `"available":false`) {
+		t.Errorf("after the copy: %d %s", code, body)
+	}
+	if code, body := post("member", "/api/v1/me/history/copy", `{"username":"old2","password":"pw"}`); code != 403 || !strings.Contains(body, "claim-not-allowed") {
+		t.Errorf("a second copy: %d %s", code, body)
 	}
 }

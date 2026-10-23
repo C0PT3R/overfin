@@ -1,6 +1,7 @@
 // Package migration is the migration module: people bring the history of
 // their account on another Jellyfin server, the one this site replaces,
-// with its username and password, once. It's a copy: their new account
+// with its username and password, once: when they set their account up,
+// or later from their account page. It's a copy: their new account
 // gets what they watched, where they stopped and their favorites, and
 // nothing changes on that server (SECURITY.md rule 60).
 package migration
@@ -29,16 +30,29 @@ func (Feature) Info() feature.Info {
 	}
 }
 
+// login is an account's username and password on the other server.
+type login struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// readLogin reads one; on failure it has answered already.
+func readLogin(w http.ResponseWriter, r *http.Request) (login, bool) {
+	var l login
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&l); err != nil {
+		feature.Problem(w, feature.InvalidRequest, "")
+		return login{}, false
+	}
+	return l, true
+}
+
 func (Feature) Setup(h feature.Host) error {
-	return h.HandleVisitor("POST /api/v1/me/claim", func(v feature.Visitor, w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
-		}
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil {
-			feature.Problem(w, feature.InvalidRequest, "")
+	// A visitor: a new account, with the history.
+	if err := h.HandleVisitor("POST /api/v1/me/claim", func(v feature.Visitor, w http.ResponseWriter, r *http.Request) {
+		l, ok := readLogin(w, r)
+		if !ok {
 			return
 		}
 		from, ok := source(h)
@@ -46,7 +60,35 @@ func (Feature) Setup(h feature.Host) error {
 			feature.Problem(w, feature.NotFound, "")
 			return
 		}
-		v.Copy(w, from, req.Username, req.Password)
+		v.Copy(w, from, l.Username, l.Password)
+	}); err != nil {
+		return err
+	}
+	// Someone with an account: the history into the profile they're on,
+	// once per account, never a kids profile.
+	if err := h.Handle("GET /api/v1/me/history/copy", func(c *feature.Caller, w http.ResponseWriter, r *http.Request) {
+		_, offered := source(h)
+		copied, err := c.History.Copied(r.Context())
+		if err != nil {
+			h.Logger().Error("reading whether a history was copied failed", "err", err)
+			feature.Problem(w, feature.Internal, "")
+			return
+		}
+		feature.JSON(w, map[string]bool{"available": offered && !copied && c.Kind != "kids"})
+	}); err != nil {
+		return err
+	}
+	return h.Handle("POST /api/v1/me/history/copy", func(c *feature.Caller, w http.ResponseWriter, r *http.Request) {
+		l, ok := readLogin(w, r)
+		if !ok {
+			return
+		}
+		from, ok := source(h)
+		if !ok {
+			feature.Problem(w, feature.NotFound, "")
+			return
+		}
+		c.History.Copy(w, r, from, l.Username, l.Password)
 	})
 }
 
