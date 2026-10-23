@@ -759,20 +759,14 @@ func (g *gateway) SetTMDBKey(ctx context.Context, key string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.cfg.Secrets.TMDBKey != "" {
-		return "", problem("TMDB's key is set in Overfin's environment (OVERFIN_TMDB_KEY): change it there.")
+		return "", admin.Problem("TMDB's key is set in Overfin's environment (OVERFIN_TMDB_KEY): change it there.")
 	}
 	key = strings.TrimSpace(key)
 	var client *tmdb.Client
 	if key != "" {
-		c, err := tmdbClient(g.sh.db, key)
+		c, err := checkTMDBKey(ctx, g.sh.db, key)
 		if err != nil {
-			return "", problem("That isn't a TMDB key: it's the API key (32 characters) or the API Read Access Token, from your TMDB account's API settings.")
-		}
-		switch err := c.Check(ctx); {
-		case errors.Is(err, tmdb.ErrUnauthorized):
-			return "", problem("TMDB refuses that key.")
-		case err != nil:
-			return "", problemf("TMDB can't be reached (%v).", err)
+			return "", forPage(err)
 		}
 		client = c
 	}

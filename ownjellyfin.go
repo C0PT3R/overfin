@@ -290,6 +290,22 @@ func closeAfterHandOver(ctx context.Context, db *store.Store, jf *jellyfin.Clien
 	return nil
 }
 
+// checkTMDBKey is TMDB with the operator's key, once TMDB takes it. Its
+// errors say what's wrong in plain words.
+func checkTMDBKey(ctx context.Context, db *store.Store, key string) (*tmdb.Client, error) {
+	c, err := tmdbClient(db, key)
+	if err != nil {
+		return nil, problem("That isn't a TMDB key: it's the API key (32 characters) or the API Read Access Token, from your TMDB account's API settings.")
+	}
+	switch err := c.Check(ctx); {
+	case errors.Is(err, tmdb.ErrUnauthorized):
+		return nil, problem("TMDB refuses that key.")
+	case err != nil:
+		return nil, problemf("TMDB can't be reached (%v).", err)
+	}
+	return c, nil
+}
+
 // tmdbBase is TMDB's address; tests change it.
 var tmdbBase = tmdb.BaseURL
 

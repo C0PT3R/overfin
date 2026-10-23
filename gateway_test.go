@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/overfin/server/internal/admin"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
@@ -491,7 +493,9 @@ func TestSetTMDBKey(t *testing.T) {
 	if _, err := g.SetTMDBKey(ctx, "not a key"); err == nil || !strings.Contains(err.Error(), "isn't a TMDB key") {
 		t.Errorf("not a key: %v", err)
 	}
-	if _, err := g.SetTMDBKey(ctx, "ffffffffffffffffffffffffffffffff"); err == nil || !strings.Contains(err.Error(), "refuses") {
+	// The panel shows what's wrong as is.
+	var plain admin.Problem
+	if _, err := g.SetTMDBKey(ctx, "ffffffffffffffffffffffffffffffff"); !errors.As(err, &plain) || !strings.Contains(err.Error(), "refuses") {
 		t.Errorf("refused: %v", err)
 	}
 	if set, _ := g.TMDBKey(); set {
