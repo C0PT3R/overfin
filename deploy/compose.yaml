@@ -8,6 +8,7 @@ name: overfin
 
 services:
   caddy:
+    container_name: caddy
     image: docker.io/library/caddy:${CADDY_TAG:-2}
     restart: unless-stopped
     ports:
@@ -30,6 +31,7 @@ services:
           - ${AUTH_DOMAIN}
 
   overfin:
+    container_name: overfin
     image: ${OVERFIN_IMAGE:?run ./setup.sh first}
     # From a checkout of the repository: docker compose build overfin
     build: ..
@@ -58,6 +60,7 @@ services:
     depends_on: [caddy, pocket-id]
 
   pocket-id:
+    container_name: pocket-id
     image: ghcr.io/pocket-id/pocket-id:${POCKET_ID_TAG:?run ./setup.sh first}
     restart: unless-stopped
     # It starts as root only to own its data folder, then runs as UID 1000.
