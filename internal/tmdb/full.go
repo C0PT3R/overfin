@@ -2,6 +2,7 @@ package tmdb
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -23,8 +24,10 @@ type Full struct {
 	ReleaseDate string
 	// Rating is TMDB's users' average, 0 to 10, from Votes of them; 0 when
 	// no one rated it.
-	Rating  float64
-	Votes   int
+	Rating float64
+	Votes  int
+	// Release is its certifications and release dates.
+	Release *Release
 	Artwork Artwork
 	// Names are its other names: alternative titles and translations,
 	// each once, for telling whether a file is this title.
@@ -91,9 +94,10 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 			} `json:"translations"`
 		} `json:"translations"`
 	}
-	extra := "credits,images,alternative_titles,translations"
+	// The certifications and release dates come along: one request.
+	extra := "credits,images,alternative_titles,translations,release_dates"
 	if kind == "series" {
-		extra = "aggregate_credits,images,alternative_titles,translations"
+		extra = "aggregate_credits,images,alternative_titles,translations,content_ratings"
 	}
 	q := c.withLanguage(url.Values{"append_to_response": {extra}, "include_image_language": {imageLanguages(lang)}})
 	if err := c.get(ctx, "/"+k+"/"+strconv.Itoa(tmdbID), q, &raw); err != nil {
@@ -125,7 +129,8 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 	for _, s := range raw.Seasons {
 		seasons = append(seasons, Season{Number: s.SeasonNumber, Name: s.Name, EpisodeCount: s.EpisodeCount})
 	}
-	out := &Full{Details: *MakeDetails(t, genres, cast, seasons), Tagline: textclean.Plain(raw.Tagline, 300)}
+	out := &Full{Details: *MakeDetails(t, genres, cast, seasons), Tagline: textclean.Plain(raw.Tagline, 300),
+		Release: raw.release(kind)}
 	out.ReleaseDate = date(raw.ReleaseDate)
 	if kind == "series" {
 		out.ReleaseDate = date(raw.FirstAirDate)
@@ -200,25 +205,78 @@ func (c *Client) Season(ctx context.Context, seriesID, season int) (*SeasonFull,
 	if !ValidID(seriesID) || season < 0 || season > 1000 {
 		return nil, ErrNotFound
 	}
-	var raw struct {
-		SeasonNumber *int   `json:"season_number"`
-		Name         string `json:"name"`
-		Overview     string `json:"overview"`
-		AirDate      string `json:"air_date"`
-		PosterPath   string `json:"poster_path"`
-		Episodes     []struct {
-			EpisodeNumber int    `json:"episode_number"`
-			Name          string `json:"name"`
-			Overview      string `json:"overview"`
-			AirDate       string `json:"air_date"`
-			Runtime       int    `json:"runtime"`
-			StillPath     string `json:"still_path"`
-		} `json:"episodes"`
-	}
+	var raw rawSeason
 	path := "/tv/" + strconv.Itoa(seriesID) + "/season/" + strconv.Itoa(season)
 	if err := c.get(ctx, path, c.withLanguage(nil), &raw); err != nil {
 		return nil, err
 	}
+	return raw.full(season)
+}
+
+// seasonsPerRequest is how many seasons one request bundles: TMDB takes
+// twenty, and ten keeps a long series' answer well within maxResponse.
+const seasonsPerRequest = 10
+
+// Seasons returns several of a series' seasons with their episodes, in the
+// client's language, a few per request; a season TMDB doesn't have is
+// left out.
+func (c *Client) Seasons(ctx context.Context, seriesID int, seasons []int) (map[int]*SeasonFull, error) {
+	if !ValidID(seriesID) {
+		return nil, ErrNotFound
+	}
+	out := map[int]*SeasonFull{}
+	for start := 0; start < len(seasons); start += seasonsPerRequest {
+		batch := seasons[start:min(start+seasonsPerRequest, len(seasons))]
+		var parts []string
+		for _, n := range batch {
+			if n >= 0 && n <= 1000 {
+				parts = append(parts, "season/"+strconv.Itoa(n))
+			}
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		var raw map[string]json.RawMessage
+		q := c.withLanguage(url.Values{"append_to_response": {strings.Join(parts, ",")}})
+		if err := c.get(ctx, "/tv/"+strconv.Itoa(seriesID), q, &raw); err != nil {
+			return nil, err
+		}
+		for _, n := range batch {
+			msg, ok := raw["season/"+strconv.Itoa(n)]
+			if !ok {
+				continue
+			}
+			var rs rawSeason
+			if err := json.Unmarshal(msg, &rs); err != nil {
+				return nil, err
+			}
+			if se, err := rs.full(n); err == nil {
+				out[n] = se
+			}
+		}
+	}
+	return out, nil
+}
+
+// rawSeason is a season as TMDB sends it.
+type rawSeason struct {
+	SeasonNumber *int   `json:"season_number"`
+	Name         string `json:"name"`
+	Overview     string `json:"overview"`
+	AirDate      string `json:"air_date"`
+	PosterPath   string `json:"poster_path"`
+	Episodes     []struct {
+		EpisodeNumber int    `json:"episode_number"`
+		Name          string `json:"name"`
+		Overview      string `json:"overview"`
+		AirDate       string `json:"air_date"`
+		Runtime       int    `json:"runtime"`
+		StillPath     string `json:"still_path"`
+	} `json:"episodes"`
+}
+
+// full checks a season and keeps what Overfin uses of it.
+func (raw rawSeason) full(season int) (*SeasonFull, error) {
 	if raw.SeasonNumber != nil && *raw.SeasonNumber != season {
 		return nil, ErrNotFound
 	}

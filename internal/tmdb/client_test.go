@@ -38,10 +38,17 @@ func fakeTMDB(t *testing.T) *Client {
 					{"iso_3166_1":"FR","release_dates":[{"certification":"12","type":5,"release_date":"1996-05-20T00:00:00.000Z"}]},
 					{"iso_3166_1":"bad","release_dates":[{"certification":"X","type":3,"release_date":"soon"}]}]}}`)
 		case "/3/tv/1399":
+			if r.URL.Query().Get("append_to_response") == "season/1,season/2,season/3" {
+				// Seasons bundled: TMDB has no season 3.
+				io.WriteString(w, `{"id":1399,"name":"Thrones",
+					"season/1":{"season_number":1,"name":"Saison 1","episodes":[{"episode_number":1,"name":"L'hiver vient"}]},
+					"season/2":{"season_number":2,"name":"Saison 2","episodes":[{"episode_number":1,"name":"Le Nord"},{"episode_number":2,"name":"La nuit"}]}}`)
+				return
+			}
 			io.WriteString(w, `{"id":1399,"name":"Thrones","first_air_date":"2011-04-17","seasons":[{"season_number":1,"name":"Season 1","episode_count":10}],
 				"content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-MA"}]}}`)
 		case "/3/movie/550":
-			if r.URL.Query().Get("append_to_response") != "credits,images,alternative_titles,translations" || r.URL.Query().Get("language") != "fr" ||
+			if r.URL.Query().Get("append_to_response") != "credits,images,alternative_titles,translations,release_dates" || r.URL.Query().Get("language") != "fr" ||
 				r.URL.Query().Get("include_image_language") != "fr,null,en" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
@@ -53,6 +60,7 @@ func fakeTMDB(t *testing.T) *Client {
 				"overview":"An insomniac.","genres":[{"name":"Drame"}],
 				"credits":{"cast":[{"id":819,"name":"Edward Norton","character":"Narrator","profile_path":"/norton1234.jpg"}]},
 				"poster_path":"/posterfr12.jpg","backdrop_path":"/backdrop12.jpg",
+				"release_dates":{"results":[{"iso_3166_1":"CA","release_dates":[{"certification":"18A","type":3,"release_date":"1999-10-15T00:00:00.000Z"}]}]},
 				"images":{"logos":[{"file_path":"/logoen1234.png","iso_639_1":"en"},{"file_path":"/logofr1234.png","iso_639_1":"fr"},
 					{"file_path":"/logo.svg","iso_639_1":"fr"}]}}`)
 		case "/3/person/1245":
@@ -78,7 +86,7 @@ func fakeTMDB(t *testing.T) *Client {
 			}
 			io.WriteString(w, `{"movie_results":[],"tv_results":[{"id":1399}]}`)
 		case "/3/tv/1400":
-			if r.URL.Query().Get("append_to_response") != "aggregate_credits,images,alternative_titles,translations" {
+			if r.URL.Query().Get("append_to_response") != "aggregate_credits,images,alternative_titles,translations,content_ratings" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -159,6 +167,16 @@ func TestClient(t *testing.T) {
 	}
 	if art := full.Artwork; art.Poster != "/posterfr12.jpg" || art.Backdrop != "/backdrop12.jpg" || art.Logo != "/logofr1234.png" {
 		t.Errorf("artwork: %+v", art)
+	}
+	// Its certifications come with the page: no request of their own.
+	if full.Release == nil || full.Release.Released != "1999-10-15" {
+		t.Errorf("release: %+v", full.Release)
+	}
+
+	// Seasons bundled in one request; one TMDB lacks is left out.
+	seasons, err := c.Seasons(ctx, 1399, []int{1, 2, 3})
+	if err != nil || len(seasons) != 2 || seasons[1].Name != "Saison 1" || len(seasons[2].Episodes) != 2 || seasons[2].Episodes[1].Name != "La nuit" {
+		t.Errorf("seasons: %+v %v", seasons, err)
 	}
 	// Its other names, each once, in plain text; its own language.
 	if full.OriginalName != "Fight Club" || full.Language != "en" || !slices.Equal(full.Names, []string{"El club de la lucha", "Club de combat"}) {

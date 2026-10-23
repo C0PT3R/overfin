@@ -278,6 +278,11 @@ func (c *Client) Release(ctx context.Context, kind string, tmdbID int) (*Release
 	if err != nil {
 		return nil, err
 	}
+	return raw.release(kind), nil
+}
+
+// release is a title's certifications and release dates, from its page.
+func (raw *rawDetails) release(kind string) *Release {
 	out := &Release{Ratings: Ratings{}}
 	for _, r := range raw.ReleaseDates.Results {
 		for _, d := range r.ReleaseDates {
@@ -292,7 +297,7 @@ func (c *Client) Release(ctx context.Context, kind string, tmdbID int) (*Release
 		out.Released = date(raw.FirstAirDate)
 		out.AtHome = out.Released
 	}
-	return out, nil
+	return out
 }
 
 func (c *Client) Certifications(ctx context.Context, kind string) (map[string][]Certification, error) {

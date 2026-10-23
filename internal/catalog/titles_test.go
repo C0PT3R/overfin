@@ -17,7 +17,10 @@ import (
 
 // fakeTitles is TMDB for the keeper: a series with two seasons (the
 // library has only the first), and a film it doesn't know.
-type fakeTitles struct{ seasons []int }
+type fakeTitles struct {
+	seasons []int
+	bundles int // requests bundling seasons
+}
 
 func (f *fakeTitles) Title(_ context.Context, kind string, id int) (*tmdb.Full, error) {
 	if kind != "series" || id != 1399 {
@@ -32,6 +35,7 @@ func (f *fakeTitles) Title(_ context.Context, kind string, id int) (*tmdb.Full, 
 		},
 		Runtime: 60,
 		Artwork: tmdb.Artwork{Poster: "/poster1234.jpg", Logo: "/logo12345.png"},
+		Release: &tmdb.Release{Ratings: tmdb.Ratings{}, Released: "2011-04-17", AtHome: "2011-04-17"},
 	}, nil
 }
 
@@ -85,8 +89,12 @@ func TestTitlesKeepEverythingTMDBSays(t *testing.T) {
 	if err := k.Once(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(src.seasons) != 2 {
-		t.Errorf("seasons asked: %v", src.seasons)
+	// Both seasons in one request, and the certifications with the page.
+	if len(src.seasons) != 2 || src.bundles != 1 {
+		t.Errorf("seasons asked: %v, in %d requests", src.seasons, src.bundles)
+	}
+	if released, _, known, err := st.TitleRelease(ctx, "series", "1399"); err != nil || !known || released != "2011-04-17" {
+		t.Errorf("release: %q %v %v", released, known, err)
 	}
 	// The film known only by its IMDb ID got its TMDB ID.
 	if keys, _ := st.TitleKeys(ctx, []string{id(4)}); keys[id(4)] != "movie/tmdb/42" {
@@ -114,4 +122,18 @@ func TestTitlesKeepEverythingTMDBSays(t *testing.T) {
 	if err := k.Once(ctx); err != nil || len(src.seasons) != 0 {
 		t.Errorf("second pass: %v %v", src.seasons, err)
 	}
+}
+
+// Seasons counts one request for all of them, as TMDB bundles them.
+func (f *fakeTitles) Seasons(ctx context.Context, series int, numbers []int) (map[int]*tmdb.SeasonFull, error) {
+	f.bundles++
+	out := map[int]*tmdb.SeasonFull{}
+	for _, n := range numbers {
+		se, err := f.Season(ctx, series, n)
+		if err != nil {
+			return nil, err
+		}
+		out[n] = se
+	}
+	return out, nil
 }

@@ -149,18 +149,25 @@ func (x *Texts) fetch(ctx context.Context, w want) error {
 	if err != nil {
 		return err
 	}
+	var numbers []int
 	for _, se := range full.Seasons {
+		numbers = append(numbers, se.Number)
+	}
+	var got map[int]*tmdb.SeasonFull
+	if len(numbers) > 0 {
 		if err := x.pause(ctx); err != nil {
 			return err
 		}
-		season, err := src.Season(ctx, id, se.Number)
-		if errors.Is(err, tmdb.ErrNotFound) {
-			continue
-		}
-		if err != nil {
+		if got, err = src.Seasons(ctx, id, numbers); err != nil && !errors.Is(err, tmdb.ErrNotFound) {
 			return err
 		}
-		kept := store.Season{Number: se.Number, Name: season.Name, Overview: season.Overview}
+	}
+	for _, n := range numbers {
+		season := got[n]
+		if season == nil {
+			continue
+		}
+		kept := store.Season{Number: n, Name: season.Name, Overview: season.Overview}
 		for _, e := range season.Episodes {
 			kept.Episodes = append(kept.Episodes, store.Episode{Number: e.Number, Name: e.Name, Overview: e.Overview})
 		}

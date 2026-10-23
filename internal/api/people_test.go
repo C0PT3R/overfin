@@ -21,6 +21,9 @@ func (f *fakePeople) Title(context.Context, string, int) (*tmdb.Full, error) {
 func (f *fakePeople) Season(context.Context, int, int) (*tmdb.SeasonFull, error) {
 	return nil, tmdb.ErrNotFound
 }
+func (f *fakePeople) Seasons(context.Context, int, []int) (map[int]*tmdb.SeasonFull, error) {
+	return nil, tmdb.ErrNotFound
+}
 func (f *fakePeople) Find(context.Context, string, string, string) (int, error) {
 	return 0, tmdb.ErrNotFound
 }

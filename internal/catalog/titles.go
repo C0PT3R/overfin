@@ -17,6 +17,9 @@ import (
 type TitleSource interface {
 	Title(ctx context.Context, kind string, tmdbID int) (*tmdb.Full, error)
 	Season(ctx context.Context, seriesID, season int) (*tmdb.SeasonFull, error)
+	// Seasons are several seasons, a few per request; those it lacks are
+	// left out.
+	Seasons(ctx context.Context, seriesID int, seasons []int) (map[int]*tmdb.SeasonFull, error)
 	// Find is the TMDB ID an IMDb or TVDB ID names.
 	Find(ctx context.Context, kind, source, id string) (int, error)
 	Person(ctx context.Context, id int) (*tmdb.PersonFull, error)
@@ -167,25 +170,28 @@ func (a *Titles) fetch(ctx context.Context, src TitleSource, t store.ArtworkTarg
 	if err := a.pause(ctx); err != nil {
 		return nil, err
 	}
-	// Every season TMDB lists, and any other the library has.
+	// Every season TMDB lists, and any other the library has, a few per
+	// request.
 	for _, n := range t.Seasons {
 		if !slices.Contains(seasons, n) {
 			seasons = append(seasons, n)
 		}
 	}
+	if len(seasons) == 0 {
+		return out, nil
+	}
+	got, err := src.Seasons(ctx, id, seasons)
+	if err != nil && !errors.Is(err, tmdb.ErrNotFound) {
+		return nil, err
+	}
 	for _, n := range seasons {
-		err := a.season(ctx, src, id, n, out)
-		if errors.Is(err, tmdb.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if err := a.pause(ctx); err != nil {
-			return nil, err
+		if se := got[n]; se != nil {
+			if err := a.keepSeason(ctx, id, se, out); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return out, nil
+	return out, a.pause(ctx)
 }
 
 // page reads and keeps a film's or a series' page, adds its images to
@@ -218,6 +224,12 @@ func (a *Titles) page(ctx context.Context, src TitleSource, kind string, id int,
 	if err := a.Store.SetTitleDetails(ctx, title, raw, a.clock()); err != nil {
 		return nil, err
 	}
+	// Its certifications came along: the ratings keeper needn't ask.
+	if r := full.Release; r != nil {
+		if err := a.Store.SetTitleRatings(ctx, store.RatedTitle{Kind: kind, TMDB: title.TMDB}, r.Ratings, r.Released, r.AtHome, a.clock()); err != nil {
+			return nil, err
+		}
+	}
 	images[kind+"/tmdb/"+title.TMDB] = map[string]string{"poster": full.Artwork.Poster, "backdrop": full.Artwork.Backdrop, "logo": full.Artwork.Logo}
 	return seasons, nil
 }
@@ -229,6 +241,13 @@ func (a *Titles) season(ctx context.Context, src TitleSource, series, n int, ima
 	if err != nil {
 		return err
 	}
+	return a.keepSeason(ctx, series, season, images)
+}
+
+// keepSeason keeps one of a series' seasons with its episodes, and adds
+// their images to images.
+func (a *Titles) keepSeason(ctx context.Context, series int, season *tmdb.SeasonFull, images map[string]map[string]string) error {
+	n := season.Number
 	kept := store.Season{Number: n, Name: season.Name, Overview: season.Overview, AirDate: season.AirDate, Poster: season.Poster}
 	sk := "series/tmdb/" + strconv.Itoa(series) + "/s" + strconv.Itoa(n)
 	images[sk] = map[string]string{"poster": season.Poster}
