@@ -78,7 +78,10 @@ func (l libraries) Add(ctx context.Context, name, kind string, folders []string)
 	}
 	jf, a := l.client()
 	// Overfin's settings from the start, then a first scan.
-	if err := jf.AddLibrary(ctx, a, name, kinds[kind], folders, jfsettings.LibraryOptions()); err != nil {
+	if err := jf.AddLibrary(ctx, a, name, kinds[kind], folders, jfsettings.LibraryOptions()); jellyfin.IsStatus(err, http.StatusBadRequest) {
+		// A folder it lists but may not read, for one.
+		return admin.Problem("Jellyfin can't use these folders: check that it may read them.")
+	} else if err != nil {
 		return err
 	}
 	return jf.ScanLibraries(ctx, a)
@@ -96,7 +99,9 @@ func (l libraries) Change(ctx context.Context, name, newName string, folders []s
 		}
 		for _, f := range folders {
 			if !slices.Contains(lib.Folders, f) {
-				if err := jf.AddLibraryFolder(ctx, a, name, f); err != nil {
+				if err := jf.AddLibraryFolder(ctx, a, name, f); jellyfin.IsStatus(err, http.StatusBadRequest) {
+					return admin.Problem("Jellyfin can't use " + f + ": check that it may read it.")
+				} else if err != nil {
 					return err
 				}
 			}

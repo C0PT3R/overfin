@@ -490,7 +490,7 @@ func (g *gateway) SetJellyfin(ctx context.Context, url string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.sh.jellyfinSaved {
-		return "", problem("Jellyfin is set in Overfin's configuration file: change it there.")
+		return "", problem("Jellyfin is set in Overfin's configuration (its file, or OVERFIN_JELLYFIN_URL): change it there.")
 	}
 	url = strings.TrimRight(strings.TrimSpace(url), "/")
 	key := g.cfg.Secrets.JellyfinAdminKey

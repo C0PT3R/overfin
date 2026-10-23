@@ -253,6 +253,12 @@ func run(logger *slog.Logger) error {
 	}
 	fixedURL := cfg.Jellyfin.URL
 	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+	// The Jellyfin settings Overfin needs are its own (rule 67): set back
+	// on every start, and as soon as Overfin has its Jellyfin, so the
+	// setup wizard's steps (Intro Skipper restarts Jellyfin) run with them.
+	if haveJellyfin {
+		ownSettings(ctx, db, url, key, logger)
+	}
 	managed := cfg.Identity.Mode == "managed"
 	haveAdmin := true
 	if managed {
@@ -282,6 +288,7 @@ func run(logger *slog.Logger) error {
 				url, key, ans, err := takeOver(ctx, db, fixedURL, req, logger)
 				if ans.Done {
 					cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+					ownSettings(ctx, db, url, key, logger)
 				}
 				return ans, forPage(err)
 			}
@@ -358,9 +365,6 @@ func run(logger *slog.Logger) error {
 		}
 		site.set(settingUp)
 	}
-	// The Jellyfin settings Overfin needs are its own: set back on every
-	// start (rule 67).
-	ownSettings(ctx, db, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey, logger)
 
 	sh, err := newShared(cfg, db, moduleDBs, k, logger)
 	if err != nil {

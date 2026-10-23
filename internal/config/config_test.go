@@ -491,6 +491,19 @@ func TestNoFileAndHTTPS(t *testing.T) {
 		t.Errorf("no file: %+v %+v %q", cfg.Identity, cfg.HTTPS, cfg.Site.URL)
 	}
 	delete(vars, "OVERFIN_DOMAIN")
+	// Jellyfin's address from the environment too; the file's wins.
+	vars["OVERFIN_JELLYFIN_URL"] = " http://jellyfin:8096 "
+	if cfg, err := Load("", env(vars)); err != nil || cfg.Jellyfin.URL != "http://jellyfin:8096" {
+		t.Errorf("Jellyfin from the environment: %v %v", cfg, err)
+	}
+	if cfg, err := Load(writeFile(t, "[jellyfin]\nurl = \"http://192.0.2.10:8096\"\n"), env(vars)); err != nil || cfg.Jellyfin.URL != "http://192.0.2.10:8096" {
+		t.Errorf("the file's: %v", err)
+	}
+	vars["OVERFIN_JELLYFIN_URL"] = "ftp://jellyfin"
+	if _, err := Load("", env(vars)); err == nil || !strings.Contains(err.Error(), "jellyfin.url") {
+		t.Errorf("a bad address: %v", err)
+	}
+	delete(vars, "OVERFIN_JELLYFIN_URL")
 	for file, want := range map[string]string{
 		"[https]\ndomain = \"192.0.2.10\"\n":                                                     "https.domain",
 		"[https]\ndomain = \"localhost\"\n":                                                      "https.domain",

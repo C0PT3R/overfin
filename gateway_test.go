@@ -370,7 +370,7 @@ func TestSetJellyfin(t *testing.T) {
 
 	// Set in the file: the panel can't change it.
 	sh.jellyfinSaved = false
-	if _, err := g.SetJellyfin(ctx, first); err == nil || !strings.Contains(err.Error(), "configuration file") {
+	if _, err := g.SetJellyfin(ctx, first); err == nil || !strings.Contains(err.Error(), "Overfin's configuration") {
 		t.Errorf("in the file: %v", err)
 	}
 }

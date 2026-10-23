@@ -40,7 +40,7 @@ type Setup struct {
 	// it's Overfin's (Done). Its error says what's wrong in plain words, and
 	// is shown as is. Nil when Jellyfin is set up already.
 	Jellyfin func(ctx context.Context, req JellyfinRequest) (JellyfinAnswer, error)
-	// FixedURL is Jellyfin's address when the configuration file sets it:
+	// FixedURL is Jellyfin's address when the configuration sets it:
 	// the page doesn't ask for it then.
 	FixedURL string
 	// TMDB, when set, offers TMDB's token: it tests and saves one, and says

@@ -34,7 +34,7 @@ async function load() {
   }
   $('#url-field').hidden = !!setup.fixedUrl;
   $('#fixed').hidden = !setup.fixedUrl;
-  $('#fixed').textContent = setup.fixedUrl ? `At ${setup.fixedUrl}, as Overfin's configuration file says.` : '';
+  $('#fixed').textContent = setup.fixedUrl ? `At ${setup.fixedUrl}, as Overfin's configuration says.` : '';
   $('#command').value = command;
   show(0);
 }

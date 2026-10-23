@@ -6,3 +6,4 @@
 !*.example.toml
 .env*
 cmd/custom/
+!.env.example

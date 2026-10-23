@@ -346,7 +346,7 @@ function introSkipperCard(sk) {
 
 function inFileCard(title, text) {
   return card({ title, badge: badge('Configuration file', 'info') },
-    h('div', { class: 'box' }, h('div', {}, text), h('div', { class: 'hint' }, "Set in Overfin's configuration file: change it there.")));
+    h('div', { class: 'box' }, h('div', {}, text), h('div', { class: 'hint' }, "Set in Overfin's configuration (its file, or OVERFIN_JELLYFIN_URL): change it there.")));
 }
 
 function jellyfinCard(j) {
@@ -354,7 +354,7 @@ function jellyfinCard(j) {
   const description = 'Overfin\'s own Jellyfin, where your media is read. Overfin is the only one that talks to it, with a key it made itself.';
   if (j.inFile) {
     return card({ title: 'Jellyfin', badge: badge('Connected', 'ok'), description },
-      [h('div', { class: 'box' }, h('div', {}, j.url), h('div', { class: 'hint' }, "Set in Overfin's configuration file: change it there.")),
+      [h('div', { class: 'box' }, h('div', {}, j.url), h('div', { class: 'hint' }, "Set in Overfin's configuration (its file, or OVERFIN_JELLYFIN_URL): change it there.")),
         jellyfinAccess(j.access)]);
   }
   const url = h('input', { value: j.url, autocomplete: 'off', spellcheck: 'false' });

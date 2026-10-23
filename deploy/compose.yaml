@@ -1,38 +1,16 @@
-# Overfin with everything it needs, on one machine: Caddy (HTTPS) and
-# Pocket ID (logins, with passkeys). Run ./setup.sh first: it writes .env
-# and overfin.toml. See README.md.
+# Overfin and its own Jellyfin, on one machine. Copy .env.example to .env,
+# set where your media is, then: docker compose up -d. Open this machine's
+# address in a browser, and the setup wizard takes it from there. See
+# README.md.
 #
-# Each container gets only the secrets it uses, and nothing gets the Docker
-# socket.
+# Overfin reaches Jellyfin on this project's network only; nothing else
+# does. Nothing gets the Docker socket.
 name: overfin
 
 services:
-  caddy:
-    container_name: caddy
-    image: docker.io/library/caddy:${CADDY_TAG:-2}
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      OVERFIN_DOMAIN: ${OVERFIN_DOMAIN:?run ./setup.sh first}
-      AUTH_DOMAIN: ${AUTH_DOMAIN:?run ./setup.sh first}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
-      - caddy-data:/data
-      - caddy-config:/config
-    networks:
-      edge:
-        ipv4_address: ${CADDY_IP:?run ./setup.sh first}
-        # Overfin reaches the sign-in by its public name, through Caddy, so
-        # HTTPS is checked as everywhere else.
-        aliases:
-          - ${AUTH_DOMAIN}
-
   overfin:
     container_name: overfin
-    image: ${OVERFIN_IMAGE:?run ./setup.sh first}
+    image: ${OVERFIN_IMAGE:-ghcr.io/overfin/overfin:0.4.0}
     # From a checkout of the repository: docker compose build overfin
     build: ..
     restart: unless-stopped
@@ -40,75 +18,67 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
-      # Overfin generates its secret key on the first start, into
-      # overfin-secrets; installs that set one in .env keep using it.
-      OVERFIN_SECRET_KEY: ${OVERFIN_SECRET_KEY:-}
-      # Jellyfin is connected in Overfin's setup page; installs that set its
-      # key in .env keep using it.
-      OVERFIN_JELLYFIN_ADMIN_KEY: ${OVERFIN_JELLYFIN_ADMIN_KEY:-}
-      OVERFIN_OIDC_CLIENT_SECRET: ${OVERFIN_OIDC_CLIENT_SECRET:?run ./setup.sh first}
-      OVERFIN_CONNECTOR_TOKEN: ${OVERFIN_CONNECTOR_TOKEN:?run ./setup.sh first}
+      OVERFIN_JELLYFIN_URL: http://jellyfin:8096
+      # With a domain pointed at this machine, Overfin gets its own HTTPS
+      # certificate; without one, it serves plain http (keep that to your
+      # LAN).
+      OVERFIN_DOMAIN: ${OVERFIN_DOMAIN:-}
+      # Optional: TMDB's read access token here, or in the setup wizard.
+      OVERFIN_TMDB_TOKEN: ${OVERFIN_TMDB_TOKEN:-}
     volumes:
-      - ./overfin.toml:/etc/overfin/overfin.toml:ro,z
       - overfin-data:/data
+      # Overfin's secret key, made on its first start.
       - overfin-secrets:/secrets
     ports:
-      # The control panel, on this machine only: reach it through an SSH
-      # tunnel. Never publish it on another address.
-      - "127.0.0.1:8081:8081"
-    networks: [edge]
-    depends_on: [caddy, pocket-id]
+      - "80:8080"
+      - "443:8443"
+    depends_on:
+      jellyfin:
+        condition: service_healthy
 
-  pocket-id:
-    container_name: pocket-id
-    image: ghcr.io/pocket-id/pocket-id:${POCKET_ID_TAG:?run ./setup.sh first}
+  jellyfin:
+    container_name: jellyfin
+    # The version Overfin was tested with; newer ones come with Overfin's
+    # releases.
+    image: docker.io/jellyfin/jellyfin:${JELLYFIN_TAG:-12.2.20261005-225228}
     restart: unless-stopped
-    # It starts as root only to own its data folder, then runs as UID 1000.
-    cap_drop: [ALL]
-    cap_add: [CHOWN, SETUID, SETGID]
     security_opt: ["no-new-privileges:true"]
     environment:
-      APP_URL: https://${AUTH_DOMAIN}
-      TRUST_PROXY: "true"
-      ENCRYPTION_KEY: ${POCKET_ID_ENCRYPTION_KEY:?run ./setup.sh first}
-      # Overfin's key to Pocket ID's API: it sets up its login client and
-      # groups there, reads people's names, and makes sign-up links for
-      # invitations.
-      STATIC_API_KEY: ${OVERFIN_CONNECTOR_TOKEN:?run ./setup.sh first}
-      # Every setting comes from here, not from Pocket ID's admin pages.
-      UI_CONFIG_DISABLED: "true"
-      APP_NAME: ${OVERFIN_SITE_NAME:-Overfin}
-      HOME_PAGE_URL: /settings/apps
-      # Accounts only through Overfin's invitations.
-      ALLOW_USER_SIGNUPS: withToken
-      ANALYTICS_DISABLED: "true"
-      # Emails (sign-in codes for people who lost their passkey, new sign-in
-      # alerts), when an SMTP server is set.
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-}
-      SMTP_TLS: ${SMTP_TLS:-none}
-      SMTP_FROM: ${SMTP_FROM:-}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      EMAIL_ONE_TIME_ACCESS_AS_UNAUTHENTICATED_ENABLED: ${EMAIL_LOGIN:-false}
-      EMAIL_ONE_TIME_ACCESS_AS_ADMIN_ENABLED: ${EMAIL_LOGIN:-false}
+      TZ: ${TZ:-UTC}
     volumes:
-      - pocket-id-data:/app/data
-    networks: [edge]
-
-networks:
-  # Caddy, Overfin and Pocket ID. Automatic addresses come from
-  # EDGE_RANGE only, so Caddy's fixed one (CADDY_IP, outside it) is never
-  # handed to another container while Caddy restarts.
-  edge:
-    ipam:
-      config:
-        - subnet: ${EDGE_SUBNET:?run ./setup.sh first}
-          ip_range: ${EDGE_RANGE:?run ./setup.sh first}
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      # Your films and series, read only: in Overfin's control panel, add
+      # libraries with folders under /media.
+      - ${MEDIA_DIR:?set MEDIA_DIR in .env (see .env.example)}:/media:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8096/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 6
+    # Jellyfin itself is closed: Overfin is the only one that talks to it.
+    # To look inside while access is open (control panel, Server), publish
+    # it on this machine only, then recreate it (docker compose up -d):
+    # ports:
+    #   - "127.0.0.1:8096:8096"
+    # For your LAN instead, put this machine's LAN address before :8096.
+    #
+    # A GPU for converting videos, then choose it in the control panel
+    # (Server, Transcoding). Intel or AMD:
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # NVIDIA (with the NVIDIA Container Toolkit installed):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
 volumes:
-  caddy-data:
-  caddy-config:
   overfin-data:
   overfin-secrets:
-  pocket-id-data:
+  jellyfin-config:
+  jellyfin-cache:

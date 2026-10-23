@@ -511,9 +511,10 @@ func defaults() Config {
 // environment and validates everything. An empty path means no file: the
 // defaults alone. getenv is usually os.Getenv; tests pass their own.
 //
-// One setting may also come from the environment, for a start without a
-// file: OVERFIN_DOMAIN, the domain Overfin serves HTTPS for (the file's
-// https.domain wins).
+// Two settings may also come from the environment, for a start without a
+// file: OVERFIN_DOMAIN, the domain Overfin serves HTTPS for, and
+// OVERFIN_JELLYFIN_URL, where Overfin reaches its Jellyfin (the file's
+// https.domain and jellyfin.url win).
 func Load(path string, getenv func(string) string) (*Config, error) {
 	cfg := defaults()
 
@@ -526,6 +527,9 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 	}
 	if cfg.HTTPS.Domain == "" {
 		cfg.HTTPS.Domain = strings.TrimSpace(getenv("OVERFIN_DOMAIN"))
+	}
+	if cfg.Jellyfin.URL == "" {
+		cfg.Jellyfin.URL = strings.TrimSpace(getenv("OVERFIN_JELLYFIN_URL"))
 	}
 	if cfg.HTTPS.Enabled() {
 		cfg.HTTPS.Domain = strings.ToLower(strings.TrimSuffix(cfg.HTTPS.Domain, "."))
