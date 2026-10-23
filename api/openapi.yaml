@@ -179,6 +179,42 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+    patch:
+      operationId: changeAccount
+      summary: Change the account's language
+      description: Owner profile only. The language is the site's, the
+        titles' and the emails', for the whole account; one of those
+        offered (`languages` in `GET /me`).
+      tags: [account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [language]
+              additionalProperties: false
+              properties:
+                language:
+                  type: string
+                  examples: [fr-CA]
+      responses:
+        "200":
+          description: The account, changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "400":
+          description: Not one of the languages offered (`invalid-request`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OwnerOnly"
     delete:
       operationId: deleteAccount
       summary: Delete the account and everything Overfin holds about it
@@ -2520,6 +2556,24 @@ components:
           type: integer
           description: For `rate-limited` and `pin-locked`, seconds to wait
             before trying again.
+        languages:
+          type: array
+          description: For `account-setup-required`, the languages the new
+            account may choose among, each named in itself; worth asking
+            only when there are several.
+          items:
+            type: object
+            required: [tag, name]
+            properties:
+              tag:
+                type: string
+              name:
+                type: string
+        language:
+          type: string
+          description: For `account-setup-required`, the language the new
+            account gets unless it chooses (the browser's, among those
+            offered, else the default).
         claim:
           type: string
           description: For `account-setup-required`, whether the history
@@ -2601,11 +2655,31 @@ components:
 
     Me:
       type: object
-      required: [accountId]
+      required: [accountId, language, languages]
       properties:
         accountId:
           type: string
           examples: [acct_8w2n5k1q9z3r]
+        language:
+          type: string
+          description: The account's language (a regional tag), for the
+            site, titles and emails.
+          examples: [fr-CA]
+        languages:
+          type: array
+          description: The languages the account may choose among, each
+            named in itself; the choice is worth showing only when there
+            are several.
+          items:
+            type: object
+            required: [tag, name]
+            properties:
+              tag:
+                type: string
+                examples: [en-US]
+              name:
+                type: string
+                examples: [English (United States)]
         displayName:
           type: string
           description: From the identity provider, when it provides one.

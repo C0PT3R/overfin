@@ -22,6 +22,7 @@ import (
 
 	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/identity"
+	"github.com/overfin/server/internal/lang"
 	"github.com/overfin/server/internal/password"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
@@ -431,12 +432,15 @@ func (m *Managed) start(w http.ResponseWriter, r *http.Request) {
 	if send {
 		// Sent in the background: how long sending takes would otherwise
 		// tell who has an account.
-		subject, body := m.codeEmail(pageLang(r), purpose, code, link)
+		browser := pageLang(r)
 		m.sendings.Add(1)
 		go func() {
 			defer m.sendings.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
+			// In the account's language, looked up here too: in the
+			// background.
+			subject, body := m.codeEmail(m.mailLang(ctx, req.Email, browser), purpose, code, link)
 			if err := sender.Send(ctx, req.Email, subject, body); err != nil {
 				m.Logger.Error("sending a sign-in code failed", "err", err)
 			}
@@ -785,6 +789,27 @@ func admit(w http.ResponseWriter, r *http.Request, prov *provision.Provisioner, 
 	}
 	problem.Send(w, problem.NotAuthenticated, "")
 	return false
+}
+
+// mailLang is the language of an email to someone: their account's when
+// they have one and the emails exist in it, else the browser's.
+func (m *Managed) mailLang(ctx context.Context, email, browser string) string {
+	u, err := m.Store.UserByEmail(ctx, email)
+	if err != nil {
+		return browser
+	}
+	acct, err := m.Store.AccountBySubject(ctx, u.Subject)
+	if err != nil {
+		return browser
+	}
+	tag, err := m.Store.LanguageOf(ctx, acct)
+	if err != nil {
+		return browser
+	}
+	if base := lang.Base(tag); signinTexts[base] != nil {
+		return base
+	}
+	return browser
 }
 
 // pageLang is the visitor's language among the page's: the first of

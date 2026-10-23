@@ -4,11 +4,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/identity"
+	"github.com/overfin/server/internal/lang"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
 	"github.com/overfin/server/internal/provision"
@@ -116,7 +118,7 @@ func (s *Sessions) CurrentAccount(w http.ResponseWriter, r *http.Request) *Calle
 	switch {
 	case err == nil:
 	case errors.Is(err, provision.ErrNoAccount):
-		s.setupRequired(w)
+		s.setupRequired(w, r)
 		return nil
 	case errors.Is(err, provision.ErrNotAllowed):
 		problem.Send(w, problem.AccountNotAllowed, "")
@@ -175,9 +177,17 @@ func (s *Sessions) CurrentAccount(w http.ResponseWriter, r *http.Request) *Calle
 
 // setupRequired answers that there's no account yet, with the other ways
 // modules offer to set one up.
-func (s *Sessions) setupRequired(w http.ResponseWriter) {
+func (s *Sessions) setupRequired(w http.ResponseWriter, r *http.Request) {
 	p := problem.New(problem.AccountSetupRequired, "")
 	p.Offers = s.SetupOffers
+	if offered, def, _, err := s.Store.Languages(r.Context()); err == nil {
+		p.Language = pickLanguage(r.Header.Get("Accept-Language"), offered, def)
+		for _, c := range lang.Choices {
+			if slices.Contains(offered, c.Tag) {
+				p.Languages = append(p.Languages, c)
+			}
+		}
+	}
 	problem.Write(w, p)
 }
 

@@ -10,8 +10,12 @@ export interface Problem {
   takenOverBy?: string;
   stepUp?: string;
   stepUpUrl?: string;
-  /** For account-setup-required: whether an existing account can be brought. */
+  /** For account-setup-required: whether an existing account's history can be brought. */
   claim?: 'copy';
+  /** For account-setup-required: the languages the new account may choose among… */
+  languages?: { tag: string; name: string }[];
+  /** …and the one it gets unless it chooses. */
+  language?: string;
 }
 
 export class OverfinError extends Error {
@@ -55,6 +59,10 @@ export interface Me {
   accountId: string;
   /** Absent until a profile is chosen (when the owner profile has a PIN). */
   activeProfile?: Profile;
+  /** The account's language, a regional tag such as "fr-CA". */
+  language: string;
+  /** Those it may choose among, each named in itself. */
+  languages: { tag: string; name: string }[];
 }
 
 export interface Session {
@@ -332,6 +340,8 @@ export class Overfin {
   me(): Promise<Me>;
   createAccount(): Promise<Me>;
   claimAccount(username: string, password: string): Promise<Me>;
+  /** Owner profile only: the account's language, among those offered. */
+  setLanguage(language: string): Promise<Me>;
   /** Migration only: whether the active profile may bring its history. */
   historyCopy(): Promise<{ available: boolean }>;
   copyHistory(username: string, password: string): Promise<void>;

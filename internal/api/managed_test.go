@@ -373,3 +373,33 @@ func TestManagedPassword(t *testing.T) {
 		t.Errorf("stale login: %v %v", res, p)
 	}
 }
+
+// A code goes out in the account's language, whatever the browser's.
+func TestSigninEmailLanguage(t *testing.T) {
+	box := &mailbox{}
+	var st *store.Store
+	var m *api.Managed
+	srv, _ := newServerWith(t, options{managed: true, mailbox: box, store: &st, signIn: &m, site: true})
+	ctx := context.Background()
+	if _, err := st.SetLanguages(ctx, []string{"fr-CA", "en-US"}, "fr-CA"); err != nil {
+		t.Fatal(err)
+	}
+	ann, _ := st.CreateUser(ctx, "ann@example.org", false)
+	acct, _, err := st.CreateAccount(ctx, ann.Subject, store.NewOwner{Name: "Main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccountLanguage(ctx, acct.ID, "en-US"); err != nil {
+		t.Fatal(err)
+	}
+	b := newBrowser(srv)
+	signinPage(t, b, srv)
+	// The browser asks in French; Ann's account is in English.
+	if code, out := signinPost(t, b, srv, "/api/v1/signin", map[string]any{"email": "ann@example.org"}); code != 200 || out["sent"] != true {
+		t.Fatalf("asking a code: %d %v", code, out)
+	}
+	m.Wait()
+	if mails := box.all(); len(mails) != 1 || !strings.Contains(mails[0].subject, "is your sign-in code") {
+		t.Errorf("emails: %+v", mails)
+	}
+}

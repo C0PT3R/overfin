@@ -159,6 +159,9 @@ type Account struct {
 	Expires time.Time
 	// Template is the account template it follows: what it may do.
 	Template Template
+	// Language is the account's language (a lang.Choices tag); "" until
+	// it's chosen.
+	Language string
 }
 
 // Template is an account template: what accounts on it may do.
@@ -181,7 +184,7 @@ func (a *Account) Expired(now time.Time) bool {
 	return !a.Expires.IsZero() && !now.Before(a.Expires)
 }
 
-const accountSelect = `SELECT a.id, a.subject, a.created_at, a.disabled_at, a.label, a.expires_at,
+const accountSelect = `SELECT a.id, a.subject, a.created_at, a.disabled_at, a.label, a.expires_at, a.language,
 		t.id, t.name, t.max_streams, t.max_profiles
 	FROM accounts a JOIN account_templates t ON t.id = COALESCE(a.template_id, 'tmpl_default')`
 
@@ -189,8 +192,8 @@ func scanAccount(sc scanner) (*Account, error) {
 	var a Account
 	var created int64
 	var disabled, expires sql.NullInt64
-	var label sql.NullString
-	err := sc.Scan(&a.ID, &a.Subject, &created, &disabled, &label, &expires,
+	var label, language sql.NullString
+	err := sc.Scan(&a.ID, &a.Subject, &created, &disabled, &label, &expires, &language,
 		&a.Template.ID, &a.Template.Name, &a.Template.MaxStreams, &a.Template.MaxProfiles)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -200,7 +203,7 @@ func scanAccount(sc scanner) (*Account, error) {
 	}
 	a.Created = time.Unix(created, 0).UTC()
 	a.Disabled = disabled.Valid
-	a.Label = label.String
+	a.Label, a.Language = label.String, language.String
 	if expires.Valid {
 		a.Expires = time.Unix(expires.Int64, 0).UTC()
 	}

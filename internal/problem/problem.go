@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/overfin/server/internal/lang"
 )
 
 // Type is a stable, machine-readable error name.
@@ -133,13 +135,18 @@ type Problem struct {
 	// the instance offers no step-up.
 	StepUp    string `json:"stepUp,omitempty"`
 	StepUpURL string `json:"stepUpUrl,omitempty"`
+	// Languages, for account-setup-required, are those the new account
+	// may choose among (worth asking only when there are several), and
+	// Language the one it gets unless it chooses.
+	Languages []lang.Choice `json:"languages,omitempty"`
+	Language  string        `json:"language,omitempty"`
 	// Offers, for account-setup-required, are the other ways modules offer
-	// to set an account up, each a member of its own: "claim": "move", say.
+	// to set an account up, each a member of its own: "claim": "copy", say.
 	Offers map[string]string `json:"-"`
 }
 
 // Members are the names a problem's own members use, which offers can't.
-var Members = []string{"type", "title", "status", "detail", "takenOverBy", "retryAfter", "stepUp", "stepUpUrl"}
+var Members = []string{"type", "title", "status", "detail", "takenOverBy", "retryAfter", "stepUp", "stepUpUrl", "languages", "language"}
 
 // New returns the problem for t, with an optional human-readable detail.
 // The detail must never contain upstream error text or internal details

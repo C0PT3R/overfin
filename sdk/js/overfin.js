@@ -102,6 +102,8 @@ export class Overfin {
   me() { return this.request('GET', '/me'); }
   /** Creates a fresh account. */
   createAccount() { return this.request('POST', '/me', {}); }
+  /** Changes the account's language, among those offered. Owner profile only. */
+  setLanguage(language) { return this.request('PATCH', '/me', { language }); }
   /** Starts a new account with the history of one on the server this site replaces. The password is used once. */
   claimAccount(username, password) { return this.request('POST', '/me/claim', { username, password }); }
   /**

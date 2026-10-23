@@ -6,10 +6,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
 	"github.com/overfin/server/internal/images"
+	"github.com/overfin/server/internal/lang"
 	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/pin"
 	"github.com/overfin/server/internal/plugin"
@@ -44,6 +47,9 @@ func (a Account) Register(r *plugin.Registrar) error {
 	if err := r.HandleFunc("POST /api/v1/me", a.create); err != nil {
 		return err
 	}
+	if err := r.HandleFunc("PATCH /api/v1/me", a.change); err != nil {
+		return err
+	}
 	if err := r.HandleFunc("DELETE /api/v1/me", a.deleteAccount); err != nil {
 		return err
 	}
@@ -73,6 +79,10 @@ type meJSON struct {
 	AccountID string `json:"accountId"`
 	// ActiveProfile is absent while this session has none chosen.
 	ActiveProfile *profileJSON `json:"activeProfile,omitempty"`
+	// Language is the account's (a regional tag such as "fr-CA"), and
+	// Languages those it may choose among.
+	Language  string        `json:"language"`
+	Languages []lang.Choice `json:"languages"`
 }
 
 func (a Account) me(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +90,7 @@ func (a Account) me(w http.ResponseWriter, r *http.Request) {
 	if len(a.Sessions.SetupOffers) == 0 {
 		// With nothing else on offer, the first visit creates the account.
 		if _, _, err := a.Provisioner.Ensure(r.Context(), id, creationHooks(r, a.Mounts, a.Provisioner)); err != nil {
-			a.respond(w, nil, nil, err, http.StatusOK)
+			a.respond(w, r, nil, nil, err, http.StatusOK)
 			return
 		}
 	}
@@ -88,37 +98,71 @@ func (a Account) me(w http.ResponseWriter, r *http.Request) {
 	if c == nil {
 		return
 	}
-	a.respond(w, c.Account, c.Profile, nil, http.StatusOK)
+	a.respond(w, r, c.Account, c.Profile, nil, http.StatusOK)
 }
 
 func (a Account) create(w http.ResponseWriter, r *http.Request) {
 	id, _ := identity.FromContext(r.Context())
 	acct, prof, err := a.Provisioner.Create(r.Context(), id, creationHooks(r, a.Mounts, a.Provisioner))
-	a.respond(w, acct, prof, err, http.StatusCreated)
+	a.respond(w, r, acct, prof, err, http.StatusCreated)
 }
 
-func (a Account) respond(w http.ResponseWriter, acct *store.Account, prof *store.Profile, err error, status int) {
-	accountResult(w, a.Sessions, a.Logger, acct, prof, err, status)
+// change changes the account's language, among those offered. It's the
+// whole account's: the owner profile's to change (SECURITY.md rule 25).
+func (a Account) change(w http.ResponseWriter, r *http.Request) {
+	c := a.Sessions.Current(w, r)
+	if c == nil {
+		return
+	}
+	if !c.IsOwner() {
+		problem.Send(w, problem.OwnerOnly, "")
+		return
+	}
+	var req struct {
+		Language string `json:"language"`
+	}
+	if !decode(r, &req) {
+		problem.Send(w, problem.InvalidRequest, "")
+		return
+	}
+	offered, _, _, err := a.Sessions.Store.Languages(r.Context())
+	if err == nil && !slices.Contains(offered, req.Language) {
+		problem.Send(w, problem.InvalidRequest, "not one of the languages offered")
+		return
+	}
+	if err == nil {
+		err = a.Sessions.Store.SetAccountLanguage(r.Context(), c.Account.ID, req.Language)
+	}
+	if err != nil {
+		a.Logger.Error("changing an account's language failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+		return
+	}
+	c.Account.Language = req.Language
+	a.respond(w, r, c.Account, c.Profile, nil, http.StatusOK)
+}
+
+func (a Account) respond(w http.ResponseWriter, r *http.Request, acct *store.Account, prof *store.Profile, err error, status int) {
+	accountResult(w, r, a.Sessions, a.Logger, acct, prof, err, status)
 }
 
 // accountResult maps provisioning results to the API. Errors never carry
 // details.
-func accountResult(w http.ResponseWriter, sessions *Sessions, logger *slog.Logger, acct *store.Account, prof *store.Profile, err error, status int) {
+func accountResult(w http.ResponseWriter, r *http.Request, sessions *Sessions, logger *slog.Logger, acct *store.Account, prof *store.Profile, err error, status int) {
 	var refusal *feature.Refusal // a module refused the account
+	var out meJSON
+	if err == nil {
+		out, err = sessions.me(r, acct, prof)
+	}
 	switch {
 	case err == nil:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		out := meJSON{AccountID: acct.ID}
-		if prof != nil {
-			pj := toProfileJSON(prof)
-			out.ActiveProfile = &pj
-		}
 		_ = json.NewEncoder(w).Encode(out)
 	case errors.As(err, &refusal):
 		problem.Send(w, refusal.Type, refusal.Detail)
 	case errors.Is(err, provision.ErrNoAccount):
-		sessions.setupRequired(w)
+		sessions.setupRequired(w, r)
 	case errors.Is(err, provision.ErrAccountExists):
 		problem.Send(w, problem.AccountExists, "")
 	case errors.Is(err, provision.ErrNotAllowed):
@@ -163,4 +207,59 @@ func toProfileJSON(p *store.Profile) profileJSON {
 		out.Libraries = &libs
 	}
 	return out
+}
+
+// me is what GET /api/v1/me answers. An account without a language yet
+// gets one: the visitor's browser's first among those offered, else the
+// default.
+func (s *Sessions) me(r *http.Request, acct *store.Account, prof *store.Profile) (meJSON, error) {
+	ctx := r.Context()
+	offered, def, _, err := s.Store.Languages(ctx)
+	if err != nil {
+		return meJSON{}, err
+	}
+	if acct.Language == "" {
+		tag := pickLanguage(r.Header.Get("Accept-Language"), offered, def)
+		if err := s.Store.SetAccountLanguage(ctx, acct.ID, tag); err != nil {
+			return meJSON{}, err
+		}
+		acct.Language = tag
+	}
+	out := meJSON{AccountID: acct.ID, Language: def, Languages: []lang.Choice{}}
+	if slices.Contains(offered, acct.Language) {
+		out.Language = acct.Language
+	}
+	for _, c := range lang.Choices {
+		if slices.Contains(offered, c.Tag) {
+			out.Languages = append(out.Languages, c)
+		}
+	}
+	if prof != nil {
+		pj := toProfileJSON(prof)
+		out.ActiveProfile = &pj
+	}
+	return out, nil
+}
+
+// pickLanguage is the first of the browser's languages (Accept-Language)
+// among those offered: the same tag, else the same language; def when
+// none is.
+func pickLanguage(accept string, offered []string, def string) string {
+	for _, part := range strings.Split(accept, ",") {
+		want, _, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if want == "" {
+			continue
+		}
+		for _, tag := range offered {
+			if strings.EqualFold(tag, want) {
+				return tag
+			}
+		}
+		for _, tag := range offered {
+			if lang.Same(tag, want) {
+				return tag
+			}
+		}
+	}
+	return def
 }

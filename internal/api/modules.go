@@ -130,7 +130,7 @@ func (h *host) HandleVisitor(pattern string, fn feature.VisitorHandler) error {
 		case err == nil:
 			problem.Send(w, problem.AccountExists, "")
 		case !errors.Is(err, provision.ErrNoAccount):
-			accountResult(w, l.Sessions, l.Logger, nil, nil, err, 0)
+			accountResult(w, r, l.Sessions, l.Logger, nil, nil, err, 0)
 		default:
 			fn(visitor{mount: h.mount, r: r}, w, r)
 		}
@@ -158,7 +158,7 @@ func (v visitor) Copy(w http.ResponseWriter, from, username, password string) bo
 	id, _ := identity.FromContext(v.r.Context())
 	acct, prof, err := l.Provisioner.CopyIn(creation.Adopting(v.r.Context()), id, old, username, password,
 		personal.FromServer, creationHooks(v.r, v.mount.Peers, l.Provisioner))
-	accountResult(w, l.Sessions, l.Logger, acct, prof, err, http.StatusCreated)
+	accountResult(w, v.r, l.Sessions, l.Logger, acct, prof, err, http.StatusCreated)
 	return err == nil
 }
 

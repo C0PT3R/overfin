@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/overfin/server/internal/lang"
@@ -58,4 +59,29 @@ func (s *Store) SetLanguages(ctx context.Context, offered []string, def string) 
 		return true, s.SetTMDBLanguage(ctx, base)
 	}
 	return false, nil
+}
+
+// SetAccountLanguage changes an account's language.
+func (s *Store) SetAccountLanguage(ctx context.Context, accountID, tag string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET language = ? WHERE id = ?`, tag, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// LanguageOf is the language an account uses: its own when it's still
+// offered, else the default.
+func (s *Store) LanguageOf(ctx context.Context, a *Account) (string, error) {
+	offered, def, _, err := s.Languages(ctx)
+	if err != nil {
+		return "", err
+	}
+	if slices.Contains(offered, a.Language) {
+		return a.Language, nil
+	}
+	return def, nil
 }
