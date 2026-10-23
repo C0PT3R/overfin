@@ -603,33 +603,33 @@ function languagesCard(l) {
     [st, save]);
 }
 
-// TMDB: the operator's key, the ratings country kids profiles are held to,
+// TMDB: the operator's token, the ratings country kids profiles are held to,
 // and which titles not in the libraries are shown.
 function tmdbCard(rt) {
   if (!rt) return null;
-  // The key: tested by TMDB before it's kept; never shown again.
+  // The token: tested by TMDB before it's kept; never shown again.
   const keySt = status('');
-  const key = h('input', { type: 'password', autocomplete: 'off', placeholder: rt.key.set ? 'Unchanged' : 'API key or API Read Access Token', disabled: rt.key.inEnv });
+  const key = h('input', { type: 'password', autocomplete: 'off', placeholder: rt.token.set ? 'Unchanged' : 'API Read Access Token', disabled: rt.token.inEnv });
   const setKey = (button, value, done) => busy(button, async () => {
-    const out = await api('PUT', '/admin/api/tmdb-key', { key: value });
+    const out = await api('PUT', '/admin/api/tmdb-token', { token: value });
     key.value = '';
     toast(out.summary);
     done(out.state);
   }, (err) => keySt.set(err.message, 'error'));
   const redraw = () => serverView();
-  const testKey = h('button', { type: 'button', disabled: rt.key.inEnv, onclick: () => {
-    if (!key.value.trim()) return keySt.set('Paste a key first.', 'error');
+  const testKey = h('button', { type: 'button', disabled: rt.token.inEnv, onclick: () => {
+    if (!key.value.trim()) return keySt.set('Paste the token first.', 'error');
     setKey(testKey, key.value, (state) => { Object.assign(rt, state); redraw(); });
   } }, 'Test and save');
-  const removeKey = rt.key.set && !rt.key.inEnv && h('button', { type: 'button', class: 'danger', onclick: () => {
-    if (!confirm('Without a key, titles, artwork and ratings come from Jellyfin only, and TMDB\'s data kept so far is removed unless Seerr gives it. Remove the key?')) return;
+  const removeKey = rt.token.set && !rt.token.inEnv && h('button', { type: 'button', class: 'danger', onclick: () => {
+    if (!confirm('Without a token, titles, artwork and ratings come from Jellyfin only, and TMDB\'s data kept so far is removed unless Seerr gives it. Remove the token?')) return;
     setKey(removeKey, '', (state) => { Object.assign(rt, state); redraw(); });
   } }, 'Remove');
-  const keyHint = rt.key.inEnv
-    ? 'Set in Overfin\'s environment (OVERFIN_TMDB_KEY): change it there.'
+  const keyHint = rt.token.inEnv
+    ? 'Set in Overfin\'s environment (OVERFIN_TMDB_TOKEN): change it there.'
     : h('span', {}, 'Free, once: sign up at ', h('a', { href: 'https://www.themoviedb.org/signup', target: '_blank', rel: 'noopener' }, 'themoviedb.org'),
       ', then in your account\'s ', h('a', { href: 'https://www.themoviedb.org/settings/api', target: '_blank', rel: 'noopener' }, 'Settings → API'),
-      ', ask for a developer key (personal use is fine).');
+      ', ask for API access (personal use is fine), then copy the API Read Access Token: the long one, not the API key.');
   let names = null;
   try { names = new Intl.DisplayNames([navigator.language, 'en'], { type: 'region' }); } catch { names = null; }
   const countries = rt.countries.length ? rt.countries : [rt.country];
@@ -642,7 +642,7 @@ function tmdbCard(rt) {
     ['home', 'Watchable at home']].map(([v, t]) => h('option', { value: v }, t)));
   shown.value = rt.shown;
   const describe = (r) => {
-    if (!r.source && !r.key.set) return ['Without TMDB, no title can be rated, so kids profiles see nothing.', 'error'];
+    if (!r.source && !r.token.set) return ['Without TMDB, no title can be rated, so kids profiles see nothing.', 'error'];
     if (!r.source) return ['TMDB can\'t be reached: no title can be rated, so kids profiles see nothing.', 'error'];
     if (!r.countries.length) return ['Fetching the rating scales from TMDB… Kids profiles see nothing until titles are rated.', ''];
     return [`${r.fetched.toLocaleString()} of ${r.total.toLocaleString()} films and series rated.`, ''];
@@ -661,11 +661,11 @@ function tmdbCard(rt) {
     st.set(...describe(out));
     toast('TMDB settings saved.');
   }, (err) => st.set(err.message, 'error')) }, 'Save');
-  return card({ title: 'TMDB', badge: rt.source ? badge('Reachable', 'ok') : badge(rt.key.set ? 'Unreachable' : 'No key', 'err'),
+  return card({ title: 'TMDB', badge: rt.source ? badge('Reachable', 'ok') : badge(rt.token.set ? 'Unreachable' : 'No token', 'err'),
     description: 'Where titles, artwork and ratings come from. Without it, they come from Jellyfin only.' },
   [
-    setting('Key', rt.key.inEnv ? keyHint : 'The API key or the API Read Access Token.', h('div', { class: 'row' }, key, testKey, removeKey)),
-    !rt.key.inEnv && !rt.key.set && h('p', { class: 'hint' }, keyHint),
+    setting('Token', rt.token.inEnv ? keyHint : 'TMDB\'s API Read Access Token.', h('div', { class: 'row' }, key, testKey, removeKey)),
+    !rt.token.inEnv && !rt.token.set && h('p', { class: 'hint' }, keyHint),
     keySt,
     setting('Ratings country', 'Kids profiles\' limits use this country\'s ratings. A title with none there is hidden from them.', country),
     setting('Titles shown', 'Of those no library has, in discovery and requests. A title a library has is always shown.', shown),

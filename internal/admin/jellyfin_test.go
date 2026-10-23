@@ -57,31 +57,31 @@ func TestJellyfinAccess(t *testing.T) {
 	}
 }
 
-// memTMDB is the operator's TMDB key as the panel sees it.
-type memTMDB struct{ key string }
+// memTMDB is the operator's TMDB token as the panel sees it.
+type memTMDB struct{ token string }
 
-func (m *memTMDB) TMDBKey() (bool, bool) { return m.key != "", false }
+func (m *memTMDB) TMDBToken() (bool, bool) { return m.token != "", false }
 
-func (m *memTMDB) SetTMDBKey(_ context.Context, key string) (string, error) {
-	if key == "bad" {
-		return "", Problem("TMDB refuses that key.")
+func (m *memTMDB) SetTMDBToken(_ context.Context, token string) (string, error) {
+	if token == "bad" {
+		return "", Problem("TMDB refuses that token.")
 	}
-	m.key = key
+	m.token = token
 	return "ok", nil
 }
 
-func TestTMDBKey(t *testing.T) {
+func TestTMDBToken(t *testing.T) {
 	p, b, _, _ := signedInPanel(t)
 	k := &memTMDB{}
-	p.TMDBKeys = k
-	if rec := b.do("PUT", "/admin/api/tmdb-key", `{"key":"bad"}`, nil); rec.Code != 400 || !strings.Contains(rec.Body.String(), "refuses") {
+	p.TMDBTokens = k
+	if rec := b.do("PUT", "/admin/api/tmdb-token", `{"token":"bad"}`, nil); rec.Code != 400 || !strings.Contains(rec.Body.String(), "refuses") {
 		t.Errorf("refused: %d %s", rec.Code, rec.Body)
 	}
-	rec := b.do("PUT", "/admin/api/tmdb-key", `{"key":"good"}`, nil)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"key":{"set":true,"inEnv":false}`) || k.key != "good" {
+	rec := b.do("PUT", "/admin/api/tmdb-token", `{"token":"good"}`, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"token":{"set":true,"inEnv":false}`) || k.token != "good" {
 		t.Errorf("set: %d %s", rec.Code, rec.Body)
 	}
 	if rec := b.do("GET", "/admin/api/ratings", "", nil); strings.Contains(rec.Body.String(), "good") {
-		t.Errorf("the key is shown: %s", rec.Body)
+		t.Errorf("the token is shown: %s", rec.Body)
 	}
 }

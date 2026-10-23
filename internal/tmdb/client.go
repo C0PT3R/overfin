@@ -18,17 +18,16 @@ import (
 	"github.com/overfin/server/internal/upstream"
 )
 
-// Keys: TMDB gives every account two, for its API: an "API key" (32 hex
-// characters, sent in the query) and an "API Read Access Token" (a long
-// token, sent as a bearer). Either works; each operator brings their own,
-// so one installation's use never puts another's at risk.
-var (
-	apiKey    = regexp.MustCompile(`^[0-9a-f]{32}$`)
-	readToken = regexp.MustCompile(`^[A-Za-z0-9._-]{40,1000}$`)
-)
+// Tokens: Overfin uses TMDB's "API Read Access Token", sent as a bearer
+// (TMDB's shorter "API key" would travel in URLs, so it isn't taken). Each
+// operator brings their own, so one installation's use never puts
+// another's at risk.
+var readToken = regexp.MustCompile(`^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`)
 
-// ValidKey reports whether key looks like one of TMDB's keys.
-func ValidKey(key string) bool { return apiKey.MatchString(key) || readToken.MatchString(key) }
+// ValidToken reports whether token looks like a TMDB read access token.
+func ValidToken(token string) bool {
+	return len(token) >= 40 && len(token) <= 1000 && readToken.MatchString(token)
+}
 
 // BaseURL is TMDB's API.
 const BaseURL = "https://api.themoviedb.org/3"
@@ -79,11 +78,11 @@ func (c *Client) withLanguage(q url.Values) url.Values {
 }
 
 // New returns a client for TMDB at baseURL (BaseURL, or a test server),
-// with an operator's key: an API key or a read access token.
+// with an operator's read access token.
 func New(baseURL, token string) (*Client, error) {
 	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || !ValidKey(token) {
-		return nil, errors.New("tmdb: invalid address or key")
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || !ValidToken(token) {
+		return nil, errors.New("tmdb: invalid address or token")
 	}
 	return &Client{base: u, token: token, slow: &gate{}, http: &http.Client{
 		Timeout: 15 * time.Second,
@@ -154,20 +153,12 @@ func (c *Client) getOnce(ctx context.Context, path string, q url.Values, out any
 	}
 	u := *c.base
 	u.Path += path
-	if apiKey.MatchString(c.token) {
-		// An API key goes in the query (never logged: errors drop the
-		// URL).
-		q = cloneValues(q)
-		q.Set("api_key", c.token)
-	}
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return err
 	}
-	if !apiKey.MatchString(c.token) {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -433,15 +424,6 @@ func pick(images []rawImage, lang string) string {
 
 // isoLanguage is an ISO 639-1 code, as TMDB writes them.
 var isoLanguage = regexp.MustCompile(`^[a-z]{2}$`)
-
-// cloneValues is a copy of q to add to, never nil.
-func cloneValues(q url.Values) url.Values {
-	out := url.Values{}
-	for k, v := range q {
-		out[k] = append([]string(nil), v...)
-	}
-	return out
-}
 
 // Check tells whether TMDB takes the client's key: nil, ErrUnauthorized, or
 // another error when TMDB can't be reached.

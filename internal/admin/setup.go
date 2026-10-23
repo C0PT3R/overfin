@@ -27,7 +27,7 @@ import (
 // too. One step per screen, each saved as it's done, for what's missing:
 // the default language; Overfin's own Jellyfin (SECURITY.md rule 67), which
 // it sets up if it's fresh, and otherwise shows, then takes only when its
-// administrator hands it over; TMDB's key; and with managed sign-in the
+// administrator hands it over; TMDB's token; and with managed sign-in the
 // first admin. Only someone with the one-time code from Overfin's log can
 // use it, so nobody else can claim a fresh install.
 type Setup struct {
@@ -43,9 +43,9 @@ type Setup struct {
 	// FixedURL is Jellyfin's address when the configuration file sets it:
 	// the page doesn't ask for it then.
 	FixedURL string
-	// TMDB, when set, offers TMDB's key: it tests and saves one, and says
+	// TMDB, when set, offers TMDB's token: it tests and saves one, and says
 	// so. The step may be skipped.
-	TMDB func(ctx context.Context, key string) (string, error)
+	TMDB func(ctx context.Context, token string) (string, error)
 	// IntroSkipper, when set, offers to install Intro Skipper on Overfin's
 	// Jellyfin, once it has one. The step may be skipped.
 	IntroSkipper *introskipper.Installer
@@ -347,7 +347,7 @@ func (s *Setup) jellyfin(w http.ResponseWriter, r *http.Request, body json.RawMe
 
 func (s *Setup) tmdb(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
 	var req struct {
-		Key string `json:"key"`
+		Token string `json:"token"`
 	}
 	if !decodeStep(w, body, &req) {
 		return
@@ -356,11 +356,11 @@ func (s *Setup) tmdb(w http.ResponseWriter, r *http.Request, body json.RawMessag
 		http.NotFound(w, r)
 		return
 	}
-	if strings.TrimSpace(req.Key) == "" {
-		unusable(w, "Paste TMDB's key first, or skip this step.")
+	if strings.TrimSpace(req.Token) == "" {
+		unusable(w, "Paste TMDB's token first, or skip this step.")
 		return
 	}
-	summary, err := s.TMDB(r.Context(), req.Key)
+	summary, err := s.TMDB(r.Context(), req.Token)
 	if err != nil {
 		s.failed(w, err, "TMDB's step")
 		return

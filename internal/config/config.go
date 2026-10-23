@@ -468,10 +468,10 @@ type Secrets struct {
 	ConnectorToken string
 	// MailPassword is the SMTP server's password, with mail.username.
 	MailPassword string
-	// TMDBKey is the operator's TMDB key (an API key or a read access
-	// token), when the environment gives it; otherwise the setup page or
-	// the control panel saves it in the database.
-	TMDBKey string
+	// TMDBToken is the operator's TMDB read access token, when the
+	// environment gives it; otherwise the setup page or the control panel
+	// saves it in the database.
+	TMDBToken string
 }
 
 // PrivateAddr reports whether ip is private: loopback, link-local, the
@@ -588,11 +588,11 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 }
 
 func loadSecrets(s *Secrets, getenv func(string) string) error {
-	tmdbKey, err := secret("OVERFIN_TMDB_KEY", getenv)
+	tmdbToken, err := secret("OVERFIN_TMDB_TOKEN", getenv)
 	if err != nil && !errors.Is(err, errMissing) {
 		return err
 	}
-	s.TMDBKey = tmdbKey
+	s.TMDBToken = tmdbToken
 
 	// Overfin makes its own key on its Jellyfin now: one given is refused,
 	// so nobody believes it's used.

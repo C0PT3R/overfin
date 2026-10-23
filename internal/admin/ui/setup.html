@@ -72,17 +72,17 @@
   <section data-step="tmdb" hidden>
     <div class="card-head"><div>
       <h2>TMDB <span class="badge plain info">Optional</span></h2>
-      <p>TMDB is where Overfin gets titles' names, synopses, artwork and ratings, in your languages, and what to discover. It's free; you need a key of your own, once.</p>
+      <p>TMDB is where Overfin gets titles' names, synopses, artwork and ratings, in your languages, and what to discover. It's free; you need a token of your own, once.</p>
     </div></div>
     <ol class="how">
       <li><a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">Create a TMDB account</a>, and confirm its email.</li>
-      <li>In your account's <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Settings → API</a>, ask for a developer key: personal use is fine.</li>
-      <li>Copy the <strong>API key</strong> or the <strong>API Read Access Token</strong>, and paste it here.</li>
+      <li>In your account's <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Settings → API</a>, ask for API access: personal use is fine.</li>
+      <li>Copy the <strong>API Read Access Token</strong> (the long one, not the API key), and paste it here.</li>
     </ol>
     <div class="fields">
-      <label class="field full"><span>TMDB's key</span><input id="tmdb-key" type="password" autocomplete="off" spellcheck="false"></label>
+      <label class="field full"><span>TMDB's token</span><input id="tmdb-token" type="password" autocomplete="off" spellcheck="false"></label>
     </div>
-    <p class="hint">Skipped, Overfin runs on what Jellyfin knows: fewer details, no ratings for kids profiles, no discovery. You can add a key later in the control panel.</p>
+    <p class="hint">Skipped, Overfin runs on what Jellyfin knows: fewer details, no ratings for kids profiles, no discovery. You can add a token later in the control panel.</p>
     <p class="notice" id="tmdb-done" hidden></p>
   </section>
 

@@ -13,11 +13,8 @@ import (
 	"time"
 )
 
-// testToken looks like a read access token; testKey like an API key.
-const (
-	testToken = "eyJhbGciOiJIUzI1NiJ9.test-read-access-token-for-overfin"
-	testKey   = "0123456789abcdef0123456789abcdef"
-)
+// testToken looks like a read access token.
+const testToken = "eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0Ijp0cnVlfQ.test-signature-for-overfin"
 
 func fakeTMDB(t *testing.T) *Client {
 	t.Helper()
@@ -240,7 +237,7 @@ func TestClient(t *testing.T) {
 	if _, err := c.Details(ctx, "movie", 12345); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown title: %v", err)
 	}
-	bad, _ := New(c.base.String(), "eyJhbGciOiJIUzI1NiJ9.a-wrong-read-access-token-for-tests")
+	bad, _ := New(c.base.String(), "eyJhbGciOiJIUzI1NiJ9.eyJ3cm9uZyI6dHJ1ZX0.a-wrong-read-access-token")
 	if _, err := bad.Details(ctx, "movie", 949); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("wrong key: %v", err)
 	}
@@ -290,32 +287,28 @@ func TestTooManyRequests(t *testing.T) {
 	}
 }
 
-// Both kinds of TMDB key work: a read access token as a bearer, an API key
-// in the query; Check says whether TMDB takes it.
-func TestKeys(t *testing.T) {
+// A read access token goes as a bearer, never in the URL; Check says
+// whether TMDB takes it. TMDB's API keys aren't taken.
+func TestTokens(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ok := r.Header.Get("Authorization") == "Bearer "+testToken ||
-			(r.URL.Query().Get("api_key") == testKey && r.Header.Get("Authorization") == "")
-		if r.URL.Path != "/authentication" || !ok {
+		if r.URL.Path != "/authentication" || r.Header.Get("Authorization") != "Bearer "+testToken || r.URL.RawQuery != "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		io.WriteString(w, `{"success":true}`)
 	}))
 	defer srv.Close()
-	for _, key := range []string{testToken, testKey} {
-		c, err := New(srv.URL, key)
-		if err != nil || c.Check(context.Background()) != nil {
-			t.Errorf("%s: %v %v", key[:6], err, c.Check(context.Background()))
-		}
+	c, err := New(srv.URL, testToken)
+	if err != nil || c.Check(context.Background()) != nil {
+		t.Errorf("token: %v %v", err, c.Check(context.Background()))
 	}
-	wrong, _ := New(srv.URL, "fedcba9876543210fedcba9876543210")
+	wrong, _ := New(srv.URL, "eyJhbGciOiJIUzI1NiJ9.eyJ3cm9uZyI6dHJ1ZX0.another-signature")
 	if err := wrong.Check(context.Background()); !errors.Is(err, ErrUnauthorized) {
-		t.Errorf("a wrong key: %v", err)
+		t.Errorf("a wrong token: %v", err)
 	}
-	for _, bad := range []string{"", "short", "has spaces in it, which no TMDB key has at all…"} {
+	for _, bad := range []string{"", "short", "0123456789abcdef0123456789abcdef", "has spaces in it, which no TMDB token has at all…"} {
 		if _, err := New(srv.URL, bad); err == nil {
-			t.Errorf("%q taken as a key", bad)
+			t.Errorf("%q taken as a token", bad)
 		}
 	}
 }

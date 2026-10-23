@@ -294,18 +294,18 @@ func run(logger *slog.Logger) error {
 				return err
 			}
 		}
-		// TMDB's key, unless there's one: the step may be skipped, and
+		// TMDB's token, unless there's one: the step may be skipped, and
 		// Overfin then runs on Jellyfin's data.
-		if _, ok, err := db.TMDBKey(ctx); err == nil && !ok && cfg.Secrets.TMDBKey == "" {
-			setup.TMDB = func(ctx context.Context, key string) (string, error) {
-				key = strings.TrimSpace(key)
-				if _, err := checkTMDBKey(ctx, db, key); err != nil {
+		if _, ok, err := db.TMDBToken(ctx); err == nil && !ok && cfg.Secrets.TMDBToken == "" {
+			setup.TMDB = func(ctx context.Context, token string) (string, error) {
+				token = strings.TrimSpace(token)
+				if _, err := checkTMDBToken(ctx, db, token); err != nil {
 					return "", forPage(err)
 				}
-				if err := db.SetTMDBKey(ctx, key); err != nil {
+				if err := db.SetTMDBToken(ctx, token); err != nil {
 					return "", err
 				}
-				return "TMDB takes the key.", nil
+				return "TMDB takes the token.", nil
 			}
 		}
 		// Seerr, unless it's connected: the step may be skipped.
@@ -399,22 +399,22 @@ func run(logger *slog.Logger) error {
 	// TMDB itself, with the operator's own key, in the default language.
 	// Without one, Overfin runs on Jellyfin's data (and Seerr's, when it's
 	// connected).
-	tmdbKey := cfg.Secrets.TMDBKey
-	if tmdbKey == "" {
-		if k, ok, err := db.TMDBKey(ctx); err != nil {
-			logger.Warn("TMDB's key can't be read: give it again in the control panel", "err", err)
+	tmdbToken := cfg.Secrets.TMDBToken
+	if tmdbToken == "" {
+		if k, ok, err := db.TMDBToken(ctx); err != nil {
+			logger.Warn("TMDB's token can't be read: give it again in the control panel", "err", err)
 		} else if ok {
-			tmdbKey = k
+			tmdbToken = k
 		}
 	}
-	if tmdbKey != "" {
-		if c, err := tmdbClient(db, tmdbKey); err == nil {
+	if tmdbToken != "" {
+		if c, err := tmdbClient(db, tmdbToken); err == nil {
 			sh.tmdb = c
 		} else {
-			logger.Warn("TMDB's key isn't one: give it again in the control panel")
+			logger.Warn("TMDB's token isn't a read access token: give it again in the control panel")
 		}
 	} else {
-		logger.Warn("no TMDB key: Overfin runs on Jellyfin's data; give one in the control panel (Server, TMDB)")
+		logger.Warn("no TMDB token: Overfin runs on Jellyfin's data; give one in the control panel (Server, TMDB)")
 	}
 	// What TMDB says about the library's titles, kept in the background
 	// (started below) and fetched on demand by the site's pages, which is
@@ -472,7 +472,7 @@ func run(logger *slog.Logger) error {
 	if a := cfg.Admin; a.Enabled() || managed {
 		o := cfg.OIDC
 		p := &admin.Panel{Features: gw, Modules: gw, Jellyfin: gw, Libraries: libraries{gw}, Transcoding: gw, Seerr: gw, Catalog: cat, Group: a.Group, Logger: logger,
-			TMDB: func() bool { return gw.tmdbSource() != nil }, TMDBKeys: gw, IntroSkipper: skipper,
+			TMDB: func() bool { return gw.tmdbSource() != nil }, TMDBTokens: gw, IntroSkipper: skipper,
 			// A new language: artwork and discovery's lists, read again now.
 			OnLanguage: func() { sh.titles.Wake(); sh.lists.Wake() },
 			Store:      db, Provisioner: newProvisioner(cfg, sh),

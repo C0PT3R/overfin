@@ -48,14 +48,14 @@ type Features interface {
 	SetFeatures(ctx context.Context, f config.Features) error
 }
 
-// TMDBKeys is where the panel reads and changes the operator's TMDB key.
-type TMDBKeys interface {
-	// TMDBKey says whether there's one, and whether the environment sets
+// TMDBTokens is where the panel reads and changes the operator's TMDB token.
+type TMDBTokens interface {
+	// TMDBToken says whether there's one, and whether the environment sets
 	// it (then the panel can't change it).
-	TMDBKey() (set, inEnv bool)
-	// SetTMDBKey tests, saves and applies a key; "" removes it. Its error
-	// says what's wrong in plain words.
-	SetTMDBKey(ctx context.Context, key string) (string, error)
+	TMDBToken() (set, inEnv bool)
+	// SetTMDBToken tests, saves and applies a token; "" removes it. Its
+	// error says what's wrong in plain words.
+	SetTMDBToken(ctx context.Context, token string) (string, error)
 }
 
 // Jellyfin is where the panel reads and changes how Overfin reaches
@@ -120,8 +120,8 @@ type Panel struct {
 	// TMDB, when set, says whether Overfin has a source for TMDB's data
 	// (TMDB itself, or Seerr).
 	TMDB func() bool
-	// TMDBKeys, when set, shows and changes the operator's TMDB key.
-	TMDBKeys TMDBKeys
+	// TMDBTokens, when set, shows and changes the operator's TMDB token.
+	TMDBTokens TMDBTokens
 	// IntroSkipper, when set, shows Intro Skipper's state on Overfin's
 	// Jellyfin, and installs it.
 	IntroSkipper *introskipper.Installer
@@ -232,7 +232,7 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/ratings", p.signedIn(p.setRatings))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
-	mux.HandleFunc("PUT /admin/api/tmdb-key", p.signedIn(p.setTMDBKey))
+	mux.HandleFunc("PUT /admin/api/tmdb-token", p.signedIn(p.setTMDBToken))
 	mux.HandleFunc("GET /admin/api/intro-skipper", p.signedIn(p.introSkipper))
 	mux.HandleFunc("POST /admin/api/intro-skipper", p.signedIn(p.installIntroSkipper))
 	mux.HandleFunc("DELETE /admin/api/intro-skipper", p.signedIn(p.removeIntroSkipper))
@@ -711,18 +711,18 @@ type ratingsJSON struct {
 	Fetched int    `json:"fetched"`
 	Total   int    `json:"total"`
 	Source  bool   `json:"source"`
-	// Key is whether the operator gave TMDB's key, and whether the
+	// Token is whether the operator gave TMDB's token, and whether the
 	// environment sets it.
-	Key struct {
+	Token struct {
 		Set   bool `json:"set"`
 		InEnv bool `json:"inEnv"`
-	} `json:"key"`
+	} `json:"token"`
 }
 
 func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
 	out := ratingsJSON{Source: p.TMDB != nil && p.TMDB()}
-	if p.TMDBKeys != nil {
-		out.Key.Set, out.Key.InEnv = p.TMDBKeys.TMDBKey()
+	if p.TMDBTokens != nil {
+		out.Token.Set, out.Token.InEnv = p.TMDBTokens.TMDBToken()
 	}
 	var err error
 	if out.Country, err = p.Store.RatingsCountry(ctx); err != nil {
@@ -908,21 +908,21 @@ func (p *Panel) removeIntroSkipper(w http.ResponseWriter, r *http.Request, s *se
 	writeJSON(w, http.StatusAccepted, p.IntroSkipper.Progress())
 }
 
-// setTMDBKey sets or removes the operator's TMDB key.
-func (p *Panel) setTMDBKey(w http.ResponseWriter, r *http.Request, s *session) {
-	if p.TMDBKeys == nil {
+// setTMDBToken sets or removes the operator's TMDB token.
+func (p *Panel) setTMDBToken(w http.ResponseWriter, r *http.Request, s *session) {
+	if p.TMDBTokens == nil {
 		http.NotFound(w, r)
 		return
 	}
 	var req struct {
-		Key string `json:"key"`
+		Token string `json:"token"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	summary, err := p.TMDBKeys.SetTMDBKey(r.Context(), req.Key)
+	summary, err := p.TMDBTokens.SetTMDBToken(r.Context(), req.Token)
 	if err != nil {
-		p.upstreamProblem(w, err, "setting TMDB's key")
+		p.upstreamProblem(w, err, "setting TMDB's token")
 		return
 	}
 	out, err := p.ratingsState(r.Context())

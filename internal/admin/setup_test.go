@@ -251,16 +251,16 @@ func TestSetupLanguage(t *testing.T) {
 	}
 }
 
-// TMDB's key may be given, tested by TMDB, or skipped.
+// TMDB's token may be given, tested by TMDB, or skipped.
 func TestSetupTMDB(t *testing.T) {
 	s, _ := newSetup()
 	var key string
 	s.TMDB = func(_ context.Context, k string) (string, error) {
 		if k != "good" {
-			return "", Problem("TMDB refuses that key.")
+			return "", Problem("TMDB refuses that token.")
 		}
 		key = k
-		return "TMDB takes the key.", nil
+		return "TMDB takes the token.", nil
 	}
 	done := 0
 	s.Done = func() { done++ }
@@ -268,12 +268,12 @@ func TestSetupTMDB(t *testing.T) {
 	if got := get(h, local); !strings.Contains(got, `{"id":"tmdb","done":false,"optional":true}`) {
 		t.Errorf("what it asks: %s", got)
 	}
-	for body, want := range map[string]string{`{"code":"K7QM-2XRP","key":" "}`: "Paste", `{"code":"K7QM-2XRP","key":"bad"}`: "refuses"} {
+	for body, want := range map[string]string{`{"code":"K7QM-2XRP","token":" "}`: "Paste", `{"code":"K7QM-2XRP","token":"bad"}`: "refuses"} {
 		if rec := post(h, local, "tmdb", body); rec.Code != 422 || !strings.Contains(rec.Body.String(), want) || key != "" {
 			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
 	}
-	if rec := post(h, local, "tmdb", `{"code":"K7QM-2XRP","key":"good"}`); rec.Code != 200 || key != "good" {
+	if rec := post(h, local, "tmdb", `{"code":"K7QM-2XRP","token":"good"}`); rec.Code != 200 || key != "good" {
 		t.Errorf("good: %d %s", rec.Code, rec.Body)
 	}
 	// Skipped or not, it doesn't hold the wizard back.

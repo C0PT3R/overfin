@@ -103,34 +103,34 @@ func (s *Store) LanguageOf(ctx context.Context, a *Account) (string, error) {
 	return def, nil
 }
 
-// tmdbKeyContext binds the sealed TMDB key to its row.
-const tmdbKeyContext = "tmdb key"
+// tmdbTokenContext binds the sealed TMDB token to its row.
+const tmdbTokenContext = "tmdb token"
 
-// TMDBKey is the operator's TMDB key, as the panel or the setup saved it;
+// TMDBToken is the operator's TMDB token, as the panel or the setup saved it;
 // ok is false without one.
-func (s *Store) TMDBKey(ctx context.Context) (key string, ok bool, err error) {
+func (s *Store) TMDBToken(ctx context.Context) (token string, ok bool, err error) {
 	var sealed []byte
-	err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'tmdb-key'`).Scan(&sealed)
+	err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'tmdb-token'`).Scan(&sealed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
 	if err != nil {
 		return "", false, err
 	}
-	k, err := s.box.Open(sealed, tmdbKeyContext)
+	k, err := s.box.Open(sealed, tmdbTokenContext)
 	if err != nil {
-		return "", false, fmt.Errorf("store: TMDB's key can't be read with this secret key: %w", err)
+		return "", false, fmt.Errorf("store: TMDB's token can't be read with this secret key: %w", err)
 	}
 	return string(k), true, nil
 }
 
-// SetTMDBKey saves the operator's TMDB key, sealed; "" forgets it.
-func (s *Store) SetTMDBKey(ctx context.Context, key string) error {
-	if key == "" {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE name = 'tmdb-key'`)
+// SetTMDBToken saves the operator's TMDB token, sealed; "" forgets it.
+func (s *Store) SetTMDBToken(ctx context.Context, token string) error {
+	if token == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE name = 'tmdb-token'`)
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('tmdb-key', ?)
-		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, s.box.Seal([]byte(key), tmdbKeyContext))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('tmdb-token', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, s.box.Seal([]byte(token), tmdbTokenContext))
 	return err
 }

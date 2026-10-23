@@ -447,12 +447,12 @@ func TestSetSeerr(t *testing.T) {
 	}
 }
 
-// The panel sets and removes the operator's TMDB key: tested by TMDB, kept
+// The panel sets and removes the operator's TMDB token: tested by TMDB, kept
 // sealed, and TMDB's data removed with it.
-func TestSetTMDBKey(t *testing.T) {
-	const key = "0123456789abcdef0123456789abcdef"
+func TestSetTMDBToken(t *testing.T) {
+	const token = "eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0Ijp0cnVlfQ.test-signature-for-overfin"
 	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("api_key") != key {
+		if r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
 			io.WriteString(w, `{"success":false}`)
 			return
@@ -488,41 +488,41 @@ func TestSetTMDBKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if set, inEnv := g.TMDBKey(); set || inEnv {
+	if set, inEnv := g.TMDBToken(); set || inEnv {
 		t.Fatalf("before: %v %v", set, inEnv)
 	}
-	if _, err := g.SetTMDBKey(ctx, "not a key"); err == nil || !strings.Contains(err.Error(), "isn't a TMDB key") {
-		t.Errorf("not a key: %v", err)
+	if _, err := g.SetTMDBToken(ctx, "0123456789abcdef0123456789abcdef"); err == nil || !strings.Contains(err.Error(), "isn't a TMDB read access token") {
+		t.Errorf("an API key: %v", err)
 	}
 	// The panel shows what's wrong as is.
 	var plain admin.Problem
-	if _, err := g.SetTMDBKey(ctx, "ffffffffffffffffffffffffffffffff"); !errors.As(err, &plain) || !strings.Contains(err.Error(), "refuses") {
+	if _, err := g.SetTMDBToken(ctx, "eyJhbGciOiJIUzI1NiJ9.eyJ3cm9uZyI6dHJ1ZX0.another-signature"); !errors.As(err, &plain) || !strings.Contains(err.Error(), "refuses") {
 		t.Errorf("refused: %v", err)
 	}
-	if set, _ := g.TMDBKey(); set {
-		t.Error("a refused key is used")
+	if set, _ := g.TMDBToken(); set {
+		t.Error("a refused token is used")
 	}
-	if _, err := g.SetTMDBKey(ctx, " "+key+"\n"); err != nil {
+	if _, err := g.SetTMDBToken(ctx, " "+token+"\n"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if set, _ := g.TMDBKey(); !set || g.tmdbSource() == nil {
-		t.Error("key not used")
+	if set, _ := g.TMDBToken(); !set || g.tmdbSource() == nil {
+		t.Error("token not used")
 	}
-	if kept, _, _ := db.TMDBKey(ctx); kept != key {
+	if kept, _, _ := db.TMDBToken(ctx); kept != token {
 		t.Errorf("kept %q", kept)
 	}
 	db.PutTitles(ctx, []store.Title{{Kind: "movie", TMDB: "1", Name: "x"}}, time.Now())
-	if _, err := g.SetTMDBKey(ctx, ""); err != nil {
+	if _, err := g.SetTMDBToken(ctx, ""); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if set, _ := g.TMDBKey(); set {
-		t.Error("removed key still used")
+	if set, _ := g.TMDBToken(); set {
+		t.Error("removed token still used")
 	}
-	if _, ok, _ := db.TMDBKey(ctx); ok {
-		t.Error("removed key still kept")
+	if _, ok, _ := db.TMDBToken(ctx); ok {
+		t.Error("removed token still kept")
 	}
 	if ti, _ := db.TitleByTMDB(ctx, "movie", "1"); ti != nil {
-		t.Error("TMDB's data kept after removing the key")
+		t.Error("TMDB's data kept after removing the token")
 	}
 }
 

@@ -147,14 +147,14 @@ const actions = {
     return 'stay';
   },
   tmdb: async () => {
-    if (!$('#tmdb-key').value.trim()) {
-      fail('Paste the key, or skip this step.');
+    if (!$('#tmdb-token').value.trim()) {
+      fail('Paste the token, or skip this step.');
       return false;
     }
-    const ans = await post('tmdb', { key: $('#tmdb-key').value });
+    const ans = await post('tmdb', { token: $('#tmdb-token').value });
     if (!ans) return false;
-    $('#tmdb-key').value = '';
-    $('#tmdb-key').disabled = true;
+    $('#tmdb-token').value = '';
+    $('#tmdb-token').disabled = true;
     note('#tmdb-done', ans.summary);
     return 'stay';
   },

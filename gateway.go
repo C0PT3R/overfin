@@ -66,8 +66,8 @@ type shared struct {
 	seerr    *seerr.Client
 	seerrURL string
 	seerrKey string
-	// tmdb is TMDB itself, with the Overfin project's key: TMDB's data
-	// comes from it first, from Seerr otherwise.
+	// tmdb is TMDB itself, with the operator's token: TMDB's data comes
+	// from it first, from Seerr otherwise.
 	tmdb *tmdb.Client
 	// lists keeps discovery's lists from TMDB, in the background.
 	lists *catalog.Lists
@@ -784,27 +784,27 @@ func seerrNotes(r seerr.Readiness) string {
 	return " " + strings.Join(notes, " ")
 }
 
-// TMDBKey says whether TMDB has the operator's key, and whether the
+// TMDBToken says whether TMDB has the operator's key, and whether the
 // environment gives it (then only the environment changes it).
-func (g *gateway) TMDBKey() (set, inEnv bool) {
+func (g *gateway) TMDBToken() (set, inEnv bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.sh.tmdb != nil, g.cfg.Secrets.TMDBKey != ""
+	return g.sh.tmdb != nil, g.cfg.Secrets.TMDBToken != ""
 }
 
-// SetTMDBKey tests and saves the operator's TMDB key, and uses it at once;
+// SetTMDBToken tests and saves the operator's TMDB token, and uses it at once;
 // "" removes it, and TMDB's data with it unless Seerr gives it too, as
 // TMDB's terms ask. Errors say what's wrong in plain words.
-func (g *gateway) SetTMDBKey(ctx context.Context, key string) (string, error) {
+func (g *gateway) SetTMDBToken(ctx context.Context, token string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.cfg.Secrets.TMDBKey != "" {
-		return "", admin.Problem("TMDB's key is set in Overfin's environment (OVERFIN_TMDB_KEY): change it there.")
+	if g.cfg.Secrets.TMDBToken != "" {
+		return "", admin.Problem("TMDB's token is set in Overfin's environment (OVERFIN_TMDB_TOKEN): change it there.")
 	}
-	key = strings.TrimSpace(key)
+	token = strings.TrimSpace(token)
 	var client *tmdb.Client
-	if key != "" {
-		c, err := checkTMDBKey(ctx, g.sh.db, key)
+	if token != "" {
+		c, err := checkTMDBToken(ctx, g.sh.db, token)
 		if err != nil {
 			return "", forPage(err)
 		}
@@ -814,7 +814,7 @@ func (g *gateway) SetTMDBKey(ctx context.Context, key string) (string, error) {
 	g.sh.tmdb = client
 	b, err := build(g.cfg, g.sh)
 	if err == nil {
-		err = g.sh.db.SetTMDBKey(ctx, key)
+		err = g.sh.db.SetTMDBToken(ctx, token)
 	}
 	if err == nil && client == nil && g.sh.seerr == nil {
 		err = g.sh.db.ForgetTMDB(ctx)
@@ -834,11 +834,11 @@ func (g *gateway) SetTMDBKey(ctx context.Context, key string) (string, error) {
 		g.sh.ratings.Wake()
 	}
 	if client == nil {
-		g.sh.logger.Info("TMDB's key removed in the control panel")
-		return "No TMDB key: Overfin runs on Jellyfin's data.", nil
+		g.sh.logger.Info("TMDB's token removed in the control panel")
+		return "No TMDB token: Overfin runs on Jellyfin's data.", nil
 	}
-	g.sh.logger.Info("TMDB's key set in the control panel")
-	return "TMDB takes the key: titles, artwork and ratings come now.", nil
+	g.sh.logger.Info("TMDB's token set in the control panel")
+	return "TMDB takes the token: titles, artwork and ratings come now.", nil
 }
 
 // Features returns the feature settings in effect.

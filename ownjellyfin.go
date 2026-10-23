@@ -290,16 +290,16 @@ func closeAfterHandOver(ctx context.Context, db *store.Store, jf *jellyfin.Clien
 	return nil
 }
 
-// checkTMDBKey is TMDB with the operator's key, once TMDB takes it. Its
+// checkTMDBToken is TMDB with the operator's token, once TMDB takes it. Its
 // errors say what's wrong in plain words.
-func checkTMDBKey(ctx context.Context, db *store.Store, key string) (*tmdb.Client, error) {
-	c, err := tmdbClient(db, key)
+func checkTMDBToken(ctx context.Context, db *store.Store, token string) (*tmdb.Client, error) {
+	c, err := tmdbClient(db, token)
 	if err != nil {
-		return nil, problem("That isn't a TMDB key: it's the API key (32 characters) or the API Read Access Token, from your TMDB account's API settings.")
+		return nil, problem("That isn't a TMDB read access token: it's the long API Read Access Token from your TMDB account's API settings (not the shorter API key).")
 	}
 	switch err := c.Check(ctx); {
 	case errors.Is(err, tmdb.ErrUnauthorized):
-		return nil, problem("TMDB refuses that key.")
+		return nil, problem("TMDB refuses that token.")
 	case err != nil:
 		return nil, problemf("TMDB can't be reached (%v).", err)
 	}
@@ -309,9 +309,9 @@ func checkTMDBKey(ctx context.Context, db *store.Store, key string) (*tmdb.Clien
 // tmdbBase is TMDB's address; tests change it.
 var tmdbBase = tmdb.BaseURL
 
-// tmdbClient is TMDB with the operator's key, in the default language.
-func tmdbClient(db *store.Store, key string) (*tmdb.Client, error) {
-	c, err := tmdb.New(tmdbBase, key)
+// tmdbClient is TMDB with the operator's token, in the default language.
+func tmdbClient(db *store.Store, token string) (*tmdb.Client, error) {
+	c, err := tmdb.New(tmdbBase, token)
 	if err != nil {
 		return nil, err
 	}
