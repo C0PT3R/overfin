@@ -12,16 +12,20 @@ import (
 type memTranscoding struct {
 	family, device string
 	tested         []string
+	last           *GPUTest
 }
 
 func (m *memTranscoding) Transcoding(context.Context) (string, string, error) {
 	return m.family, m.device, nil
 }
 
-func (m *memTranscoding) TestTranscoding(_ context.Context, family, device string) ([]gpu.Result, error) {
+func (m *memTranscoding) TestTranscoding(_ context.Context, family, device string) error {
 	m.tested = append(m.tested, family+" "+device)
-	return []gpu.Result{{Kind: "H.264", OK: true, Speed: 12}}, nil
+	m.last = &GPUTest{Family: family, Total: 1, Results: []gpu.Result{{Kind: "H.264", OK: true, Speed: 12}}}
+	return nil
 }
+
+func (m *memTranscoding) TranscodingTest() *GPUTest { return m.last }
 
 func (m *memTranscoding) SetTranscoding(_ context.Context, family, device string) error {
 	m.family, m.device = family, device
@@ -51,9 +55,12 @@ func TestTranscodingRoutes(t *testing.T) {
 		}
 	}
 	// A family that needs no device gets none, whatever was sent.
-	if rec := b.do("POST", "/admin/api/transcoding/test", `{"family":"nvidia-ada","device":"/dev/dri/renderD128"}`, nil); rec.Code != 200 ||
+	if rec := b.do("POST", "/admin/api/transcoding/test", `{"family":"nvidia-ada","device":"/dev/dri/renderD128"}`, nil); rec.Code != 202 ||
 		tr.tested[0] != "nvidia-ada " {
 		t.Errorf("test: %d %s %v", rec.Code, rec.Body, tr.tested)
+	}
+	if rec := b.do("GET", "/admin/api/transcoding/test", "", nil); !strings.Contains(rec.Body.String(), `"speed":12`) {
+		t.Errorf("progress: %s", rec.Body)
 	}
 	if rec := b.do("PUT", "/admin/api/transcoding", `{"family":"intel-arc","device":"/dev/dri/renderD129"}`, nil); rec.Code != 204 ||
 		tr.family != "intel-arc" || tr.device != "/dev/dri/renderD129" {

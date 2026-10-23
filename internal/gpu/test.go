@@ -3,12 +3,11 @@ package gpu
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/overfin/server/internal/jellyfin"
@@ -32,8 +31,12 @@ type Problem string
 
 func (p Problem) Error() string { return string(p) }
 
-// How long each video transcodes, and the bitrate asked for (the speed
-// comes from how many seconds of video arrive).
+// How long a video may take to start (a GPU setting up HDR tone mapping
+// can take more than ten seconds), how long it's measured once started, and
+// the bitrate asked for (the speed comes from how many seconds of video
+// arrive).
+var firstWait = 30 * time.Second // shorter in tests
+
 const (
 	testFor     = 8 * time.Second
 	testBitrate = 4_000_000 + 128_000
@@ -43,8 +46,12 @@ const (
 // Test sets Jellyfin's transcoding as settings say for a while, transcodes
 // a few seconds of up to three videos from the libraries (H.264, HEVC
 // 10-bit, preferably HDR, and AV1, those the libraries have), and puts the
-// transcoding settings back as they were.
-func Test(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, f Family, device string) ([]Result, error) {
+// transcoding settings back as they were. progress, when set, hears how
+// many videos there are, then each result as it comes.
+func Test(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, f Family, device string, progress func(total int, done []Result)) ([]Result, error) {
+	if progress == nil {
+		progress = func(int, []Result) {}
+	}
 	sources, err := jf.VideoSources(ctx, admin, 100)
 	if err != nil {
 		return nil, err
@@ -72,8 +79,10 @@ func Test(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, f Famil
 
 	a := jellyfin.Auth{Token: admin.Token, DeviceID: deviceID}
 	var results []Result
+	progress(len(picked), nil)
 	for _, src := range picked {
 		results = append(results, transcode(ctx, jf, a, src))
+		progress(len(picked), slices.Clone(results))
 	}
 	return results, nil
 }
@@ -112,38 +121,42 @@ func kind(s jellyfin.VideoSource) string {
 func transcode(ctx context.Context, jf *jellyfin.Client, a jellyfin.Auth, src jellyfin.VideoSource) Result {
 	r := Result{Title: src.Name, Kind: kind(src)}
 	session := strings.ToLower(rand.Text())
-	// Three of these fit in the control panel's one-minute answer.
-	ctx, cancel := context.WithTimeout(ctx, testFor+7*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, firstWait+testFor+5*time.Second)
 	defer cancel()
+	defer jf.StopEncoding(context.WithoutCancel(ctx), a, a.DeviceID, session)
 	start := time.Now()
 	res, err := jf.TestTranscode(ctx, a, src, session)
 	if err != nil {
 		r.Reason = why(context.WithoutCancel(ctx), jf, a, src, start, err)
 		return r
 	}
+	defer res.Body.Close()
+	// Without a first picture in time, the stream is closed: the read
+	// below returns.
+	var started atomic.Bool
+	giveUp := time.AfterFunc(firstWait, func() {
+		if !started.Load() {
+			res.Body.Close()
+		}
+	})
+	defer giveUp.Stop()
 	var got int64
-	first := time.Duration(0)
+	var first time.Duration
 	buf := make([]byte, 64<<10)
-	for time.Since(start) < testFor {
+	for {
 		n, err := res.Body.Read(buf)
-		if n > 0 && first == 0 {
+		if n > 0 && !started.Load() {
 			first = time.Since(start)
+			started.Store(true)
 		}
 		got += int64(n)
-		if err != nil {
-			if !errors.Is(err, io.EOF) && got == 0 {
-				r.Reason = "Jellyfin stopped before sending anything."
-				res.Body.Close()
-				return r
-			}
+		if err != nil || (started.Load() && time.Since(start)-first >= testFor) {
 			break
 		}
 	}
 	elapsed := time.Since(start)
-	res.Body.Close()
-	_ = jf.StopEncoding(context.WithoutCancel(ctx), a, a.DeviceID, session)
 	if got == 0 {
-		r.Reason = "Nothing came in " + testFor.String() + "."
+		r.Reason = why(context.WithoutCancel(ctx), jf, a, src, start, nil)
 		return r
 	}
 	r.OK = true
@@ -163,7 +176,10 @@ var errorLine = regexp.MustCompile(`(?i)error|failed|not supported|no such|canno
 // transcoding log for src, since start.
 func why(ctx context.Context, jf *jellyfin.Client, a jellyfin.Auth, src jellyfin.VideoSource, start time.Time, failure error) string {
 	plain := "Jellyfin refused to transcode it."
-	if !jellyfin.IsStatus(failure, 500) {
+	switch {
+	case failure == nil:
+		plain = "No picture after " + firstWait.String() + "."
+	case !jellyfin.IsStatus(failure, 500):
 		plain = fmt.Sprintf("Jellyfin didn't transcode it (%v).", failure)
 	}
 	logs, err := jf.TranscodeLogs(ctx, a)

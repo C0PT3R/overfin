@@ -217,6 +217,7 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
 	mux.HandleFunc("GET /admin/api/transcoding", p.signedIn(p.transcoding))
 	mux.HandleFunc("POST /admin/api/transcoding/test", p.signedIn(p.testTranscoding))
+	mux.HandleFunc("GET /admin/api/transcoding/test", p.signedIn(p.transcodingTest))
 	mux.HandleFunc("PUT /admin/api/transcoding", p.signedIn(p.setTranscoding))
 	mux.HandleFunc("GET /admin/api/libraries", p.signedIn(p.libraries))
 	mux.HandleFunc("POST /admin/api/libraries", p.signedIn(p.addLibrary))

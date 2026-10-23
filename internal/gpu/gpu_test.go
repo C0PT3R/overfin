@@ -3,6 +3,7 @@ package gpu
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,9 +82,18 @@ func newFake(t *testing.T) (*fakeJellyfin, *jellyfin.Client) {
 		case path == "/System/Configuration/encoding" && r.Method == http.MethodGet:
 			reply(f.encoding)
 		case path == "/System/Configuration/encoding":
+			f.encoding = map[string]any{} // written whole, like Jellyfin
 			json.NewDecoder(r.Body).Decode(&f.encoding)
 		case strings.HasPrefix(path, "/Videos/") && strings.HasSuffix(path, "/stream.ts"):
 			id := strings.Split(path, "/")[2]
+			if f.encoding["HardwareAccelerationType"] == "slow" {
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+				f.mu.Unlock()
+				time.Sleep(time.Second) // never a picture in time
+				f.mu.Lock()
+				return
+			}
 			if f.encoding["HardwareAccelerationType"] != "qsv" || id != h264ID {
 				name := "FFmpeg.Transcode-2026-10-23_12-00-00_" + id + "_abc123.log"
 				f.logs[name] = "{\"Path\":\"x\"}\n[AVHWDeviceContext @ 0x55d] Cannot load libcuda.so.1\nDevice creation failed: -1.\n"
@@ -117,9 +127,15 @@ func TestTest(t *testing.T) {
 	f, jf := newFake(t)
 	a := jellyfin.Auth{Token: "admin", DeviceID: "t"}
 	qsv, _ := Find("intel-tigerlake")
-	res, err := Test(context.Background(), jf, a, qsv, DefaultDevice)
+	var heard []int
+	res, err := Test(context.Background(), jf, a, qsv, DefaultDevice, func(total int, done []Result) {
+		heard = append(heard, total*10+len(done))
+	})
 	if err != nil || len(res) != 2 {
 		t.Fatalf("Test = %+v, %v", res, err)
+	}
+	if fmt.Sprint(heard) != "[20 21 22]" {
+		t.Errorf("progress: %v", heard)
 	}
 	if !res[0].OK || res[0].Kind != "H.264" || res[0].Speed <= 0 {
 		t.Errorf("h264: %+v", res[0])
@@ -128,8 +144,21 @@ func TestTest(t *testing.T) {
 		strings.Contains(res[1].Reason, "0x55d") {
 		t.Errorf("hevc: %+v", res[1])
 	}
-	// The settings tried are put back; what Overfin doesn't own is kept.
-	if f.encoding["HardwareAccelerationType"] != "none" || f.encoding["Other"] != "kept" || f.stopped != 1 {
+	// The settings tried are put back; what Overfin doesn't own is kept;
+	// every encoding was stopped, failed ones too.
+	if f.encoding["HardwareAccelerationType"] != "none" || f.encoding["Other"] != "kept" || len(f.encoding) != 2 || f.stopped != 2 {
 		t.Errorf("after the test: %v, stopped %d", f.encoding, f.stopped)
+	}
+}
+
+// A video whose first picture doesn't come in time fails, saying so.
+func TestNoPictureInTime(t *testing.T) {
+	firstWait = 200 * time.Millisecond
+	t.Cleanup(func() { firstWait = 30 * time.Second })
+	_, jf := newFake(t)
+	slow := Family{ID: "slow", Name: "Slow", Mode: "slow"}
+	res, err := Test(context.Background(), jf, jellyfin.Auth{Token: "admin", DeviceID: "t"}, slow, "", nil)
+	if err != nil || len(res) != 2 || res[0].OK || res[0].Reason != "No picture after 200ms." {
+		t.Errorf("Test = %+v, %v", res, err)
 	}
 }

@@ -370,6 +370,7 @@ type gateway struct {
 	mu      sync.Mutex // one reload at a time
 	mailMu  sync.Mutex // one email change at a time
 	gpuMu   sync.Mutex // one transcoding test or change at a time
+	gpuTest atomic.Pointer[admin.GPUTest]
 	cfg     *config.Config
 	current atomic.Pointer[built]
 }
@@ -539,24 +540,45 @@ func (g *gateway) Transcoding(ctx context.Context) (family, device string, err e
 	return g.sh.db.Transcoding(ctx)
 }
 
-// TestTranscoding tests a GPU family on a few videos; the settings it
-// tries are put back after.
-func (g *gateway) TestTranscoding(ctx context.Context, family, device string) ([]gpu.Result, error) {
+// TestTranscoding starts testing a GPU family on a few videos, in the
+// background: TranscodingTest says how it goes. The settings it tries are
+// put back after.
+func (g *gateway) TestTranscoding(ctx context.Context, family, device string) error {
 	f, ok := gpu.Find(family)
 	if !ok {
-		return nil, admin.Problem("Overfin doesn't know that GPU.")
+		return admin.Problem("Overfin doesn't know that GPU.")
 	}
 	if !g.gpuMu.TryLock() {
-		return nil, admin.Problem("A test is running already.")
+		return admin.Problem("A test is running already.")
 	}
-	defer g.gpuMu.Unlock()
-	res, err := gpu.Test(ctx, g.sh.jf, g.adminAuth(), f, device)
-	var p gpu.Problem
-	if errors.As(err, &p) {
-		return nil, admin.Problem(p)
-	}
-	return res, err
+	state := admin.GPUTest{Family: f.ID, Device: device, Running: true}
+	g.gpuTest.Store(&state)
+	go func() {
+		defer g.gpuMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+		defer cancel()
+		_, err := gpu.Test(ctx, g.sh.jf, g.adminAuth(), f, device, func(total int, done []gpu.Result) {
+			next := state
+			next.Total, next.Results = total, done
+			g.gpuTest.Store(&next)
+		})
+		final := *g.gpuTest.Load()
+		final.Running = false
+		var p gpu.Problem
+		switch {
+		case errors.As(err, &p):
+			final.Error = string(p)
+		case err != nil:
+			g.sh.logger.Error("testing a GPU failed", "err", err)
+			final.Error = "The test failed; Overfin's log says why."
+		}
+		g.gpuTest.Store(&final)
+	}()
+	return nil
 }
+
+// TranscodingTest is how the last test went, or goes; nil before any.
+func (g *gateway) TranscodingTest() *admin.GPUTest { return g.gpuTest.Load() }
 
 // SetTranscoding saves the GPU family chosen and sets Jellyfin's
 // transcoding to it now; it's set back at every start too.

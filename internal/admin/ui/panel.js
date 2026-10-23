@@ -394,24 +394,38 @@ function transcodingCard(t) {
   };
   choose.addEventListener('change', draw);
   const body = () => ({ family: choose.value, device: device.value });
+  // drawResults shows the videos tested so far, and those still to come.
+  const drawResults = (t) => fill(results, h('div', { class: 'table-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, h('th', {}, 'Video'), h('th', {}, 'Result'), h('th', { class: 'num' }, 'First picture'), h('th', { class: 'num' }, 'Speed'))),
+    h('tbody', {},
+      (t.results || []).map((x) => h('tr', {},
+        h('td', {}, h('div', {}, x.kind), h('div', { class: 'hint' }, x.title)),
+        // A failure's reason gets the whole row.
+        x.ok
+          ? [h('td', {}, x.speed < 1 ? badge('Too slow', 'warn') : x.firstPicture > 5 ? badge('Slow to start', 'warn') : badge('Works', 'ok')),
+            h('td', { class: 'num' }, `${x.firstPicture} s`), h('td', { class: 'num' }, `${x.speed}×`)]
+          : h('td', { colspan: '3' }, badge('Fails', 'err'), h('div', { class: 'hint' }, x.reason)))),
+      Array.from({ length: Math.max(0, (t.total || 0) - (t.results || []).length) }, (_, i) => h('tr', {},
+        h('td', { colspan: '4', class: 'hint' }, i === 0 ? 'Testing…' : 'Waiting…')))))));
   const test = h('button', { type: 'button', onclick: () => {
     if (!choose.value) return st.set('Choose a GPU first.', 'error');
     busy(test, async () => {
-      st.set('Testing on a few of your videos: up to a minute. Meanwhile, new playbacks use the settings tested.');
+      st.set('Testing on a few of your videos, each for up to 40 seconds. Meanwhile, new playbacks use the settings tested.');
       fill(results);
-      const { results: r } = await api('POST', '/admin/api/transcoding/test', body());
+      let t = await api('POST', '/admin/api/transcoding/test', body());
+      while (t.running) {
+        drawResults(t);
+        await new Promise((r) => setTimeout(r, 1500));
+        t = await api('GET', '/admin/api/transcoding/test');
+      }
+      drawResults(t);
+      if (t.error) return st.set(t.error, 'error');
+      const r = t.results;
       const ok = r.every((x) => x.ok);
-      const slow = r.some((x) => x.ok && x.speed < 1);
+      const slow = r.some((x) => x.ok && (x.speed < 1 || x.firstPicture > 5));
       tested = ok ? choose.value + ' ' + device.value : '';
-      st.set(ok ? (slow ? 'It works, but too slowly for some videos.' : 'It works.') : 'It doesn\'t work for every video: see why below.', ok && !slow ? 'ok' : 'error');
-      fill(results, h('div', { class: 'table-wrap' }, h('table', {},
-        h('thead', {}, h('tr', {}, h('th', {}, 'Video'), h('th', {}, 'Result'), h('th', { class: 'num' }, 'First picture'), h('th', { class: 'num' }, 'Speed'))),
-        h('tbody', {}, r.map((x) => h('tr', {},
-          h('td', {}, h('div', {}, x.kind), h('div', { class: 'hint' }, x.title)),
-          h('td', {}, x.ok ? badge(x.speed < 1 ? 'Too slow' : 'Works', x.speed < 1 ? 'warn' : 'ok') : badge('Fails', 'err'),
-            x.reason && h('div', { class: 'hint mono' }, x.reason)),
-          h('td', { class: 'num' }, x.ok ? `${x.firstPicture} s` : ''),
-          h('td', { class: 'num' }, x.ok ? `${x.speed}×` : '')))))));
+      st.set(!ok ? 'It fails for some videos: the reasons are in the table.'
+        : slow ? 'It works, but slowly for some videos: see the table.' : 'It works.', ok && !slow ? 'ok' : 'error');
     }, (err) => st.set(err.message, 'error'));
   } }, 'Test');
   const use = h('button', { class: 'primary', type: 'button', onclick: () => {
