@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -102,6 +103,9 @@ func summaryOf(t *store.TitleInfo) library.TitleSummary {
 	}
 	if t.Ref.Kind == "series" || t.Ref.Kind == "season" {
 		s.EpisodeCount = &library.EpisodeCount{InLibrary: t.Have, Aired: t.Aired}
+	}
+	if t.Score > 0 && (t.Ref.Kind == "movie" || t.Ref.Kind == "series") {
+		s.Ratings = []library.Rating{{Source: "tmdb", Value: math.Round(t.Score*10) / 10, Votes: t.Votes}}
 	}
 	ref := func(typ, path string, aspect *float64) *library.ImageRef {
 		if id := images.ArtworkID(typ, path); id != "" {

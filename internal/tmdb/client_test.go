@@ -46,7 +46,7 @@ func fakeTMDB(t *testing.T) *Client {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			io.WriteString(w, `{"id":550,"title":"Fight Club","release_date":"1999-10-15","runtime":139,"tagline":"Mischief.","vote_average":8.4,
+			io.WriteString(w, `{"id":550,"title":"Fight Club","release_date":"1999-10-15","runtime":139,"tagline":"Mischief.","vote_average":8.4,"vote_count":31000,
 				"original_title":"Fight Club","original_language":"en",
 				"alternative_titles":{"titles":[{"title":"El club de la lucha"},{"title":"Fight Club"}]},
 				"translations":{"translations":[{"data":{"title":"Club <i>de</i> combat"}},{"data":{"title":""}}]},
@@ -165,7 +165,7 @@ func TestClient(t *testing.T) {
 		t.Errorf("names: %q %q %q", full.OriginalName, full.Language, full.Names)
 	}
 	if full.Name != "Fight Club" || full.Year != 1999 || full.Runtime != 139 || full.Tagline != "Mischief." ||
-		full.ReleaseDate != "1999-10-15" || full.Rating != 8.4 ||
+		full.ReleaseDate != "1999-10-15" || full.Rating != 8.4 || full.Votes != 31000 ||
 		full.Overview != "An insomniac." || len(full.Cast) != 1 || full.Cast[0].Profile != "/norton1234.jpg" || full.Cast[0].ID != 819 {
 		t.Errorf("title: %+v", full)
 	}

@@ -159,6 +159,8 @@ export interface TitleSummary {
   durationMs?: number;
   /** Its rating in the server's ratings country (its series', for a season or an episode). */
   certification?: string;
+  /** Users' scores (a film's or a series'), by source: TMDB's for now. */
+  ratings?: { source: string; value: number; votes: number }[];
   availability: 'available' | 'partiallyAvailable' | 'missing';
   /** A film or an episode a library has: play it by its ID. */
   playable: boolean;

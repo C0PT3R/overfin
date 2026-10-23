@@ -116,6 +116,10 @@ type TitleInfo struct {
 	// a season or an episode): the most mature of its releases'; "" when it
 	// has none there.
 	Certification string
+	// Score is TMDB's users' rating of a film or a series, 0 to 10, from
+	// Votes of them; 0 when it has none.
+	Score float64
+	Votes int
 }
 
 // TitleInfos returns the titles of keys (those that parse), as of today
@@ -231,6 +235,7 @@ func (s *Store) fillTitle(ctx context.Context, t *TitleInfo, kind, tmdb string) 
 	}
 	if title != nil {
 		t.Name, t.Year, t.Overview, t.Poster, t.Backdrop = title.Name, title.Year, title.Overview, title.Poster, title.Backdrop
+		t.Score, t.Votes = title.Rating, title.Votes
 		if len(title.Details) > 0 {
 			t.Known = true
 			if err := json.Unmarshal(title.Details, &t.Details); err != nil {

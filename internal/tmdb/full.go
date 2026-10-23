@@ -20,8 +20,10 @@ type Full struct {
 	// ReleaseDate is a film's release or a series' first air date,
 	// YYYY-MM-DD, or "".
 	ReleaseDate string
-	// Rating is TMDB's users' average, 0 to 10; 0 when no one rated it.
+	// Rating is TMDB's users' average, 0 to 10, from Votes of them; 0 when
+	// no one rated it.
 	Rating  float64
+	Votes   int
 	Artwork Artwork
 	// Names are its other names: alternative titles and translations,
 	// each once, for telling whether a file is this title.
@@ -54,6 +56,7 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 		EpisodeRunTime []int   `json:"episode_run_time"`
 		Tagline        string  `json:"tagline"`
 		VoteAverage    float64 `json:"vote_average"`
+		VoteCount      int     `json:"vote_count"`
 		// A series' cast over all its seasons (credits has its latest
 		// season's only).
 		AggregateCredits struct {
@@ -124,8 +127,8 @@ func (c *Client) Title(ctx context.Context, kind string, tmdbID int) (*Full, err
 	if kind == "series" {
 		out.ReleaseDate = date(raw.FirstAirDate)
 	}
-	if raw.VoteAverage > 0 && raw.VoteAverage <= 10 {
-		out.Rating = raw.VoteAverage
+	if raw.VoteAverage > 0 && raw.VoteAverage <= 10 && raw.VoteCount > 0 {
+		out.Rating, out.Votes = raw.VoteAverage, raw.VoteCount
 	}
 	runtime := raw.Runtime
 	if kind == "series" && len(raw.EpisodeRunTime) > 0 {

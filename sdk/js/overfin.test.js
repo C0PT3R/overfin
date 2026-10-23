@@ -35,6 +35,21 @@ test('errors are typed problems', async () => {
   });
 });
 
+test('changes without a body still go as JSON', async () => {
+  let sent;
+  globalThis.fetch = async (url, init = {}) => {
+    sent = init;
+    return { status: 200, ok: true, json: async () => ({ favorite: true }) };
+  };
+  await new Overfin().setFavorite('title_movie_tmdb_1');
+  assert.equal(sent.method, 'PUT');
+  assert.equal(sent.headers['Content-Type'], 'application/json');
+  assert.equal(sent.body, '{}');
+  await new Overfin().setFavorite('title_movie_tmdb_1', false);
+  assert.equal(sent.method, 'DELETE');
+  assert.equal(sent.body, undefined);
+});
+
 test('a lapsed login goes through the login and back', async () => {
   fakeServer({ 'GET /api/v1/me': () => [401, { type: 'not-authenticated', status: 401 }] });
   let sentTo = '';

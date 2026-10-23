@@ -44,6 +44,9 @@ export class Overfin {
   /** Calls the API. Resolves with the JSON body, or null for no content. */
   async request(method, path, body, { keepalive = false } = {}) {
     const init = { method, headers: {}, keepalive };
+    // The server takes changes as JSON only: a change with nothing to say
+    // sends an empty object.
+    if (body === undefined && (method === 'PUT' || method === 'POST' || method === 'PATCH')) body = {};
     if (body !== undefined) {
       init.headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(body);

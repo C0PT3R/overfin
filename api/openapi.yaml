@@ -2865,6 +2865,26 @@ components:
           description: >-
             Its rating in the server's ratings country, the most mature of
             its releases' there (its series', for a season or an episode).
+        ratings:
+          type: array
+          description: >-
+            Its users' scores, by source (TMDB's for now), for a film or a
+            series. A score from few votes means little.
+          items:
+            type: object
+            required: [source, value, votes]
+            properties:
+              source:
+                type: string
+                examples: [tmdb]
+              value:
+                type: number
+                minimum: 0
+                maximum: 10
+                description: Out of 10, to one decimal.
+              votes:
+                type: integer
+                description: How many people's scores it averages.
         availability:
           type: string
           description: >-

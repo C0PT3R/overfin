@@ -25,10 +25,11 @@ type Title struct {
 	// ItemID is the library item, when the index has the title; empty
 	// otherwise.
 	ItemID string
-	// ReleaseDate (YYYY-MM-DD) and Rating (TMDB's users', 0 to 10) come
-	// with a title's page; "" and 0 until then.
+	// ReleaseDate (YYYY-MM-DD) and Rating (TMDB's users', 0 to 10, from
+	// Votes of them) come with a title's page; "" and 0 until then.
 	ReleaseDate string
 	Rating      float64
+	Votes       int
 }
 
 // PutTitles adds or refreshes titles seen at at, keeping their details.
@@ -64,24 +65,26 @@ func (s *Store) SetTitleDetails(ctx context.Context, t Title, details []byte, at
 	if err := s.PutTitles(ctx, []Title{t}, at); err != nil {
 		return err
 	}
-	var rating any
+	var rating, votes any
 	if t.Rating > 0 {
-		rating = t.Rating
+		rating, votes = t.Rating, t.Votes
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE catalog_titles SET details = ?, details_at = ?, release_date = ?, rating = ?
-		WHERE kind = ? AND tmdb = ?`, string(details), at.Unix(), nullString(t.ReleaseDate), rating, t.Kind, t.TMDB)
+	_, err := s.db.ExecContext(ctx, `UPDATE catalog_titles SET details = ?, details_at = ?, release_date = ?, rating = ?,
+		rating_votes = ? WHERE kind = ? AND tmdb = ?`, string(details), at.Unix(), nullString(t.ReleaseDate), rating, votes,
+		t.Kind, t.TMDB)
 	return err
 }
 
 const titleColumns = `t.kind, t.tmdb, t.name, coalesce(t.year, 0), t.overview, coalesce(t.poster, ''),
 	coalesce(t.backdrop, ''), t.status, t.details, t.seen_at, coalesce(t.details_at, 0),
-	coalesce((SELECT i.id FROM catalog_items i WHERE i.kind = t.kind AND i.tmdb = t.tmdb ORDER BY i.id LIMIT 1), '')`
+	coalesce((SELECT i.id FROM catalog_items i WHERE i.kind = t.kind AND i.tmdb = t.tmdb ORDER BY i.id LIMIT 1), ''),
+	coalesce(t.rating, 0), coalesce(t.rating_votes, 0)`
 
 func scanTitle(row interface{ Scan(...any) error }) (*Title, error) {
 	var t Title
 	var seen, details int64
 	if err := row.Scan(&t.Kind, &t.TMDB, &t.Name, &t.Year, &t.Overview, &t.Poster, &t.Backdrop, &t.Status,
-		&t.Details, &seen, &details, &t.ItemID); err != nil {
+		&t.Details, &seen, &details, &t.ItemID, &t.Rating, &t.Votes); err != nil {
 		return nil, err
 	}
 	t.SeenAt = time.Unix(seen, 0)

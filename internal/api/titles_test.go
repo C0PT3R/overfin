@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/overfin/server/internal/library"
 	"github.com/overfin/server/internal/store"
 )
 
@@ -16,6 +17,7 @@ type testTitle struct {
 	Playable                                    bool
 	Series, Season                              *struct{ ID, Name string }
 	EpisodeCount                                *struct{ InLibrary, Aired int }
+	Ratings                                     []library.Rating
 	Images                                      *struct{ Primary *struct{ URL string } }
 	UserState                                   *struct{ Played, Favorite bool }
 	Overview                                    string
@@ -47,7 +49,8 @@ func TestTitles(t *testing.T) {
 	st.SetCatalogState(ctx, store.CatalogState{Pass: 1})
 	now := time.Now()
 	det, _ := json.Marshal(store.TitleDetails{Genres: []string{"Drame"}, Seasons: []store.SeasonInfo{{Number: 1, EpisodeCount: 3}, {Number: 2, EpisodeCount: 2}}})
-	st.SetTitleDetails(ctx, store.Title{Kind: "series", TMDB: "1399", Name: "Le Trône de fer", Year: 2011, Overview: "Neuf familles.", Poster: "/poster1234.jpg"}, det, now)
+	st.SetTitleDetails(ctx, store.Title{Kind: "series", TMDB: "1399", Name: "Le Trône de fer", Year: 2011, Overview: "Neuf familles.", Poster: "/poster1234.jpg",
+		Rating: 8.456, Votes: 25000}, det, now)
 	film, _ := json.Marshal(store.TitleDetails{Genres: []string{"Crime"}, Cast: []store.CastMember{
 		{Name: "Al Pacino", Character: "Hanna", Profile: "/pacino12345.jpg"}, {Name: "Val Kilmer"}}})
 	st.SetTitleDetails(ctx, store.Title{Kind: "movie", TMDB: "100", Name: "Pas ici", Year: 2024}, film, now)
@@ -72,6 +75,10 @@ func TestTitles(t *testing.T) {
 		series.EpisodeCount == nil || series.EpisodeCount.InLibrary != 2 || series.EpisodeCount.Aired != 4 || len(series.Seasons) != 2 || // no specials, no empty season
 		series.Images == nil || series.Images.Primary.URL != "/api/v1/images/tmdbart_poster_poster1234_jpg" {
 		t.Errorf("series: %+v", series)
+	}
+	// TMDB's users' score, to one decimal, with how many voted.
+	if len(series.Ratings) != 1 || series.Ratings[0] != (library.Rating{Source: "tmdb", Value: 8.5, Votes: 25000}) {
+		t.Errorf("ratings: %+v", series.Ratings)
 	}
 	if s1, s2 := series.Seasons[0], series.Seasons[1]; s1.Availability != "partiallyAvailable" || s1.Name != "Saison 1" ||
 		s2.Availability != "missing" || s2.ID != "title_series_tmdb_1399_s2" || s2.Series.Name != "Le Trône de fer" {

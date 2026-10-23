@@ -15,6 +15,15 @@ type EpisodeCount struct {
 	Aired     int `json:"aired"`
 }
 
+// Rating is a title's users' score at one source.
+type Rating struct {
+	// Source is where it comes from: "tmdb".
+	Source string `json:"source"`
+	// Value is out of 10, to one decimal; Votes, how many people's.
+	Value float64 `json:"value"`
+	Votes int     `json:"votes"`
+}
+
 // TitleSummary is a title wherever it's listed.
 type TitleSummary struct {
 	ID   string `json:"id"`
@@ -27,6 +36,9 @@ type TitleSummary struct {
 	// Certification is its rating in the server's ratings country (its
 	// series', for a season or an episode).
 	Certification string `json:"certification,omitempty"`
+	// Ratings are its users' scores, by source (TMDB's, for now): a film's
+	// or a series'.
+	Ratings []Rating `json:"ratings,omitempty"`
 	// Availability: available, partiallyAvailable (a series or a season
 	// with some of its episodes) or missing.
 	Availability string       `json:"availability"`
