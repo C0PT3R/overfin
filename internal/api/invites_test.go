@@ -86,10 +86,6 @@ func TestInvites(t *testing.T) {
 	if code != 200 || !strings.HasPrefix(full, "https://media.example.org/invite/") {
 		t.Fatalf("invitation: %d %v", code, made)
 	}
-	// Links sent before still open.
-	if res := open("/api/v1/invite?code=" + strings.TrimPrefix(link, "/invite/")); res.StatusCode != 303 {
-		t.Errorf("the older form: %d", res.StatusCode)
-	}
 
 	// The link leaves a cookie and leads to the site.
 	res := open(link)
@@ -102,7 +98,7 @@ func TestInvites(t *testing.T) {
 	if res.StatusCode != 303 || res.Header.Get("Location") != "/" || cookie == nil || !cookie.HttpOnly || !cookie.Secure {
 		t.Fatalf("opening the link: %d %v", res.StatusCode, res.Header)
 	}
-	if res := open("/api/v1/invite?code=AAAAAAAAAAAAAAAAAAAAAA"); res.StatusCode != 404 {
+	if res := open("/invite/AAAAAAAAAAAAAAAAAAAAAA"); res.StatusCode != 404 {
 		t.Errorf("a made-up code: %d", res.StatusCode)
 	}
 

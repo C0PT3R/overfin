@@ -373,23 +373,25 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
-  /invite:
+  /invite/{code}:
     get:
       operationId: openInvitation
       summary: Where an invitation link leads
       description: |
         Only when the operator switches invitations on. Invitation
         links are made in the control panel and point here; sites never
-        call it themselves. A working invitation is kept in a cookie for a
-        day, and the browser is sent to the site, where logging in and
-        setting up the account uses it: the invitation decides the
-        account's template and when its access ends. Bringing a previous
-        account over (`POST /me/claim`) never needs one.
+        call it themselves. Where Overfin serves the site, links read
+        `https://site/invite/<code>`, which it answers the same. A working
+        invitation is kept in a cookie for a day, and the browser is sent to
+        the site, where logging in and setting up the account uses it: the
+        invitation decides the account's template and when its access ends.
+        Bringing a previous account's history (`POST /me/claim`) never needs
+        one.
       tags: [account]
       security: []
       parameters:
         - name: code
-          in: query
+          in: path
           required: true
           schema:
             type: string
