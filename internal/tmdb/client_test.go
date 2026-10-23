@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func fakeTMDB(t *testing.T) *Client {
@@ -235,5 +237,49 @@ func TestClient(t *testing.T) {
 	bad, _ := New(c.base.String(), "wrong")
 	if _, err := bad.Details(ctx, "movie", 949); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("wrong key: %v", err)
+	}
+}
+
+// A 429 holds every request back as long as TMDB asks; the one refused is
+// tried once more.
+func TestTooManyRequests(t *testing.T) {
+	var mu sync.Mutex
+	calls, refused := 0, false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if !refused {
+			refused = true
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		io.WriteString(w, `{"genres":[{"id":18,"name":"Drama"}]}`)
+	}))
+	defer srv.Close()
+	c, _ := New(srv.URL, "token")
+	other := *c // a copy, as the texts' keeper makes: it waits too
+	ctx := context.Background()
+	start := time.Now()
+	var out struct{ Genres []struct{ Name string } }
+	if err := c.get(ctx, "/genre/movie/list", nil, &out); err != nil || len(out.Genres) != 1 {
+		t.Fatalf("after a 429: %v %+v", err, out)
+	}
+	if took := time.Since(start); took < 900*time.Millisecond {
+		t.Errorf("didn't wait: %s", took)
+	}
+	// The gate is open again: no more waiting.
+	start = time.Now()
+	if err := other.get(ctx, "/genre/movie/list", nil, &out); err != nil || time.Since(start) > 500*time.Millisecond {
+		t.Errorf("the copy: %v, %s", err, time.Since(start))
+	}
+	if calls != 3 {
+		t.Errorf("calls: %d", calls)
+	}
+	// TMDB's waits are bounded.
+	c.slow.close(0)
+	if retryAfter(http.Header{"Retry-After": {"9999"}}) != 5*time.Minute || retryAfter(http.Header{}) != 10*time.Second {
+		t.Error("Retry-After bounds")
 	}
 }

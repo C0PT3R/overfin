@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/overfin/server/internal/textclean"
@@ -37,6 +38,9 @@ type Client struct {
 	base  *url.URL
 	token string
 	http  *http.Client
+	// slow holds requests back while TMDB asked to slow down; copies of
+	// the client share it.
+	slow *gate
 	// Language, when set, is the language TMDB answers in, ISO 639-1 or
 	// regional ("fr", "fr-CA": TMDB falls back to the language's other
 	// text field by field): titles, overviews, and the text on posters
@@ -76,7 +80,7 @@ func New(baseURL, token string) (*Client, error) {
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || token == "" {
 		return nil, errors.New("tmdb: invalid address or key")
 	}
-	return &Client{base: u, token: token, http: &http.Client{
+	return &Client{base: u, token: token, slow: &gate{}, http: &http.Client{
 		Timeout: 15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -84,9 +88,65 @@ func New(baseURL, token string) (*Client, error) {
 	}}, nil
 }
 
+// gate holds requests back until a time, as TMDB asks when it answers 429
+// (too many requests).
+type gate struct{ until atomic.Int64 } // Unix nanoseconds
+
+// wait waits until the gate opens, or ctx ends.
+func (g *gate) wait(ctx context.Context) error {
+	d := time.Until(time.Unix(0, g.until.Load()))
+	if d <= 0 {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// close keeps the gate shut for d from now, or longer if it already is.
+func (g *gate) close(d time.Duration) {
+	until := time.Now().Add(d).UnixNano()
+	for {
+		old := g.until.Load()
+		if old >= until || g.until.CompareAndSwap(old, until) {
+			return
+		}
+	}
+}
+
+// retryAfter is how long TMDB asks to wait (Retry-After, in seconds): 10
+// seconds when it doesn't say, 5 minutes at most.
+func retryAfter(h http.Header) time.Duration {
+	s, err := strconv.Atoi(strings.TrimSpace(h.Get("Retry-After")))
+	if err != nil || s <= 0 {
+		return 10 * time.Second
+	}
+	return min(time.Duration(s)*time.Second, 5*time.Minute)
+}
+
 // get reads path, with its query encoded, never pasted into the path
-// (rule 2).
+// (rule 2). When TMDB answers 429, every request waits as long as it asks,
+// and this one is tried once more.
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
+	err := c.getOnce(ctx, path, q, out)
+	if errors.Is(err, errTooMany) {
+		err = c.getOnce(ctx, path, q, out)
+	}
+	return err
+}
+
+// errTooMany: TMDB answered 429.
+var errTooMany = errors.New("tmdb: too many requests")
+
+func (c *Client) getOnce(ctx context.Context, path string, q url.Values, out any) error {
+	if c.slow != nil {
+		if err := c.slow.wait(ctx); err != nil {
+			return err
+		}
+	}
 	u := *c.base
 	u.Path += path
 	u.RawQuery = q.Encode()
@@ -109,6 +169,12 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	case res.StatusCode == http.StatusNotFound:
 		io.Copy(io.Discard, body)
 		return ErrNotFound
+	case res.StatusCode == http.StatusTooManyRequests:
+		io.Copy(io.Discard, body)
+		if c.slow != nil {
+			c.slow.close(retryAfter(res.Header))
+		}
+		return fmt.Errorf("%w (%s)", errTooMany, path)
 	case res.StatusCode != http.StatusOK:
 		io.Copy(io.Discard, body)
 		return fmt.Errorf("tmdb: %s answered %d", path, res.StatusCode)
