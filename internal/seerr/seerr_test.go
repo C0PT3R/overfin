@@ -38,3 +38,22 @@ func TestCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestReady(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/settings/public":
+			fmt.Fprint(w, `{"initialized":true,"mediaServerType":2,"applicationTitle":"Seerr"}`)
+		case "/api/v1/settings/radarr":
+			fmt.Fprint(w, `[{"id":0,"apiKey":"secret","isDefault":true,"is4k":false},{"id":1,"apiKey":"secret","isDefault":true,"is4k":true}]`)
+		case "/api/v1/settings/sonarr":
+			fmt.Fprint(w, `[{"id":0,"apiKey":"secret","isDefault":false,"is4k":false}]`)
+		}
+	}))
+	defer srv.Close()
+	c, _ := New(srv.URL, "good")
+	r, err := c.Ready(context.Background())
+	if err != nil || r != (Readiness{Initialized: true, MediaServer: "jellyfin", Radarr: 1}) {
+		t.Errorf("%+v %v", r, err)
+	}
+}

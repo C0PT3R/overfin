@@ -107,6 +107,52 @@ func (c *Client) Check(ctx context.Context) (string, error) {
 	return textclean.Plain(status.Version, 32), nil
 }
 
+// Readiness is what Seerr needs to do its job: its setup run, with a media
+// server, and default Radarr and Sonarr servers to send requests to.
+type Readiness struct {
+	Initialized bool
+	// MediaServer is "jellyfin", "plex", "emby", or "" when none is set.
+	MediaServer string
+	// Radarr and Sonarr count the default servers (not 4K ones).
+	Radarr, Sonarr int
+}
+
+// Ready reads Seerr's readiness. Radarr's and Sonarr's settings hold their
+// API keys: only whether each is a default server is read from them.
+func (c *Client) Ready(ctx context.Context) (Readiness, error) {
+	var pub struct {
+		Initialized     bool
+		MediaServerType int
+	}
+	if err := c.get(ctx, "/settings/public", nil, &pub); err != nil {
+		return Readiness{}, err
+	}
+	r := Readiness{Initialized: pub.Initialized}
+	switch pub.MediaServerType {
+	case 1:
+		r.MediaServer = "plex"
+	case 2:
+		r.MediaServer = "jellyfin"
+	case 3:
+		r.MediaServer = "emby"
+	}
+	for _, arr := range []struct {
+		path  string
+		count *int
+	}{{"/settings/radarr", &r.Radarr}, {"/settings/sonarr", &r.Sonarr}} {
+		var servers []struct{ IsDefault, Is4k bool }
+		if err := c.get(ctx, arr.path, nil, &servers); err != nil {
+			return Readiness{}, err
+		}
+		for _, s := range servers {
+			if s.IsDefault && !s.Is4k {
+				*arr.count++
+			}
+		}
+	}
+	return r, nil
+}
+
 // TMDB's data, as Seerr passes it on: Seerr is a tmdb.Source.
 type (
 	Title         = tmdb.Title

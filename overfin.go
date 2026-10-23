@@ -308,6 +308,21 @@ func run(logger *slog.Logger) error {
 				return "TMDB takes the key.", nil
 			}
 		}
+		// Seerr, unless it's connected: the step may be skipped.
+		if _, _, ok, err := db.Seerr(ctx); err == nil && !ok {
+			setup.Seerr = func(ctx context.Context, url, key string) (string, error) {
+				url = strings.TrimRight(strings.TrimSpace(url), "/")
+				key = strings.TrimSpace(key)
+				_, notes, err := checkSeerr(ctx, url, key)
+				if err != nil {
+					return "", forPage(err)
+				}
+				if err := db.SetSeerr(ctx, url, key); err != nil {
+					return "", err
+				}
+				return "Seerr's API key works." + notes, nil
+			}
+		}
 		// Intro Skipper, unless it's there.
 		setup.IntroSkipper = skipper
 		if haveJellyfin {

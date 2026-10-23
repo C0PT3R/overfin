@@ -299,3 +299,32 @@ func TestSetupIntroSkipper(t *testing.T) {
 		t.Errorf("where it stands: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// Seerr's step: optional, its address and key both needed.
+func TestSetupSeerr(t *testing.T) {
+	s, _ := newSetup()
+	var got string
+	s.Seerr = func(_ context.Context, url, key string) (string, error) {
+		if key != "good" {
+			return "", Problem("Seerr refuses this API key.")
+		}
+		got = url
+		return "Seerr's API key works. No default Sonarr is connected in Seerr.", nil
+	}
+	h := s.Handler()
+	if body := get(h, local); !strings.Contains(body, `{"id":"seerr","done":false,"optional":true}`) {
+		t.Errorf("what it asks: %s", body)
+	}
+	for body, want := range map[string]string{
+		`{"code":"K7QM-2XRP","url":"http://seerr:5055","key":""}`:    "Give Seerr's address",
+		`{"code":"K7QM-2XRP","url":"http://seerr:5055","key":"bad"}`: "refuses",
+	} {
+		if rec := post(h, local, "seerr", body); rec.Code != 422 || !strings.Contains(rec.Body.String(), want) || got != "" {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	rec := post(h, local, "seerr", `{"code":"K7QM-2XRP","url":"http://seerr:5055","key":"good"}`)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "No default Sonarr") || got != "http://seerr:5055" {
+		t.Errorf("good: %d %s", rec.Code, rec.Body)
+	}
+}

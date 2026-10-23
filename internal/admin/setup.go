@@ -48,6 +48,10 @@ type Setup struct {
 	// IntroSkipper, when set, offers to install Intro Skipper on Overfin's
 	// Jellyfin, once it has one. The step may be skipped.
 	IntroSkipper *introskipper.Installer
+	// Seerr, when set, offers to connect Seerr: it tests and saves its
+	// address and key, and says what Seerr still misses. The step may be
+	// skipped.
+	Seerr func(ctx context.Context, url, key string) (string, error)
 	// FirstAdmin, when set, asks for the first admin's email and password,
 	// and makes them (with the password's hash).
 	FirstAdmin func(ctx context.Context, email, passwordHash string) error
@@ -70,12 +74,13 @@ const (
 	stepJellyfin = "jellyfin"
 	stepTMDB     = "tmdb"
 	stepSkipper  = "introskipper"
+	stepSeerr    = "seerr"
 	stepAdmin    = "admin"
 	stepDone     = "done"
 )
 
 // optional are the steps that may be skipped.
-var optional = map[string]bool{stepTMDB: true, stepSkipper: true}
+var optional = map[string]bool{stepTMDB: true, stepSkipper: true, stepSeerr: true}
 
 // Problem is what's wrong, in plain words for the operator, shown as is.
 // Other errors are logged, and the page only says it failed.
@@ -189,6 +194,7 @@ func (s *Setup) handler(public bool) http.Handler {
 	mux.HandleFunc("POST /admin/api/setup/jellyfin", s.step(s.jellyfin))
 	mux.HandleFunc("POST /admin/api/setup/tmdb", s.step(s.tmdb))
 	mux.HandleFunc("POST /admin/api/setup/introskipper", s.step(s.introSkipper))
+	mux.HandleFunc("POST /admin/api/setup/seerr", s.step(s.seerr))
 	mux.HandleFunc("POST /admin/api/setup/admin", s.step(s.admin))
 	mux.HandleFunc("POST /admin/api/setup/finish", s.step(s.finish))
 	return sameOrigin(headers(mux))
@@ -204,7 +210,7 @@ func (s *Setup) stepList() []string {
 			id  string
 			ask bool
 		}{{stepLanguage, s.Language != nil}, {stepJellyfin, s.Jellyfin != nil},
-			{stepTMDB, s.TMDB != nil}, {stepSkipper, s.IntroSkipper != nil}, {stepAdmin, s.FirstAdmin != nil}} {
+			{stepTMDB, s.TMDB != nil}, {stepSkipper, s.IntroSkipper != nil}, {stepSeerr, s.Seerr != nil}, {stepAdmin, s.FirstAdmin != nil}} {
 			if st.ask {
 				s.steps = append(s.steps, st.id)
 			}
@@ -385,6 +391,31 @@ func (s *Setup) introSkipper(w http.ResponseWriter, r *http.Request, body json.R
 		s.saved[stepSkipper] = true
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Setup) seerr(w http.ResponseWriter, r *http.Request, body json.RawMessage) {
+	var req struct {
+		URL string `json:"url"`
+		Key string `json:"key"`
+	}
+	if !decodeStep(w, body, &req) {
+		return
+	}
+	if s.Seerr == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if strings.TrimSpace(req.URL) == "" || strings.TrimSpace(req.Key) == "" {
+		unusable(w, "Give Seerr's address and its API key, or skip this step.")
+		return
+	}
+	summary, err := s.Seerr(r.Context(), req.URL, req.Key)
+	if err != nil {
+		s.failed(w, err, "Seerr's step")
+		return
+	}
+	s.saved[stepSeerr] = true
+	writeJSON(w, http.StatusOK, map[string]string{"summary": summary})
 }
 
 func (s *Setup) admin(w http.ResponseWriter, r *http.Request, body json.RawMessage) {

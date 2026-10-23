@@ -22,6 +22,7 @@ import (
 	"github.com/overfin/server/internal/keys"
 	"github.com/overfin/server/internal/playback"
 	"github.com/overfin/server/internal/seal"
+	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
 )
 
@@ -522,5 +523,19 @@ func TestSetTMDBKey(t *testing.T) {
 	}
 	if ti, _ := db.TitleByTMDB(ctx, "movie", "1"); ti != nil {
 		t.Error("TMDB's data kept after removing the key")
+	}
+}
+
+func TestSeerrNotes(t *testing.T) {
+	for r, want := range map[seerr.Readiness]string{
+		{Initialized: true, MediaServer: "jellyfin", Radarr: 1, Sonarr: 2}: "",
+		{Radarr: 1, Sonarr: 1}: " Its own setup isn't finished",
+		{Initialized: true, MediaServer: "plex", Radarr: 1, Sonarr: 1}: " It learns which titles you have from Plex",
+		{Initialized: true, MediaServer: "jellyfin"}:                   " No default Radarr or Sonarr",
+		{Initialized: true, MediaServer: "jellyfin", Radarr: 1}:        " No default Sonarr",
+	} {
+		if got := seerrNotes(r); (want == "" && got != "") || !strings.HasPrefix(got, want) {
+			t.Errorf("%+v: %q", r, got)
+		}
 	}
 }

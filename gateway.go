@@ -687,17 +687,11 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 		key = g.sh.seerrKey
 	}
 	var client *seerr.Client
+	var notes string
 	if url != "" {
 		var err error
-		if client, err = seerr.New(url, key); err != nil {
-			return "", problem("That isn't an address: use http://… or https://….")
-		}
-		switch _, err := client.Check(ctx); {
-		case errors.Is(err, seerr.ErrUnauthorized):
-			return "", problem("Seerr refuses this API key. It's in Seerr's settings, under General.")
-		case err != nil:
-			return "", problemf("Seerr: can't reach it at %s (%v). It's reached from where Overfin runs: "+
-				"in a container, localhost is the container itself", url, err)
+		if client, notes, err = checkSeerr(ctx, url, key); err != nil {
+			return "", err
 		}
 	}
 
@@ -739,9 +733,55 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 		g.sh.ratings.Wake()
 	}
 	if g.sh.tmdb != nil {
-		return "Seerr, at " + url + ": its API key works.", nil
+		return "Seerr, at " + url + ": its API key works." + notes, nil
 	}
-	return "Seerr, at " + url + ": its API key works. Discovery is on.", nil
+	return "Seerr, at " + url + ": its API key works. Discovery is on." + notes, nil
+}
+
+// checkSeerr is Seerr at url, once it takes key, and what it still misses
+// to do its job, as sentences each starting with a space ("" when
+// nothing). Its errors say what's wrong in plain words.
+func checkSeerr(ctx context.Context, url, key string) (*seerr.Client, string, error) {
+	client, err := seerr.New(url, key)
+	if err != nil {
+		return nil, "", problem("That isn't an address: use http://… or https://….")
+	}
+	switch _, err := client.Check(ctx); {
+	case errors.Is(err, seerr.ErrUnauthorized):
+		return nil, "", problem("Seerr refuses this API key. It's in Seerr's settings, under General.")
+	case err != nil:
+		return nil, "", problemf("Seerr: can't reach it at %s (%v). It's reached from where Overfin runs: "+
+			"in a container, localhost is the container itself", url, err)
+	}
+	r, err := client.Ready(ctx)
+	if err != nil {
+		return client, " Its settings couldn't be read, so Overfin can't tell whether it's ready.", nil
+	}
+	return client, seerrNotes(r), nil
+}
+
+// seerrNotes says what Seerr misses to do its job.
+func seerrNotes(r seerr.Readiness) string {
+	var notes []string
+	switch {
+	case !r.Initialized || r.MediaServer == "":
+		notes = append(notes, "Its own setup isn't finished: open Seerr and run it, so it knows which titles you have.")
+	case r.MediaServer != "jellyfin":
+		notes = append(notes, "It learns which titles you have from "+map[string]string{"plex": "Plex", "emby": "Emby"}[r.MediaServer]+
+			", which works only if that server sees the same media.")
+	}
+	switch {
+	case r.Radarr == 0 && r.Sonarr == 0:
+		notes = append(notes, "No default Radarr or Sonarr is connected in Seerr: requests are only stored, nothing fetches them.")
+	case r.Radarr == 0:
+		notes = append(notes, "No default Radarr is connected in Seerr: film requests are only stored.")
+	case r.Sonarr == 0:
+		notes = append(notes, "No default Sonarr is connected in Seerr: series requests are only stored.")
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return " " + strings.Join(notes, " ")
 }
 
 // TMDBKey says whether TMDB has the operator's key, and whether the
