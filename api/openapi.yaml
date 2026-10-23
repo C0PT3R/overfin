@@ -116,6 +116,70 @@ paths:
                     type: string
                     enum: [ok]
 
+  /branding:
+    get:
+      operationId: getBranding
+      summary: Whose brand to show
+      description: Overfin's, or the operator's own once switched on in the
+        control panel. Without `custom`, it's Overfin's, which clients carry
+        themselves. With it, clients show the operator's banner (the light
+        one on light pages, when there's one; the name as text without any),
+        the name in titles, the logo as icon (Overfin's without one), and
+        "Powered by" Overfin's banner, not hidden.
+      tags: [system]
+      security: []
+      responses:
+        "200":
+          description: The brand.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [custom, name, banner]
+                properties:
+                  custom:
+                    type: boolean
+                  name:
+                    type: string
+                    examples: [Overfin]
+                  logo:
+                    type: string
+                    description: The logo's address on this server.
+                  banner:
+                    type: object
+                    properties:
+                      dark:
+                        type: string
+                        description: The banner for dark pages.
+                      light:
+                        type: string
+                        description: The banner for light pages.
+
+  /branding/{kind}:
+    get:
+      operationId: getBrandingFile
+      summary: One of the operator's branding files
+      description: As the operator uploaded it, with its own image type.
+      tags: [system]
+      security: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [logo, banner-dark, banner-light]
+      responses:
+        "200":
+          description: The file.
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /info:
     get:
       x-status: planned

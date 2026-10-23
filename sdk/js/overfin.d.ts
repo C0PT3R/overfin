@@ -45,6 +45,14 @@ export interface Profile {
   theme?: 'light' | 'dark';
 }
 
+/** The brand a site shows; files are addresses on the server. */
+export interface Branding {
+  custom: boolean;
+  name: string;
+  logo?: string;
+  banner: { dark?: string; light?: string };
+}
+
 export interface RatingLevel {
   name: string;
   meaning?: string;
@@ -350,6 +358,8 @@ export class Overfin {
   logout(): Promise<{ logoutUrl?: string }>;
   /** Managed sign-in only. */
   signinInfo(): Promise<{ email: string; hasPassword: boolean; codes: boolean }>;
+  /** Whose brand to show: Overfin's (without `custom`), or the operator's own, with "Powered by" Overfin. No sign-in needed. */
+  branding(): Promise<Branding>;
   setPassword(password: string): Promise<{ hasPassword: boolean }>;
   removePassword(): Promise<{ hasPassword: boolean }>;
   deleteAccount(): Promise<{ history: 'deleted' | 'kept' }>;

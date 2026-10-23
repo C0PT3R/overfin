@@ -137,6 +137,9 @@ export class Overfin {
    * whether codes can come by email.
    */
   signinInfo() { return this.request('GET', '/me/signin'); }
+
+  /** Whose brand to show: Overfin's, or the operator's own. No sign-in needed. */
+  branding() { return this.request('GET', '/branding'); }
   /** Sets or changes the password; needs a fresh login (step-up). Other browsers sign in again. */
   setPassword(password) { return this.request('PUT', '/me/password', { password }); }
   /** Removes the password, when codes can come by email; needs a fresh login (step-up). */
