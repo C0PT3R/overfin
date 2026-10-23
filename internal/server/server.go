@@ -44,6 +44,13 @@ func New(logger *slog.Logger, identify func(http.Handler) http.Handler, site htt
 	// rest is the site's, when there is one.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if site != nil && !isAPI(r.URL.Path) {
+			// A short link (/invite/abc) is its API route's.
+			if apiPath, ok := reg.Short(r.URL.Path); ok {
+				r2 := r.Clone(r.Context())
+				r2.URL.Path, r2.URL.RawPath = apiPath, ""
+				mux.ServeHTTP(w, r2)
+				return
+			}
 			site.ServeHTTP(w, r)
 			return
 		}

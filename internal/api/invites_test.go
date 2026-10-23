@@ -22,7 +22,7 @@ func TestInvites(t *testing.T) {
 	var tmpl string
 	panel := http.NewServeMux()
 	srv, fake := newServerWith(t, options{modules: []feature.Feature{invites.Feature{}}, template: &tmpl, admin: panel,
-		settings: map[string]map[string]string{"invites": {"required": "on"}}})
+		settings: map[string]map[string]string{"invites": {"required": "on"}}, site: true})
 	admin := func(method, path string, body any) (int, map[string]any) {
 		b, _ := json.Marshal(body)
 		rec := httptest.NewRecorder()
@@ -80,9 +80,15 @@ func TestInvites(t *testing.T) {
 		t.Fatalf("invite template: %d %v", code, it)
 	}
 	code, made := admin("POST", "/invites", map[string]any{"template": it["id"], "label": "Bob"})
-	link, _ := made["link"].(string)
-	if code != 200 || !strings.HasPrefix(link, "/api/v1/invite?code=") {
+	full, _ := made["link"].(string)
+	// A short link on the site, Overfin serving it.
+	link := strings.TrimPrefix(full, "https://media.example.org")
+	if code != 200 || !strings.HasPrefix(full, "https://media.example.org/invite/") {
 		t.Fatalf("invitation: %d %v", code, made)
+	}
+	// Links sent before still open.
+	if res := open("/api/v1/invite?code=" + strings.TrimPrefix(link, "/invite/")); res.StatusCode != 303 {
+		t.Errorf("the older form: %d", res.StatusCode)
 	}
 
 	// The link leaves a cookie and leads to the site.
@@ -151,7 +157,8 @@ func TestInviteSignUpLinks(t *testing.T) {
 	}
 	it := admin("POST", "/templates", map[string]any{"name": "Family", "accountTemplate": tmpl,
 		"accessDays": 0, "validDays": 10, "maxUses": 3})
-	link, _ := admin("POST", "/invites", map[string]any{"template": it["id"], "label": "Them"})["link"].(string)
+	full, _ := admin("POST", "/invites", map[string]any{"template": it["id"], "label": "Them"})["link"].(string)
+	link := strings.TrimPrefix(full, "https://media.example.org")
 	noFollow := &http.Client{Transport: srv.Client().Transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	open := func() string {

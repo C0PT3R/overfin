@@ -275,7 +275,8 @@ func TestManagedSignInInvited(t *testing.T) {
 		return out
 	}
 	it := admin("/templates", map[string]any{"name": "Friends", "accountTemplate": tmpl, "accessDays": 30, "validDays": 7, "maxUses": 1})
-	link, _ := admin("/invites", map[string]any{"template": it["id"]})["link"].(string)
+	full, _ := admin("/invites", map[string]any{"template": it["id"]})["link"].(string)
+	link := strings.TrimPrefix(full, "https://media.example.org")
 
 	// Without the invitation: no email.
 	b := newBrowser(srv)

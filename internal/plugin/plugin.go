@@ -31,6 +31,7 @@ type Registrar struct {
 	routes  map[string]string // pattern -> plugin that registered it
 	public  map[string]bool   // patterns registered with HandlePublic
 	nav     map[string]bool   // paths registered with HandleNavigation
+	codes   map[string]bool   // their prefixes, for those ending in a code
 	cross   map[string]bool   // paths registered with HandleCrossSite
 }
 
@@ -38,7 +39,7 @@ type Registrar struct {
 // non-public route with protect.
 func NewRegistrar(mux *http.ServeMux, protect func(http.Handler) http.Handler) *Registrar {
 	return &Registrar{mux: mux, protect: protect, routes: make(map[string]string),
-		public: make(map[string]bool), nav: make(map[string]bool), cross: make(map[string]bool)}
+		public: make(map[string]bool), nav: make(map[string]bool), codes: make(map[string]bool), cross: make(map[string]bool)}
 }
 
 // Load registers each plugin's routes, stopping at the first error.
@@ -67,18 +68,28 @@ func (r *Registrar) HandlePublic(pattern string, h http.Handler) error {
 }
 
 // HandleNavigation adds a public GET route that another site may send the
-// browser to, such as an identity provider returning from a login. Every
-// other route refuses cross-site requests. The path must be fixed, without
-// wildcards, and the handler must not act on anything but its own query.
+// browser to, such as an identity provider returning from a login, or an
+// email's link. Every other route refuses cross-site requests. The path
+// must be fixed, but may end in one code ("/api/v1/invite/{code}"), and
+// the handler must not act on anything but that code and its own query.
 func (r *Registrar) HandleNavigation(pattern string, h http.Handler) error {
 	method, path, _ := strings.Cut(pattern, " ")
-	if method != http.MethodGet || strings.Contains(path, "{") {
-		return fmt.Errorf("route %q: navigation routes must be GET with a fixed path", pattern)
+	prefix, last := path, ""
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		prefix, last = path[:i+1], path[i+1:]
+	}
+	coded := strings.HasPrefix(last, "{") && strings.HasSuffix(last, "}") && !strings.Contains(last, "...")
+	if method != http.MethodGet || strings.Contains(prefix, "{") || (strings.Contains(last, "{") && !coded) {
+		return fmt.Errorf("route %q: navigation routes must be GET with a fixed path, ending in a code at most", pattern)
 	}
 	if err := r.add(pattern, h, true); err != nil {
 		return err
 	}
-	r.nav[path] = true
+	if coded {
+		r.codes[prefix] = true
+	} else {
+		r.nav[path] = true
+	}
 	return nil
 }
 
@@ -104,7 +115,20 @@ func (r *Registrar) IsCrossSite(path string) bool {
 
 // IsNavigation reports whether a request path belongs to a navigation route.
 func (r *Registrar) IsNavigation(path string) bool {
-	return r.nav[path]
+	if r.nav[path] {
+		return true
+	}
+	i := strings.LastIndex(path, "/")
+	return i >= 0 && i < len(path)-1 && r.codes[path[:i+1]]
+}
+
+// Short is the API path a short link stands for: a navigation route
+// ending in a code is also reachable without "/api/v1" ("/invite/abc" for
+// "/api/v1/invite/{code}"), where the site is Overfin's. ok is false for
+// any other path.
+func (r *Registrar) Short(path string) (apiPath string, ok bool) {
+	apiPath = "/api/v1" + path
+	return apiPath, r.IsNavigation(apiPath) && !r.nav[apiPath]
 }
 
 func (r *Registrar) add(pattern string, h http.Handler, public bool) error {

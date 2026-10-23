@@ -97,10 +97,11 @@ func signinLink(ctx context.Context, cfg *config.Config, db *store.Store, k *key
 	if err != nil {
 		return err
 	}
-	if cfg.Site.URL == "" {
+	site := siteURL(cfg)
+	if site == "" {
 		fmt.Fprintf(w, "Open this on the site's address, once, within a day: %s\n", path)
 		return nil
 	}
-	fmt.Fprintf(w, "Open this once, within a day: %s%s\n", cfg.Site.URL, path)
+	fmt.Fprintf(w, "Open this once, within a day: %s%s\n", site, path)
 	return nil
 }

@@ -10,6 +10,7 @@
 package invites
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -62,6 +63,11 @@ func (Feature) Info() feature.Info {
 
 func (Feature) Setup(h feature.Host) error {
 	a := admin{h: h, db: h.DB()}
+	// Links look like /invite/<code> (feature.Host's Link); the older
+	// /api/v1/invite?code=<code> still opens.
+	if err := h.HandleLink("GET /api/v1/invite/{code}", a.open); err != nil {
+		return err
+	}
 	if err := h.HandleLink("GET /api/v1/invite", a.open); err != nil {
 		return err
 	}
@@ -88,7 +94,7 @@ func (Feature) Setup(h feature.Host) error {
 // sends the person on to make their account at the identity provider, or to
 // the site, which has them log in.
 func (a admin) open(w http.ResponseWriter, r *http.Request) {
-	code := r.URL.Query().Get("code")
+	code := cmp.Or(r.PathValue("code"), r.URL.Query().Get("code"))
 	inv, err := usable(r.Context(), a.db, code)
 	if err != nil {
 		a.h.Logger().Error("reading an invitation failed", "err", err)
@@ -464,7 +470,7 @@ func (a admin) createInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	feature.JSON(w, map[string]any{"invite": inv, "link": a.h.SiteURL() + "/api/v1/invite?code=" + code})
+	feature.JSON(w, map[string]any{"invite": inv, "link": a.h.Link("/invite/" + code)})
 }
 
 func (a admin) deleteInvite(w http.ResponseWriter, r *http.Request) {

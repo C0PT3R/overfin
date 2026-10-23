@@ -85,3 +85,34 @@ func TestHandleProtectsAndHandlePublicDoesNot(t *testing.T) {
 		t.Error("IsPublic is wrong")
 	}
 }
+
+// Navigation routes: a fixed path, or one ending in a code; a short path
+// (without /api/v1) stands only for those ending in a code.
+func TestNavigationCodes(t *testing.T) {
+	r := NewRegistrar(http.NewServeMux(), func(h http.Handler) http.Handler { return h })
+	ok := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	for _, p := range []string{"GET /api/v1/signin", "GET /api/v1/invite/{code}"} {
+		if err := r.HandleNavigation(p, ok); err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	for _, p := range []string{"GET /api/v1/{x}/invite", "GET /api/v1/a/{b}/{c}", "GET /api/v1/files/{rest...}", "POST /api/v1/x/{code}"} {
+		if err := r.HandleNavigation(p, ok); err == nil {
+			t.Errorf("%s was accepted", p)
+		}
+	}
+	for path, want := range map[string]bool{"/api/v1/signin": true, "/api/v1/invite/abc": true, "/api/v1/invite/": false,
+		"/api/v1/invite/a/b": false, "/api/v1/signin/x": false} {
+		if r.IsNavigation(path) != want {
+			t.Errorf("IsNavigation(%s) = %v", path, !want)
+		}
+	}
+	if p, ok := r.Short("/invite/abc"); !ok || p != "/api/v1/invite/abc" {
+		t.Errorf("Short(/invite/abc) = %s, %v", p, ok)
+	}
+	for _, path := range []string{"/signin", "/invite/", "/title/abc"} {
+		if _, ok := r.Short(path); ok {
+			t.Errorf("Short(%s) is a short link", path)
+		}
+	}
+}

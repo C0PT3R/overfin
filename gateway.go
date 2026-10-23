@@ -181,7 +181,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	var managed *api.Managed
 	if cfg.Identity.Mode == "managed" {
 		managed = &api.Managed{Sessions: sessions, Store: db, Provisioner: prov, CodeKey: k.SigninCode,
-			Mail: sh.mailer, SiteURL: cfg.Site.URL, LoginLifetime: 30 * 24 * time.Hour, FreshFor: 5 * time.Minute,
+			Mail: sh.mailer, SiteURL: siteURL(cfg), LoginLifetime: 30 * 24 * time.Hour, FreshFor: 5 * time.Minute,
 			Logger: logger}
 		sessions.StepUpURL, sessions.FreshFor, sessions.SignIn = api.StepUpPath, managed.FreshFor, managed
 		signIn = append(signIn, managed)
@@ -212,7 +212,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		info := m.Info()
 		if cfg.Plugins.Enabled(info.Name) {
 			mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: sh.moduleDBs[info.Name], Logger: logger, Admin: b.admin,
-				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg), SignUp: signUp(cfg)})
+				Settings: cfg.Modules[info.Name], SiteURL: siteURL(cfg), ShortLinks: servesSite(cfg), SignUp: signUp(cfg)})
 			b.tabs = append(b.tabs, admin.Tab{Name: info.Name, Description: info.Description, UI: info.AdminUI})
 		}
 	}
@@ -297,14 +297,28 @@ func newSite(s config.Site, gate site.Gate) (http.Handler, error) {
 	}
 }
 
-// siteURL is the site's address, from the login's return address; empty
-// without one.
+// siteURL is the site's public address, wherever a link to it is made
+// (emails, invitations, sign-in links): site.url, else the domain Overfin
+// gets a certificate for, else the identity provider's return address;
+// empty when none says.
 func siteURL(cfg *config.Config) string {
+	if cfg.Site.URL != "" {
+		return strings.TrimSuffix(cfg.Site.URL, "/")
+	}
+	if cfg.HTTPS.Enabled() {
+		return "https://" + cfg.HTTPS.Domain
+	}
 	u, err := url.Parse(cfg.OIDC.RedirectURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return ""
 	}
 	return "https://" + u.Host
+}
+
+// servesSite reports whether Overfin serves the site itself, so short
+// links (/invite/…) reach it.
+func servesSite(cfg *config.Config) bool {
+	return cfg.Site.Serve != "none" && (cfg.Site.Serve != "builtin" || builtinSite != nil)
 }
 
 // effective completes a configuration read from the file with the feature
@@ -404,13 +418,21 @@ func (g *gateway) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
 }
 
 // SigninLink makes a one-time sign-in link, valid a week, that an admin
-// hands to someone (managed sign-in only).
+// hands to someone (managed sign-in only): on the site's address, or a
+// path when it isn't known.
 func (g *gateway) SigninLink(ctx context.Context, email string) (string, error) {
 	m := g.current.Load().managed
 	if m == nil {
 		return "", errors.New("sign-in links need managed sign-in")
 	}
-	return m.SigninLink(ctx, email, 7*24*time.Hour)
+	path, err := m.SigninLink(ctx, email, 7*24*time.Hour)
+	if err != nil {
+		return "", err
+	}
+	g.mu.Lock()
+	site := siteURL(g.cfg)
+	g.mu.Unlock()
+	return site + path, nil
 }
 
 // AdminRoutes serves the switched-on modules' control panel routes.

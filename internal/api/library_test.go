@@ -433,7 +433,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	}
 	for _, m := range o.modules {
 		mounts = append(mounts, api.Mount{Module: m, Library: lib, DB: moduleDB(m), Logger: logger,
-			Settings: o.settings[m.Info().Name], Admin: o.admin, SignUp: o.signUp})
+			Settings: o.settings[m.Info().Name], Admin: o.admin, SignUp: o.signUp,
+			SiteURL: "https://media.example.org", ShortLinks: o.site})
 	}
 	st.SetForgetter(testForgetter{modules: all, dbs: dbs})
 	if o.dbs != nil {

@@ -830,7 +830,9 @@ function personControls(x, reload) {
   const linkBox = h('div', {});
   const linkButton = h('button', { type: 'button', class: 'small', onclick: () => busy(linkButton, async () => {
     const { link } = await api('POST', `/admin/api/people/${x.id}/link`, {});
-    fill(linkBox, secret('A sign-in link for ' + x.email + ':', location.origin + link, 'Works once, for a week, in any browser. Hand it over privately.'));
+    // A path when Overfin doesn't know the site's address: this one, then.
+    const full = link.startsWith('/') ? location.origin + link : link;
+    fill(linkBox, secret('A sign-in link for ' + x.email + ':', full, 'Works once, for a week, in any browser. Hand it over privately.'));
   }) }, 'Sign-in link');
   const adminButton = !x.you && h('button', { type: 'button', class: 'small', onclick: () => busy(adminButton, async () => {
     await api('PATCH', `/admin/api/people/${x.id}`, { admin: !x.admin });
