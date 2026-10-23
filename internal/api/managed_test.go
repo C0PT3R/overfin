@@ -104,8 +104,9 @@ func TestManagedSignIn(t *testing.T) {
 	if len(mails) != 1 || mails[0].to != "Ann@example.org" || !strings.Contains(mails[0].subject, "code de connexion") {
 		t.Fatalf("emails: %+v", mails)
 	}
-	code := codePattern.FindString(mails[0].subject)
-	if code == "" || !strings.Contains(mails[0].body, "https://media.example.org/api/v1/signin#link=") {
+	// The code is in the body, never in the subject.
+	code := codePattern.FindString(mails[0].body)
+	if code == "" || codePattern.MatchString(mails[0].subject) || !strings.Contains(mails[0].body, "https://media.example.org/api/v1/signin#link=") {
 		t.Fatalf("email: %+v", mails[0])
 	}
 
@@ -296,7 +297,7 @@ func TestManagedSignInInvited(t *testing.T) {
 	if len(mails) != 1 {
 		t.Fatalf("emails: %d", len(mails))
 	}
-	code := codePattern.FindString(mails[0].subject)
+	code := codePattern.FindString(mails[0].body)
 	if c, out := signinPost(t, b, srv, "/api/v1/signin/code", map[string]any{"email": "bob@example.org", "code": code}); c != 200 {
 		t.Fatalf("newcomer's code: %d %v", c, out)
 	}
@@ -399,7 +400,7 @@ func TestSigninEmailLanguage(t *testing.T) {
 		t.Fatalf("asking a code: %d %v", code, out)
 	}
 	m.Wait()
-	if mails := box.all(); len(mails) != 1 || !strings.Contains(mails[0].subject, "is your sign-in code") {
+	if mails := box.all(); len(mails) != 1 || mails[0].subject != "Your sign-in code" {
 		t.Errorf("emails: %+v", mails)
 	}
 }

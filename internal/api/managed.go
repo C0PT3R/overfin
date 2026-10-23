@@ -724,9 +724,10 @@ func (m *Managed) hash(kind string, parts ...string) []byte {
 // address is known.
 func (m *Managed) codeEmail(lang, purpose, code, link string) (subject, body string) {
 	t := signinTexts[lang]
-	subject = fmt.Sprintf(t["mailSubject"], code)
+	// Never the code itself: subjects show in notifications and lists.
+	subject = t["mailSubject"]
 	if purpose == "fresh" {
-		subject = fmt.Sprintf(t["mailSubjectFresh"], code)
+		subject = t["mailSubjectFresh"]
 	}
 	body = fmt.Sprintf(t["mailCode"], code) + "\n\n"
 	if m.SiteURL != "" {
