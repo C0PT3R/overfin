@@ -459,21 +459,18 @@ func (g *gateway) Jellyfin() (url string, inFile bool) {
 	return g.cfg.Jellyfin.URL, !g.sh.jellyfinSaved
 }
 
-// SetJellyfin changes the address Overfin reaches Jellyfin at, its key, or
-// both (an empty key keeps the current one), tested first and applied at
-// once. Only the same Jellyfin server is accepted: another one has none of
-// the users behind Overfin's profiles. Errors say what's wrong in plain
-// words.
-func (g *gateway) SetJellyfin(ctx context.Context, url, key string) (string, error) {
+// SetJellyfin changes the address Overfin reaches its Jellyfin at, tested
+// first and applied at once. Only the same server is accepted, answering to
+// Overfin's own key: another one isn't Overfin's (SECURITY.md rule 67).
+// Errors say what's wrong in plain words.
+func (g *gateway) SetJellyfin(ctx context.Context, url string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.sh.jellyfinSaved {
 		return "", problem("Jellyfin is set in Overfin's configuration file: change it there.")
 	}
 	url = strings.TrimRight(strings.TrimSpace(url), "/")
-	if key = strings.TrimSpace(key); key == "" {
-		key = g.cfg.Secrets.JellyfinAdminKey
-	}
+	key := g.cfg.Secrets.JellyfinAdminKey
 	found, err := testJellyfin(ctx, url, key)
 	if err != nil {
 		return "", err
@@ -483,8 +480,7 @@ func (g *gateway) SetJellyfin(ctx context.Context, url, key string) (string, err
 		return "", err
 	}
 	if saved != "" && found.serverID != saved {
-		return "", problem("That's another Jellyfin server. Only a new address for the same one can be set here: " +
-			"another server has none of the users behind Overfin's profiles.")
+		return "", problem("That's another Jellyfin server. Only a new address for the same one can be set here.")
 	}
 	cfg := *g.cfg
 	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key

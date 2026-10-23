@@ -15,16 +15,31 @@
   <section id="form">
     <div class="card-head"><div>
       <h2>Set up Overfin</h2>
-      <p>The setup code is in Overfin's log (with Docker: <code>docker logs overfin</code>). Everything is tested before it's saved.</p>
+      <p>The setup code is in Overfin's log (with Docker: <code>docker logs overfin</code>). Everything is checked before it's saved.</p>
     </div></div>
     <div class="fields">
       <label class="field full"><span>Setup code</span><input id="code" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX"></label>
     </div>
     <div id="jellyfin" hidden>
       <h3>Jellyfin</h3>
+      <p class="hint">Overfin needs a Jellyfin of its own, on your media. A fresh one, Overfin sets up itself. One already set up, Overfin takes only if you hand it over.</p>
       <div class="fields">
-        <label class="field full"><span>Jellyfin's address, as Overfin reaches it</span><input id="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.10:8096"><span class="hint">Not localhost: in a container, that's Overfin itself.</span></label>
-        <label class="field full"><span>A Jellyfin API key</span><input id="key" type="password" autocomplete="off"><span class="hint">In Jellyfin's dashboard, under API Keys.</span></label>
+        <label class="field full" id="url-field"><span>Jellyfin's address, as Overfin reaches it</span><input id="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.10:8096"><span class="hint">Not localhost: in a container, that's Overfin itself.</span></label>
+        <p class="field full" id="fixed" hidden></p>
+      </div>
+      <div id="handover" hidden>
+        <p class="notice"><span id="found"></span> is already set up. To hand it over to Overfin, sign in as one of its administrators: Overfin uses this login once, to make a key of its own, and doesn't keep it.</p>
+        <div class="fields">
+          <label class="field"><span>Its administrator's username</span><input id="jf-username" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>Password</span><input id="jf-password" type="password" autocomplete="off"></label>
+        </div>
+      </div>
+      <div id="survey" hidden>
+        <div class="notice warn">
+          <p>It holds <strong id="survey-users"></strong> and <strong id="survey-libraries"></strong>.</p>
+          <p>From now on, Overfin manages it: the settings it needs are its own, and changes made in Jellyfin itself may be undone. Don't hand over a Jellyfin people use directly.</p>
+          <label class="inline"><input id="dedicated" type="checkbox"> This Jellyfin is dedicated to Overfin.</label>
+        </div>
       </div>
     </div>
     <div id="admin" hidden>
@@ -34,7 +49,7 @@
         <label class="field"><span>A password</span><input id="password" type="password" autocomplete="new-password"><span class="hint">At least 10 characters.</span></label>
       </div>
     </div>
-    <div class="card-foot"><span id="status" class="status"></span><button id="save" class="primary" type="button">Test and save</button></div>
+    <div class="card-foot"><span id="status" class="status"></span><button id="save" class="primary" type="button">Continue</button></div>
   </section>
   <section id="done" hidden>
     <div class="card-head"><div><h2>Done</h2><p id="summary"></p></div><span class="badge ok">Set up</span></div>

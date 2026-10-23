@@ -37,8 +37,7 @@ path = "%DB%"
 
 func env(key string) func(string) string {
 	vars := map[string]string{
-		"OVERFIN_JELLYFIN_ADMIN_KEY": "admin",
-		"OVERFIN_SECRET_KEY":         base64.StdEncoding.EncodeToString([]byte(strings.Repeat(key, 32))),
+		"OVERFIN_SECRET_KEY": base64.StdEncoding.EncodeToString([]byte(strings.Repeat(key, 32))),
 	}
 	return func(name string) string { return vars[name] }
 }
@@ -337,19 +336,15 @@ func TestSetJellyfin(t *testing.T) {
 	ctx := context.Background()
 
 	// Another server is refused, and nothing changes.
-	if _, err := g.SetJellyfin(ctx, otherServer, ""); err == nil || !strings.Contains(err.Error(), "another Jellyfin server") {
+	if _, err := g.SetJellyfin(ctx, otherServer); err == nil || !strings.Contains(err.Error(), "another Jellyfin server") {
 		t.Errorf("another server: %v", err)
-	}
-	// A key that doesn't work is refused too.
-	if _, err := g.SetJellyfin(ctx, sameServer, "nope"); err == nil {
-		t.Error("a refused key was saved")
 	}
 	if url, _ := g.Jellyfin(); url != first {
 		t.Errorf("changed after refusals: %s", url)
 	}
 
 	// The same server at a new address, the key kept: applied and saved.
-	summary, err := g.SetJellyfin(ctx, sameServer+"/", "")
+	summary, err := g.SetJellyfin(ctx, sameServer+"/")
 	if err != nil || !strings.Contains(summary, "Jellyfin 12.2.0") {
 		t.Fatalf("same server: %q %v", summary, err)
 	}
@@ -365,7 +360,7 @@ func TestSetJellyfin(t *testing.T) {
 
 	// Set in the file: the panel can't change it.
 	sh.jellyfinSaved = false
-	if _, err := g.SetJellyfin(ctx, first, ""); err == nil || !strings.Contains(err.Error(), "configuration file") {
+	if _, err := g.SetJellyfin(ctx, first); err == nil || !strings.Contains(err.Error(), "configuration file") {
 		t.Errorf("in the file: %v", err)
 	}
 }

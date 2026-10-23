@@ -328,5 +328,6 @@ td.actions button + button { margin-left: .35rem; }
 
 body.setup main { max-width: 40rem; margin: 0 auto; padding-top: 3rem; }
 body.setup .brand { margin-bottom: 1.5rem; padding: 0; }
+body.setup #handover, body.setup #survey { margin-top: 1rem; }
 .center { text-align: center; padding: 4rem 1rem; }
 @media (max-width: 1500px) { .split .hide-medium { display: none; } }

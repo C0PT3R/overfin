@@ -17,8 +17,7 @@ func env(vars map[string]string) func(string) string {
 
 func goodEnv() map[string]string {
 	return map[string]string{
-		"OVERFIN_JELLYFIN_ADMIN_KEY": "admin-key",
-		"OVERFIN_SECRET_KEY":         testKey,
+		"OVERFIN_SECRET_KEY": testKey,
 	}
 }
 
@@ -56,9 +55,6 @@ func TestLoadValid(t *testing.T) {
 	}
 	if len(cfg.Identity.Proxies) != 2 {
 		t.Errorf("parsed %d proxies, want 2", len(cfg.Identity.Proxies))
-	}
-	if cfg.Secrets.JellyfinAdminKey != "admin-key" {
-		t.Error("admin key not loaded")
 	}
 }
 
@@ -103,10 +99,16 @@ func TestLoadRejects(t *testing.T) {
 			name: "short secret key",
 			file: goodFile,
 			env: map[string]string{
-				"OVERFIN_JELLYFIN_ADMIN_KEY": "admin-key",
-				"OVERFIN_SECRET_KEY":         base64.StdEncoding.EncodeToString([]byte("short")),
+				"OVERFIN_SECRET_KEY": base64.StdEncoding.EncodeToString([]byte("short")),
 			},
 			wantErr: "at least 32 bytes",
+		},
+		{
+			// Overfin makes its own key on its Jellyfin (SECURITY.md rule 67).
+			name:    "a Jellyfin key given",
+			file:    goodFile,
+			env:     map[string]string{"OVERFIN_SECRET_KEY": testKey, "OVERFIN_JELLYFIN_ADMIN_KEY": "admin-key"},
+			wantErr: "isn't used anymore",
 		},
 	}
 	for _, tt := range tests {
@@ -124,20 +126,20 @@ func TestLoadRejects(t *testing.T) {
 }
 
 func TestSecretFromFile(t *testing.T) {
-	keyFile := filepath.Join(t.TempDir(), "admin_key")
-	if err := os.WriteFile(keyFile, []byte("from-file\n"), 0o600); err != nil {
+	keyFile := filepath.Join(t.TempDir(), "secret_key")
+	if err := os.WriteFile(keyFile, []byte(testKey+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	vars := goodEnv()
-	delete(vars, "OVERFIN_JELLYFIN_ADMIN_KEY")
-	vars["OVERFIN_JELLYFIN_ADMIN_KEY_FILE"] = keyFile
+	delete(vars, "OVERFIN_SECRET_KEY")
+	vars["OVERFIN_SECRET_KEY_FILE"] = keyFile
 
 	cfg, err := Load(writeFile(t, goodFile), env(vars))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Secrets.JellyfinAdminKey != "from-file" {
-		t.Errorf("admin key = %q, want %q", cfg.Secrets.JellyfinAdminKey, "from-file")
+	if len(cfg.Secrets.Key) != MinKeyBytes {
+		t.Errorf("secret key from the file: %d bytes", len(cfg.Secrets.Key))
 	}
 }
 
@@ -145,7 +147,7 @@ func TestSecretFromFile(t *testing.T) {
 func TestGeneratedKey(t *testing.T) {
 	KeyFile = filepath.Join(t.TempDir(), "overfin.key")
 	t.Cleanup(func() { KeyFile = "/secrets/overfin.key" })
-	vars := map[string]string{"OVERFIN_JELLYFIN_ADMIN_KEY": "admin-key"}
+	vars := map[string]string{}
 	path := writeFile(t, goodFile)
 
 	// No key given and none generated yet: Load leaves it to the caller.
@@ -421,18 +423,13 @@ func TestSite(t *testing.T) {
 	}
 }
 
-func TestJellyfinBothOrNeither(t *testing.T) {
+// Jellyfin's address is optional: without it, the setup page asks.
+func TestJellyfinAddressOptional(t *testing.T) {
 	noJellyfin := strings.Replace(goodFile, "[jellyfin]\nurl = \"http://192.0.2.10:8096\"\n", "", 1)
-	withoutKey := map[string]string{"OVERFIN_SECRET_KEY": testKey}
-	// Neither: the setup page asks for both.
-	if cfg, err := Load(writeFile(t, noJellyfin), env(withoutKey)); err != nil || cfg.Jellyfin.URL != "" {
-		t.Errorf("neither: %v", err)
-	}
-	if _, err := Load(writeFile(t, goodFile), env(withoutKey)); err == nil || !strings.Contains(err.Error(), "set both, or neither") {
-		t.Errorf("address without key: %v", err)
-	}
-	if _, err := Load(writeFile(t, noJellyfin), env(goodEnv())); err == nil || !strings.Contains(err.Error(), "set both, or neither") {
-		t.Errorf("key without address: %v", err)
+	for name, file := range map[string]string{"with": goodFile, "without": noJellyfin} {
+		if _, err := Load(writeFile(t, file), env(goodEnv())); err != nil {
+			t.Errorf("%s an address: %v", name, err)
+		}
 	}
 }
 
@@ -488,7 +485,6 @@ username = "media@example.org"
 func TestNoFileAndHTTPS(t *testing.T) {
 	// No file at all: the defaults, and the domain from the environment.
 	vars := goodEnv()
-	delete(vars, "OVERFIN_JELLYFIN_ADMIN_KEY")
 	vars["OVERFIN_DOMAIN"] = "Media.Example.org."
 	cfg, err := Load("", env(vars))
 	if err != nil {

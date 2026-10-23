@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -18,19 +19,21 @@ import (
 
 // Setup is the first-run setup page, served until Overfin is set up: on
 // the control panel's address, and with managed sign-in on the site's own
-// too. It asks for what's missing: Jellyfin's address and an API key,
-// tested before they're saved, and with managed sign-in the first admin's
-// email and password. Only someone with the one-time code from Overfin's
-// log can use it, so nobody else can claim a fresh install.
+// too. It asks for what's missing: Overfin's own Jellyfin (SECURITY.md
+// rule 67), which it sets up if it's fresh, and otherwise shows, then takes
+// only when its administrator hands it over; and with managed sign-in the
+// first admin's email and password. Only someone with the one-time code
+// from Overfin's log can use it, so nobody else can claim a fresh install.
 type Setup struct {
 	// Code is the one-time code Overfin printed in its log (NewSetupCode).
 	Code string
-	// Test checks the Jellyfin server at url with key. Its error says what's
-	// wrong in plain words, and is shown as is. Test and Save are nil when
-	// Jellyfin is set up already.
-	Test func(ctx context.Context, url, key string) (string, error)
-	// Save keeps them.
-	Save func(ctx context.Context, url, key string) error
+	// Jellyfin takes one step towards Overfin's Jellyfin, and saves it once
+	// it's Overfin's (Done). Its error says what's wrong in plain words, and
+	// is shown as is. Nil when Jellyfin is set up already.
+	Jellyfin func(ctx context.Context, req JellyfinRequest) (JellyfinAnswer, error)
+	// FixedURL is Jellyfin's address when the configuration file sets it:
+	// the page doesn't ask for it then.
+	FixedURL string
 	// FirstAdmin, when set, also asks for the first admin's email and
 	// password, and makes them (with the password's hash).
 	FirstAdmin func(ctx context.Context, email, passwordHash string) error
@@ -41,6 +44,48 @@ type Setup struct {
 	mu       sync.Mutex
 	failures int
 	done     bool
+}
+
+// Problem is what's wrong, in plain words for the operator, shown as is.
+// Other errors are logged, and the page only says it failed.
+type Problem string
+
+func (p Problem) Error() string { return string(p) }
+
+// JellyfinRequest is what the setup page sends about Jellyfin.
+type JellyfinRequest struct {
+	URL string
+	// Username and Password are an administrator's login, for a server
+	// Overfin didn't set up: used once, never kept.
+	Username, Password string
+	// Confirm is the ID of the server the operator saw and confirmed is
+	// dedicated to Overfin.
+	Confirm string
+}
+
+// JellyfinAnswer is where the Jellyfin step stands.
+type JellyfinAnswer struct {
+	Done    bool           `json:"done"`
+	Summary string         `json:"summary,omitempty"`
+	Server  JellyfinServer `json:"server"`
+	// NeedsLogin: set up by someone else; only its administrator can hand
+	// it over.
+	NeedsLogin bool `json:"needsLogin,omitempty"`
+	// Survey is what it holds, to confirm before it's handed over.
+	Survey *JellyfinSurvey `json:"survey,omitempty"`
+}
+
+// JellyfinServer is the server found.
+type JellyfinServer struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// JellyfinSurvey is what a server holds.
+type JellyfinSurvey struct {
+	Users     []string `json:"users"`
+	Libraries int      `json:"libraries"`
 }
 
 // setupAttempts is how many wrong codes the page takes before it stops
@@ -91,7 +136,8 @@ func (s *Setup) handler(public bool) http.Handler {
 	mux.HandleFunc("GET /admin/api/setup", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]bool{"jellyfin": s.Test != nil, "admin": s.FirstAdmin != nil, "site": public})
+		writeJSON(w, http.StatusOK, map[string]any{"jellyfin": s.Jellyfin != nil, "fixedUrl": s.FixedURL,
+			"admin": s.FirstAdmin != nil, "site": public})
 	})
 	mux.HandleFunc("POST /admin/api/setup", s.save)
 	return sameOrigin(headers(mux))
@@ -99,11 +145,13 @@ func (s *Setup) handler(public bool) http.Handler {
 
 func (s *Setup) save(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Code     string `json:"code"`
-		URL      string `json:"url"`
-		Key      string `json:"key"`
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Code             string `json:"code"`
+		URL              string `json:"url"`
+		JellyfinUsername string `json:"jellyfinUsername"`
+		JellyfinPassword string `json:"jellyfinPassword"`
+		Confirm          string `json:"confirm"`
+		Email            string `json:"email"`
+		Password         string `json:"password"`
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -146,22 +194,27 @@ func (s *Setup) save(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	url := strings.TrimRight(strings.TrimSpace(req.URL), "/")
-	key := strings.TrimSpace(req.Key)
 	summary := "Overfin is set up."
-	if s.Test != nil {
-		var err error
-		if summary, err = s.Test(r.Context(), url, key); err != nil {
-			unusable(err.Error())
+	if s.Jellyfin != nil {
+		ans, err := s.Jellyfin(r.Context(), JellyfinRequest{URL: req.URL, Username: strings.TrimSpace(req.JellyfinUsername),
+			Password: req.JellyfinPassword, Confirm: req.Confirm})
+		var plain Problem
+		switch {
+		case errors.As(err, &plain):
+			unusable(string(plain))
+			return
+		case err != nil:
+			s.Logger.Error("setup page: Jellyfin's step failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "That failed; Overfin's log says why."})
+			return
+		case !ans.Done:
+			// The next thing to ask: an administrator's login, or a
+			// confirmation of what the server holds.
+			writeJSON(w, http.StatusOK, map[string]any{"jellyfin": ans})
 			return
 		}
-		if err := s.Save(r.Context(), url, key); err != nil {
-			s.Logger.Error("setup page: saving Jellyfin's settings failed", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Saving failed; Overfin's log says why."})
-			return
-		}
-		s.Test, s.Save = nil, nil // saved: a retry only asks for the rest
-		s.Logger.Info("setup page: Jellyfin is set up", "jellyfin", url)
+		s.Jellyfin = nil // Overfin's now: a retry only asks for the rest
+		summary = ans.Summary
 	}
 	if s.FirstAdmin != nil {
 		if err := s.FirstAdmin(r.Context(), email, hash); err != nil {

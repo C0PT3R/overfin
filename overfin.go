@@ -241,18 +241,17 @@ func run(logger *slog.Logger) error {
 		return nil
 	}
 
-	// Jellyfin: set in the configuration, saved by the setup page, or asked
-	// for now; with managed sign-in, the first admin too.
+	// Jellyfin: Overfin's own (rule 67), at the address the configuration
+	// sets or the setup page saved. A fresh one is set up at once; any
+	// other waits to be handed over on the setup page, which with managed
+	// sign-in asks for the first admin too.
 	jellyfinSaved := cfg.Jellyfin.URL == ""
-	haveJellyfin := !jellyfinSaved
-	if jellyfinSaved {
-		url, key, ok, err := db.Jellyfin(ctx)
-		if err != nil {
-			return err
-		}
-		haveJellyfin = ok
-		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
+	url, key, haveJellyfin, err := ownJellyfin(ctx, cfg, db, logger)
+	if err != nil {
+		return err
 	}
+	fixedURL := cfg.Jellyfin.URL
+	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
 	managed := cfg.Identity.Mode == "managed"
 	haveAdmin := true
 	if managed {
@@ -262,26 +261,19 @@ func run(logger *slog.Logger) error {
 	}
 	if !haveJellyfin || !haveAdmin {
 		if !managed && adminSrv == nil {
-			return errors.New("no Jellyfin set up: set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY, " +
-				"or switch on the control panel ([admin]) and use its setup page")
+			return errors.New("no Jellyfin of Overfin's own yet: switch on the control panel ([admin]), " +
+				"and set it up or hand it over on its setup page")
 		}
 		done := make(chan struct{})
 		setup := &admin.Setup{Code: admin.NewSetupCode(), Logger: logger, Done: func() { close(done) }}
 		if !haveJellyfin {
-			// The page tests, then saves, one request at a time: the save
-			// keeps the server ID its test just found.
-			var serverID string
-			setup.Test = func(ctx context.Context, url, key string) (string, error) {
-				found, err := testJellyfin(ctx, url, key)
-				serverID = found.serverID
-				return found.summary, err
-			}
-			setup.Save = func(ctx context.Context, url, key string) error {
-				if err := db.SetJellyfin(ctx, url, key, serverID); err != nil {
-					return err
+			setup.FixedURL = fixedURL
+			setup.Jellyfin = func(ctx context.Context, req admin.JellyfinRequest) (admin.JellyfinAnswer, error) {
+				url, key, ans, err := takeOver(ctx, db, fixedURL, req, logger)
+				if ans.Done {
+					cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
 				}
-				cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
-				return nil
+				return ans, forPage(err)
 			}
 		}
 		if !haveAdmin {
@@ -471,31 +463,21 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 	return sh, nil
 }
 
-// runRecovery runs -recover-tokens. It needs Jellyfin: from the
-// configuration, or as the setup page saved it. Saved settings sealed with
-// the lost key can't be read, so then the configuration must give them, and
-// they're saved again with the new key.
+// runRecovery runs -recover-tokens. It needs Overfin's Jellyfin: Overfin's
+// key for it was sealed with the lost secret key too, so the operator hands
+// it over again, in the terminal (SECURITY.md rule 67).
 func runRecovery(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB, k *keys.Keys, logger *slog.Logger) error {
 	ctx := context.Background()
 	url, key, saved, err := db.Jellyfin(ctx)
 	switch {
-	case cfg.Jellyfin.URL != "":
-		if err != nil {
-			id, err := db.JellyfinServer(ctx)
-			if err != nil {
-				return err
-			}
-			if err := db.SetJellyfin(ctx, cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey, id); err != nil {
-				return err
-			}
-		}
 	case err != nil:
-		return fmt.Errorf("%w. For the recovery, set jellyfin.url and OVERFIN_JELLYFIN_ADMIN_KEY", err)
+		if url, key, err = handOverInTerminal(ctx, db, cfg.Jellyfin.URL, os.Stdin, os.Stderr); err != nil {
+			return err
+		}
 	case !saved:
 		return errors.New("nothing to recover: no Jellyfin set up yet")
-	default:
-		cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
 	}
+	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key
 	sh, err := newShared(cfg, db, moduleDBs, k, logger)
 	if err != nil {
 		return err

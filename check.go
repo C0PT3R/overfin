@@ -1,12 +1,12 @@
 package overfin
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/seal"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/takeover"
 )
 
 // problem is what's wrong, as a sentence for people to read: the setup
@@ -136,13 +137,10 @@ func (c *checker) writable(dir, what string) {
 }
 
 func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
-	url, key := cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey
-	if url == "" {
-		// Not in the configuration: as the setup page saved it, if it did.
-		if cfg.Secrets.Key == nil {
-			c.ok("Jellyfin: not set up yet; the control panel's setup page asks for it")
-			return
-		}
+	// The address in the configuration, else as saved; the key Overfin
+	// made, as saved.
+	url, key := cfg.Jellyfin.URL, ""
+	if cfg.Secrets.Key != nil && fileExists(cfg.Storage.Path) {
 		k, err := keys.Derive(cfg.Secrets.Key)
 		if err != nil {
 			return // already said, with the secret key
@@ -152,25 +150,39 @@ func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
 			c.fail("Jellyfin: %v", err)
 			return
 		}
-		ok := false
-		if fileExists(cfg.Storage.Path) {
-			url, key, ok, err = store.ReadJellyfin(ctx, cfg.Storage.Path, box)
-			if err != nil {
-				c.fail("Jellyfin: %v", err)
-				return
-			}
-		}
-		if !ok {
-			c.ok("Jellyfin: not set up yet; the control panel's setup page asks for it")
+		savedURL, savedKey, _, err := store.ReadJellyfin(ctx, cfg.Storage.Path, box)
+		if err != nil {
+			c.fail("Jellyfin: %v", err)
 			return
 		}
+		url, key = cmp.Or(url, savedURL), savedKey
 	}
-	found, err := testJellyfin(ctx, url, key)
-	if err != nil {
-		c.fail("%v", err)
+	if url == "" {
+		c.ok("Jellyfin: not set up yet; the setup page asks for it")
 		return
 	}
-	c.ok("%s", found.summary)
+	jf, err := jellyfin.New(url, Version)
+	if err != nil {
+		c.fail("Jellyfin's address: %v", err)
+		return
+	}
+	found, err := takeover.Look(ctx, jf, key, "")
+	switch {
+	case err != nil:
+		c.fail("%v", err)
+	case found.State == takeover.Fresh:
+		c.ok("Jellyfin %s, at %s: fresh; Overfin sets it up when it starts", found.Server.Version, url)
+	case found.State == takeover.Other:
+		c.fail("Jellyfin %s, at %s: set up by someone else, or Overfin's key for it is gone; "+
+			"Overfin takes it only if it's handed over, on the setup page", found.Server.Version, url)
+	default:
+		found, err := testJellyfin(ctx, url, key)
+		if err != nil {
+			c.fail("%v", err)
+			return
+		}
+		c.ok("%s", found.summary)
+	}
 }
 
 // jellyfinFound is what testJellyfin found: what to tell, and the server's
@@ -180,10 +192,9 @@ type jellyfinFound struct {
 	serverID string
 }
 
-// testJellyfin tells whether Overfin can work with the Jellyfin server at
-// url with key: reachable, version 12, an administrator's key, at least one
-// library. Its error says what's wrong in plain words; the setup page shows
-// it as is.
+// testJellyfin tells whether the Jellyfin server at url is Overfin's own:
+// reachable, version 12, answering to key. Its error says what's wrong in
+// plain words; the control panel shows it as is.
 func testJellyfin(ctx context.Context, url, key string) (jellyfinFound, error) {
 	if err := config.CheckJellyfinURL(url); err != nil {
 		return jellyfinFound{}, problemf("Jellyfin's address %s", err)
@@ -192,31 +203,23 @@ func testJellyfin(ctx context.Context, url, key string) (jellyfinFound, error) {
 	if err != nil {
 		return jellyfinFound{}, problemf("Jellyfin's address: %v", err)
 	}
-	v, id, err := jf.PublicInfo(ctx)
+	found, err := takeover.Look(ctx, jf, key, "")
 	if err != nil {
-		return jellyfinFound{}, problemf("Jellyfin: can't reach it at %s (%v). It's reached from where Overfin runs: "+
-			"in a container, localhost is the container itself", url, err)
+		return jellyfinFound{}, err
 	}
-	if !strings.HasPrefix(v, "12.") {
-		return jellyfinFound{}, problemf("Jellyfin: it runs version %s, and Overfin needs Jellyfin 12", v)
+	if found.State != takeover.Ours {
+		return jellyfinFound{}, problemf("Jellyfin at %s doesn't answer to Overfin's key: it's another server", url)
 	}
 	n, err := jf.CountLibraries(ctx, jellyfin.Auth{Token: key, DeviceID: "overfin-check"})
-	switch {
-	case jellyfin.IsStatus(err, http.StatusUnauthorized):
-		return jellyfinFound{}, problemf("Jellyfin refuses its API key. Make one in its dashboard, under API Keys")
-	case jellyfin.IsStatus(err, http.StatusForbidden):
-		return jellyfinFound{}, problemf("Jellyfin's API key isn't an administrator's. Make one in its dashboard, under API Keys")
-	case err != nil:
-		return jellyfinFound{}, problemf("Jellyfin's API key: %v", err)
-	case n == 0:
-		return jellyfinFound{}, problemf("Jellyfin's API key works, but Jellyfin has no libraries yet: add one in its dashboard")
+	if err != nil {
+		return jellyfinFound{}, problemf("Jellyfin: %v", err)
 	}
 	libraries := "libraries"
 	if n == 1 {
 		libraries = "library"
 	}
-	return jellyfinFound{summary: fmt.Sprintf("Jellyfin %s, at %s; its API key works; %d %s", v, url, n, libraries),
-		serverID: id}, nil
+	return jellyfinFound{summary: fmt.Sprintf("Jellyfin %s, at %s: Overfin's own; %d %s", found.Server.Version, url, n, libraries),
+		serverID: found.Server.ID}, nil
 }
 
 func fileExists(path string) bool {

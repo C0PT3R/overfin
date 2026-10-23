@@ -53,9 +53,9 @@ type Jellyfin interface {
 	// Jellyfin is the address in effect, and whether the configuration
 	// file sets it (then the panel can't change it).
 	Jellyfin() (url string, inFile bool)
-	// SetJellyfin tests and applies a new address or key (empty: keep
-	// it). Its error says what's wrong in plain words.
-	SetJellyfin(ctx context.Context, url, key string) (string, error)
+	// SetJellyfin tests and applies a new address for the same server.
+	// Its error says what's wrong in plain words.
+	SetJellyfin(ctx context.Context, url string) (string, error)
 }
 
 // Seerr is where the panel reads and changes Seerr's connection.
@@ -790,7 +790,6 @@ func (p *Panel) setJellyfin(w http.ResponseWriter, r *http.Request, s *session) 
 	}
 	var req struct {
 		URL string `json:"url"`
-		Key string `json:"key"`
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -798,7 +797,7 @@ func (p *Panel) setJellyfin(w http.ResponseWriter, r *http.Request, s *session) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a valid request"})
 		return
 	}
-	summary, err := p.Jellyfin.SetJellyfin(r.Context(), req.URL, req.Key)
+	summary, err := p.Jellyfin.SetJellyfin(r.Context(), req.URL)
 	if err != nil {
 		// What's wrong, in plain words: it carries no secrets, and only
 		// admins see it.

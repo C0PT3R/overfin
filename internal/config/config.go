@@ -61,8 +61,9 @@ type Config struct {
 
 type Jellyfin struct {
 	// URL is where Overfin reaches Jellyfin, e.g. "http://192.0.2.10:8096".
-	// Optional: without it (and without OVERFIN_JELLYFIN_ADMIN_KEY), the
-	// control panel's setup page asks for both, and the database keeps them.
+	// Optional: without it, the setup page asks for it, and the database
+	// keeps it. Either way, Overfin makes its own key on that Jellyfin and
+	// keeps it in the database (SECURITY.md rule 67).
 	URL string `toml:"url"`
 }
 
@@ -446,7 +447,9 @@ type Limits struct {
 }
 
 type Secrets struct {
-	// JellyfinAdminKey is used only for provisioning (SECURITY.md rule 3).
+	// JellyfinAdminKey is the key Overfin made on its Jellyfin (SECURITY.md
+	// rule 67), as the database keeps it; never from the environment. It's
+	// used only for provisioning and administration (rule 3).
 	JellyfinAdminKey string
 	// Key encrypts tokens and keys PIN hashes, cursors and log IDs. It's
 	// nil when none was given and KeyFile doesn't exist yet: Overfin then
@@ -576,12 +579,12 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 }
 
 func loadSecrets(s *Secrets, getenv func(string) string) error {
-	// Optional, with jellyfin.url: the setup page may ask for both.
-	adminKey, err := secret("OVERFIN_JELLYFIN_ADMIN_KEY", getenv)
-	if err != nil && !errors.Is(err, errMissing) {
-		return err
+	// Overfin makes its own key on its Jellyfin now: one given is refused,
+	// so nobody believes it's used.
+	if getenv("OVERFIN_JELLYFIN_ADMIN_KEY") != "" || getenv("OVERFIN_JELLYFIN_ADMIN_KEY_FILE") != "" {
+		return errors.New("OVERFIN_JELLYFIN_ADMIN_KEY isn't used anymore: Overfin makes its own key on its " +
+			"Jellyfin. Remove it; if that Jellyfin was set up by hand, hand it over on the setup page")
 	}
-	s.JellyfinAdminKey = adminKey
 
 	encoded, err := secret("OVERFIN_SECRET_KEY", getenv)
 	if errors.Is(err, errMissing) {
@@ -682,14 +685,8 @@ func (c *Config) validate() error {
 		add("listen must not be empty")
 	}
 
-	// Jellyfin is set here, both its address and its key, or in the setup
-	// page.
-	switch {
-	case c.Jellyfin.URL == "" && c.Secrets.JellyfinAdminKey != "":
-		add("OVERFIN_JELLYFIN_ADMIN_KEY is set but jellyfin.url isn't: set both, or neither and use the setup page")
-	case c.Jellyfin.URL != "" && c.Secrets.JellyfinAdminKey == "":
-		add("jellyfin.url is set but OVERFIN_JELLYFIN_ADMIN_KEY isn't: set both, or neither and use the setup page")
-	case c.Jellyfin.URL != "":
+	// Jellyfin's address is set here, or on the setup page.
+	if c.Jellyfin.URL != "" {
 		if err := CheckJellyfinURL(c.Jellyfin.URL); err != nil {
 			add("jellyfin.url: %v", err)
 		}

@@ -198,20 +198,17 @@ function jellyfinCard(j) {
   if (!j) return null;
   if (j.inFile) return inFileCard('Jellyfin', j.url);
   const url = h('input', { value: j.url, autocomplete: 'off', spellcheck: 'false' });
-  const key = h('input', { type: 'password', autocomplete: 'off', placeholder: 'Unchanged' });
   const st = status('Connected.');
   const save = h('button', { class: 'primary', type: 'button', onclick: () => busy(save, async () => {
     st.set('Testing…');
-    const out = await api('PUT', '/admin/api/jellyfin', { url: url.value, key: key.value });
+    const out = await api('PUT', '/admin/api/jellyfin', { url: url.value });
     url.value = out.url;
-    key.value = '';
     st.set(out.summary, 'ok');
     toast('Jellyfin saved.');
   }, (err) => st.set(err.message, 'error')) }, 'Test and save');
-  return card({ title: 'Jellyfin', badge: badge('Connected', 'ok'), description: 'Where your media lives. Overfin is the only one that talks to it.' },
+  return card({ title: 'Jellyfin', badge: badge('Connected', 'ok'), description: 'Overfin\'s own Jellyfin, where your media is read. Overfin is the only one that talks to it, with a key it made itself.' },
     h('div', { class: 'fields' },
-      field('Address', url, 'As Overfin reaches it; a new address for the same server. Not localhost: in a container, that\'s Overfin itself.', true),
-      field('API key', key, 'Only to replace it; empty keeps the current one.', true)),
+      field('Address', url, 'As Overfin reaches it; a new address for the same server. Not localhost: in a container, that\'s Overfin itself.', true)),
     [st, save]);
 }
 
