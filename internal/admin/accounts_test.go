@@ -227,3 +227,31 @@ func TestAllowHistoryCopy(t *testing.T) {
 		t.Error("the old account isn't free")
 	}
 }
+
+func TestLanguagesRoutes(t *testing.T) {
+	p, b, _, _ := signedInPanel(t)
+	changes := 0
+	p.OnLanguage = func() { changes++ }
+	if rec := b.do("GET", "/admin/api/languages", "", nil); !strings.Contains(rec.Body.String(), `"default":"en-US"`) ||
+		!strings.Contains(rec.Body.String(), `"tag":"fr-CA"`) {
+		t.Errorf("languages: %s", rec.Body)
+	}
+	for body, want := range map[string]string{
+		`{"offered":[],"default":"en-US"}`:                "at least one",
+		`{"offered":["fr-CA","xx-YY"],"default":"fr-CA"}`: "each once",
+		`{"offered":["fr-CA","fr-CA"],"default":"fr-CA"}`: "each once",
+		`{"offered":["fr-CA","en-US"],"default":"de-DE"}`: "one of those offered",
+	} {
+		if rec := b.do("PUT", "/admin/api/languages", body, nil); rec.Code != 400 || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	rec := b.do("PUT", "/admin/api/languages", `{"offered":["fr-CA","en-US"],"default":"fr-CA"}`, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"offered":["fr-CA","en-US"]`) || changes != 1 {
+		t.Errorf("saved: %d %s, changes %d", rec.Code, rec.Body, changes)
+	}
+	// Adding a language isn't a new default: nothing is fetched again.
+	if b.do("PUT", "/admin/api/languages", `{"offered":["fr-CA","en-US","es-ES"],"default":"fr-CA"}`, nil); changes != 1 {
+		t.Errorf("changes %d", changes)
+	}
+}

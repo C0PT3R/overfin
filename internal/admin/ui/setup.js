@@ -17,10 +17,27 @@ async function load() {
     // The defaults: Jellyfin only.
   }
   $('#jellyfin').hidden = !asks.jellyfin;
+  $('#language-field').hidden = !asks.languages;
+  if (asks.languages && !$('#language').options.length) {
+    for (const c of asks.languages) $('#language').append(new Option(c.name, c.tag));
+    $('#language').value = guessLanguage(asks.languages);
+  }
   $('#admin').hidden = !asks.admin;
   $('#url-field').hidden = !!asks.fixedUrl;
   $('#fixed').hidden = !asks.fixedUrl;
   $('#fixed').textContent = asks.fixedUrl ? `At ${asks.fixedUrl}, as Overfin's configuration file says.` : '';
+}
+
+// guessLanguage picks the browser's language among the choices: the same
+// tag, else the same language, else English (United States).
+function guessLanguage(choices) {
+  const tags = choices.map((c) => c.tag);
+  for (const want of navigator.languages || [navigator.language]) {
+    if (tags.includes(want)) return want;
+    const same = tags.find((t) => t.split('-')[0] === want.split('-')[0]);
+    if (same) return same;
+  }
+  return 'en-US';
 }
 
 // jellyfinStep shows what the server asks for next.
@@ -69,6 +86,7 @@ async function save() {
         code: $('#code').value, url: $('#url').value,
         jellyfinUsername: $('#jf-username').value, jellyfinPassword: $('#jf-password').value,
         confirm: shown && $('#dedicated').checked ? shown : '',
+        language: asks.languages ? $('#language').value : '',
         email: $('#email').value, password: $('#password').value,
       }),
     });

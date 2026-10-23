@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/overfin/server/internal/lang"
 	"github.com/overfin/server/internal/password"
 )
 
@@ -34,6 +35,9 @@ type Setup struct {
 	// FixedURL is Jellyfin's address when the configuration file sets it:
 	// the page doesn't ask for it then.
 	FixedURL string
+	// Language, when set, also asks for the default language (a
+	// lang.Choices tag), and saves it.
+	Language func(ctx context.Context, tag string) error
 	// FirstAdmin, when set, also asks for the first admin's email and
 	// password, and makes them (with the password's hash).
 	FirstAdmin func(ctx context.Context, email, passwordHash string) error
@@ -136,8 +140,11 @@ func (s *Setup) handler(public bool) http.Handler {
 	mux.HandleFunc("GET /admin/api/setup", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"jellyfin": s.Jellyfin != nil, "fixedUrl": s.FixedURL,
-			"admin": s.FirstAdmin != nil, "site": public})
+		out := map[string]any{"jellyfin": s.Jellyfin != nil, "fixedUrl": s.FixedURL, "admin": s.FirstAdmin != nil, "site": public}
+		if s.Language != nil {
+			out["languages"] = lang.Choices
+		}
+		writeJSON(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("POST /admin/api/setup", s.save)
 	return sameOrigin(headers(mux))
@@ -150,6 +157,7 @@ func (s *Setup) save(w http.ResponseWriter, r *http.Request) {
 		JellyfinUsername string `json:"jellyfinUsername"`
 		JellyfinPassword string `json:"jellyfinPassword"`
 		Confirm          string `json:"confirm"`
+		Language         string `json:"language"`
 		Email            string `json:"email"`
 		Password         string `json:"password"`
 	}
@@ -181,6 +189,10 @@ func (s *Setup) save(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": msg})
 	}
 	// Everything is checked before anything is saved.
+	if s.Language != nil && !lang.Offered(req.Language) {
+		unusable("Choose the default language.")
+		return
+	}
 	var email, hash string
 	if s.FirstAdmin != nil {
 		email = strings.TrimSpace(req.Email)
@@ -215,6 +227,14 @@ func (s *Setup) save(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Jellyfin = nil // Overfin's now: a retry only asks for the rest
 		summary = ans.Summary
+	}
+	if s.Language != nil {
+		if err := s.Language(r.Context(), req.Language); err != nil {
+			s.Logger.Error("setup page: saving the language failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Saving the language failed; Overfin's log says why."})
+			return
+		}
+		s.Language = nil
 	}
 	if s.FirstAdmin != nil {
 		if err := s.FirstAdmin(r.Context(), email, hash); err != nil {

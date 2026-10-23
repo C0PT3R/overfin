@@ -276,6 +276,14 @@ func run(logger *slog.Logger) error {
 				return ans, forPage(err)
 			}
 		}
+		if _, _, set, err := db.Languages(ctx); err != nil {
+			return err
+		} else if !set {
+			setup.Language = func(ctx context.Context, tag string) error {
+				_, err := db.SetLanguages(ctx, []string{tag}, tag)
+				return err
+			}
+		}
 		if !haveAdmin {
 			setup.FirstAdmin = func(ctx context.Context, email, hash string) error {
 				u, err := db.CreateUser(ctx, email, true)

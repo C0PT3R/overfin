@@ -206,3 +206,25 @@ func TestSetupFirstAdmin(t *testing.T) {
 		t.Errorf("admins %v, saved %v, done %d", admins, *saved, done)
 	}
 }
+
+// On a fresh server, the page asks the default language too.
+func TestSetupLanguage(t *testing.T) {
+	s, saved := newSetup()
+	var language string
+	s.Language = func(_ context.Context, tag string) error { language = tag; return nil }
+	h := s.Handler()
+	const local = "127.0.0.1:50000"
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/admin/api/setup", nil)
+	req.RemoteAddr = local
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `"tag":"fr-CA"`) {
+		t.Errorf("what it asks: %s", rec.Body)
+	}
+	if rec := post(h, local, `{"code":"K7QM-2XRP","url":"http://fresh:8096","language":"xx-YY"}`); rec.Code != 422 || len(*saved) != 0 {
+		t.Errorf("no language: %d, saved %v", rec.Code, *saved)
+	}
+	if rec := post(h, local, `{"code":"K7QM-2XRP","url":"http://fresh:8096","language":"fr-CA"}`); rec.Code != 200 || language != "fr-CA" {
+		t.Errorf("with one: %d %s, language %q", rec.Code, rec.Body, language)
+	}
+}

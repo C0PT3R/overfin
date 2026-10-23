@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -215,6 +214,8 @@ func (p *Panel) handler() http.Handler {
 	mux.HandleFunc("PUT /admin/api/ratings", p.signedIn(p.setRatings))
 	mux.HandleFunc("PUT /admin/api/jellyfin", p.signedIn(p.setJellyfin))
 	mux.HandleFunc("PUT /admin/api/jellyfin/access", p.signedIn(p.setJellyfinAccess))
+	mux.HandleFunc("GET /admin/api/languages", p.signedIn(p.languages))
+	mux.HandleFunc("PUT /admin/api/languages", p.signedIn(p.setLanguages))
 	mux.HandleFunc("GET /admin/api/transcoding", p.signedIn(p.transcoding))
 	mux.HandleFunc("POST /admin/api/transcoding/test", p.signedIn(p.testTranscoding))
 	mux.HandleFunc("GET /admin/api/transcoding/test", p.signedIn(p.transcodingTest))
@@ -682,8 +683,6 @@ func (p *Panel) setSeerr(w http.ResponseWriter, r *http.Request, s *session) {
 type ratingsJSON struct {
 	Country   string   `json:"country"`
 	Countries []string `json:"countries"`
-	// Language is the language TMDB's data comes in (ISO 639-1).
-	Language string `json:"language"`
 	// Shown is which titles no library has are shown: all, released,
 	// home (see store.TitlesShown).
 	Shown   string `json:"shown"`
@@ -704,9 +703,6 @@ func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
 	if out.Countries == nil {
 		out.Countries = []string{}
 	}
-	if out.Language, err = p.Store.TMDBLanguage(ctx); err != nil {
-		return out, err
-	}
 	if out.Shown, err = p.Store.TitlesShown(ctx); err != nil {
 		return out, err
 	}
@@ -724,20 +720,16 @@ func (p *Panel) ratings(w http.ResponseWriter, r *http.Request, s *session) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// languageCode is what an ISO 639-1 code looks like.
-var languageCode = regexp.MustCompile(`^[a-z]{2}$`)
-
 // titlesShown are the choices for which titles no library has are shown.
 var titlesShown = []string{"all", "released", "home"}
 
 // setRatings changes the ratings country, to one TMDB has scales for
-// (kids profiles' ceilings are cleared with it), TMDB's language, and which
-// titles no library has are shown.
+// (kids profiles' ceilings are cleared with it), and which titles no
+// library has are shown.
 func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 	var req struct {
-		Country  string `json:"country"`
-		Language string `json:"language"`
-		Shown    string `json:"shown"`
+		Country string `json:"country"`
+		Shown   string `json:"shown"`
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -760,35 +752,6 @@ func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 		if err != nil {
 			p.Logger.Error("changing the titles shown failed", "err", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
-			return
-		}
-	}
-	if req.Language != "" {
-		if !languageCode.MatchString(req.Language) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a language code"})
-			return
-		}
-		old, err := p.Store.TMDBLanguage(ctx)
-		if err == nil && old != req.Language {
-			if err = p.Store.SetTMDBLanguage(ctx, req.Language); err == nil {
-				p.Logger.Info("TMDB's language changed in the control panel", "language", req.Language, "by", s.name)
-				if p.OnLanguage != nil {
-					p.OnLanguage()
-				}
-			}
-		}
-		if err != nil {
-			p.Logger.Error("changing TMDB's language failed", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
-			return
-		}
-		if req.Country == "" {
-			out, err := p.ratingsState(ctx)
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
-				return
-			}
-			writeJSON(w, http.StatusOK, out)
 			return
 		}
 	}

@@ -293,16 +293,17 @@ function folderPicker(pick, close) {
 
 // serverView: what Overfin connects to, each part tested before it's saved.
 async function serverView() {
-  const [jellyfin, transcoding, mail, catalog, seerr, ratings] = await Promise.all([
+  const [jellyfin, transcoding, mail, catalog, seerr, ratings, languages] = await Promise.all([
     api('GET', '/admin/api/jellyfin').catch(() => null),
     api('GET', '/admin/api/transcoding').catch(() => null),
     api('GET', '/admin/api/mail').catch(() => null),
     api('GET', '/admin/api/catalog').catch(() => null),
     api('GET', '/admin/api/seerr').catch(() => null),
     api('GET', '/admin/api/ratings').catch(() => null),
+    api('GET', '/admin/api/languages').catch(() => null),
   ]);
   show(pageHead('Server', 'What Overfin connects to. Every change is tested before it\'s saved, and applies at once.'),
-    h('div', { class: 'cards' }, jellyfinCard(jellyfin), transcodingCard(transcoding), catalogCard(catalog), mailCard(mail), seerrCard(seerr), tmdbCard(ratings)));
+    h('div', { class: 'cards' }, jellyfinCard(jellyfin), transcodingCard(transcoding), catalogCard(catalog), mailCard(mail), seerrCard(seerr), languagesCard(languages), tmdbCard(ratings)));
 }
 
 function inFileCard(title, text) {
@@ -531,6 +532,41 @@ function seerrCard(sr) {
 
 // TMDB: the ratings country kids profiles are held to, the language, and
 // which titles not in the libraries are shown.
+// languagesCard: the languages offered (each account picks one when there
+// are several) and the default, for new accounts and before sign-in.
+function languagesCard(l) {
+  if (!l) return null;
+  const st = status('');
+  const def = h('select', { 'aria-label': 'Default language' });
+  const boxes = l.choices.map((c) => {
+    const box = h('input', { type: 'checkbox', value: c.tag, 'aria-label': c.name });
+    box.checked = l.offered.includes(c.tag);
+    box.addEventListener('change', () => drawDefault());
+    return [c, box];
+  });
+  const drawDefault = () => {
+    const keep = def.value || l.default;
+    const offered = boxes.filter(([, b]) => b.checked);
+    fill(def, offered.map(([c]) => h('option', { value: c.tag }, c.name)));
+    def.value = offered.some(([c]) => c.tag === keep) ? keep : (offered[0]?.[0].tag || '');
+  };
+  drawDefault();
+  def.value = l.default;
+  const save = h('button', { class: 'primary', type: 'button', onclick: () => busy(save, async () => {
+    const offered = boxes.filter(([, b]) => b.checked).map(([c]) => c.tag);
+    const changed = def.value !== l.default;
+    if (changed && !confirm('Titles\' texts and artwork are fetched again in the new default language. Change it?')) return;
+    const out = await api('PUT', '/admin/api/languages', { offered, default: def.value });
+    Object.assign(l, out);
+    st.set('Saved.', 'ok');
+    toast('Languages saved.');
+  }, (err) => st.set(err.message, 'error')) }, 'Save');
+  return card({ title: 'Languages', description: 'Of the site, titles and emails. With several, each account picks its own.' },
+    [setting('Default language', 'For new accounts, and before signing in.', def),
+      h('div', { class: 'checks' }, boxes.map(([c, box]) => h('label', { class: 'inline' }, box, c.name)))],
+    [st, save]);
+}
+
 function tmdbCard(rt) {
   if (!rt) return null;
   let names = null;
@@ -541,13 +577,6 @@ function tmdbCard(rt) {
     .sort((a, b) => a[1].localeCompare(b[1]))
     .map(([cc, label]) => h('option', { value: cc }, label)));
   country.value = rt.country;
-  let langNames = null;
-  try { langNames = new Intl.DisplayNames([navigator.language, 'en'], { type: 'language' }); } catch { langNames = null; }
-  const languages = ['ar', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'he', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'nl', 'no',
-    'pl', 'pt', 'ro', 'ru', 'sv', 'th', 'tr', 'uk', 'vi', 'zh'];
-  if (!languages.includes(rt.language)) languages.push(rt.language);
-  const lang = h('select', {}, languages.map((l) => h('option', { value: l }, `${(langNames && langNames.of(l)) || l} (${l})`)));
-  lang.value = rt.language;
   const shown = h('select', {}, [['all', 'All, announced ones too'], ['released', 'Released, in theatres too'],
     ['home', 'Watchable at home']].map(([v, t]) => h('option', { value: v }, t)));
   shown.value = rt.shown;
@@ -559,14 +588,14 @@ function tmdbCard(rt) {
   const st = status('');
   st.set(...describe(rt));
   const save = h('button', { class: 'primary', type: 'button', disabled: !rt.countries.length, onclick: () => busy(save, async () => {
-    if (country.value === rt.country && lang.value === rt.language && shown.value === rt.shown) return;
+    if (country.value === rt.country && shown.value === rt.shown) return;
     if (country.value !== rt.country &&
       !confirm('Every kids profile will need new limits from its account\'s owner, and sees nothing until then. Change the country?')) {
       country.value = rt.country;
       return;
     }
-    const out = await api('PUT', '/admin/api/ratings', { country: country.value, language: lang.value, shown: shown.value });
-    Object.assign(rt, { country: out.country, language: out.language, shown: out.shown });
+    const out = await api('PUT', '/admin/api/ratings', { country: country.value, shown: shown.value });
+    Object.assign(rt, { country: out.country, shown: out.shown });
     st.set(...describe(out));
     toast('TMDB settings saved.');
   }, (err) => st.set(err.message, 'error')) }, 'Save');
@@ -574,7 +603,6 @@ function tmdbCard(rt) {
     description: 'Where titles, artwork and ratings come from.' },
   [
     setting('Ratings country', 'Kids profiles\' limits use this country\'s ratings. A title with none there is hidden from them.', country),
-    setting('Language', 'Of titles, descriptions and the text on artwork, when TMDB has them in it.', lang),
     setting('Titles shown', 'Of those no library has, in discovery and requests. A title a library has is always shown.', shown),
   ],
   [st, save]);

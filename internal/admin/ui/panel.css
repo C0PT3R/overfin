@@ -320,6 +320,7 @@ td.actions button + button { margin-left: .35rem; }
 .box { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-s); padding: .85rem 1rem; }
 .box + .box { margin-top: .6rem; }
 .actions-row { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0 1rem; margin-top: .4rem; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .85rem; overflow-wrap: anywhere; }
 .box .row { display: flex; gap: .5rem; flex-wrap: wrap; }
 .box .row input { flex: 1; min-width: 12rem; }
