@@ -282,14 +282,16 @@ comes from the internet, and media files can be written by anyone.
 56. Counts (`totalCount`) only include what the active profile may see, so
     hidden items never show up as a number.
 57. What's trending, popular or upcoming, titles' details and their
-    certifications are asked of TMDB by the server, with the Overfin
-    project's own key (or of Seerr, which asks TMDB, when TMDB itself isn't
+    certifications are asked of TMDB by the server, with the operator's own
+    read access token (or of Seerr, which asks TMDB, when TMDB itself isn't
     there), and their posters of TMDB's image server. Nothing about who's
-    asking is sent; browsers never contact Seerr or TMDB (rule 43). The
-    project's key is public, as Jellyfin's and Seerr's are, and grants reading
-    only; Seerr's API key is kept sealed, like every token. TMDB's data is kept
-    as its terms allow: five months at most without being fetched again, and
-    deleted entirely when its only source (Seerr) is disconnected.
+    asking is sent; browsers never contact Seerr or TMDB (rule 43). No token
+    is shipped with Overfin: each server uses its own. It's kept sealed like
+    every token (or given in the environment), and sent only to TMDB, as a
+    bearer header, never in a URL; Seerr's API key is kept sealed too.
+    TMDB's data is kept as its terms allow: five months at most without
+    being fetched again, and deleted entirely when its last source is
+    removed.
 
 ### Administration
 58. Overfin's administration, its built-in control panel, is apart from the
