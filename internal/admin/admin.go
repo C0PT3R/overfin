@@ -802,11 +802,17 @@ func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 		return
 	}
 	ctx := r.Context()
+	// Everything checked before anything is saved: a refusal changes nothing.
+	countries, err := p.Store.RatingCountries(ctx)
+	if err == nil && !slices.Contains(countries, req.Country) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "TMDB has no ratings for this country"})
+		return
+	}
+	if req.Shown != "" && !slices.Contains(titlesShown, req.Shown) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a choice for the titles shown"})
+		return
+	}
 	if req.Shown != "" {
-		if !slices.Contains(titlesShown, req.Shown) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "not a choice for the titles shown"})
-			return
-		}
 		old, err := p.Store.TitlesShown(ctx)
 		if err == nil && old != req.Shown {
 			if err = p.Store.SetTitlesShown(ctx, req.Shown); err == nil {
@@ -831,11 +837,6 @@ func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
 			return
 		}
-	}
-	countries, err := p.Store.RatingCountries(ctx)
-	if err == nil && !slices.Contains(countries, req.Country) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"type": "invalid-request", "detail": "TMDB has no ratings for this country"})
-		return
 	}
 	if err == nil {
 		err = p.Store.SetRatingsCountry(ctx, req.Country)

@@ -83,6 +83,11 @@ func TestAccounts(t *testing.T) {
 			t.Errorf("%s: %d", bad, rec.Code)
 		}
 	}
+	// A refused change changes nothing, its valid parts included.
+	b.do("PATCH", "/admin/api/accounts/"+acct.ID, `{"label":"Robert","templateId":"tmpl_nope"}`, nil)
+	if a, _ := db.AccountByID(ctx, acct.ID); a.Label != "Bob" {
+		t.Errorf("half applied: %q", a.Label)
+	}
 	b.do("PATCH", "/admin/api/accounts/"+acct.ID, `{"expiresAt":"","disabled":true}`, nil)
 	if a, _ := db.AccountByID(ctx, acct.ID); !a.Disabled || !a.Expires.IsZero() {
 		t.Errorf("after disabling and clearing the expiry: %+v", a)

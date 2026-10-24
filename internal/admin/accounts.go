@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -183,6 +184,19 @@ func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, s *session
 	if c.Disabled != nil && *c.Disabled && p.own(ctx, a, s) {
 		invalid(w, "You can't disable your own account: you'd lose the control panel. Another admin can.")
 		return
+	}
+	// The template checked before anything is saved: a refusal changes
+	// nothing.
+	if c.TemplateID != nil {
+		ts, err := p.Store.Templates(ctx)
+		if err != nil {
+			p.fail(w, "changing an account", err)
+			return
+		}
+		if !slices.ContainsFunc(ts, func(t *store.Template) bool { return t.ID == *c.TemplateID }) {
+			invalid(w, "no such template")
+			return
+		}
 	}
 	if c.Label != nil {
 		err = errors.Join(err, p.Store.SetAccountLabel(ctx, a.ID, *c.Label))
