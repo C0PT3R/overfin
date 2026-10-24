@@ -10,7 +10,7 @@ import (
 
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
-	"github.com/overfin/server/internal/keys"
+	"github.com/overfin/server/internal/password"
 	"github.com/overfin/server/internal/seal"
 	"github.com/overfin/server/internal/store"
 )
@@ -19,7 +19,7 @@ type fakeDirectory map[string]connector.Person
 
 func (d fakeDirectory) People(context.Context) (map[string]connector.Person, error) { return d, nil }
 
-func TestImportPeopleAndSigninLink(t *testing.T) {
+func TestImportPeopleAndSetPassword(t *testing.T) {
 	ctx := context.Background()
 	box, _ := seal.New(bytes.Repeat([]byte{7}, 32))
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "t.db"), box)
@@ -56,14 +56,19 @@ func TestImportPeopleAndSigninLink(t *testing.T) {
 		t.Errorf("a disabled person was imported: %v", err)
 	}
 
-	k, _ := keys.Derive(bytes.Repeat([]byte{8}, 32))
-	cfg := &config.Config{Identity: config.Identity{Mode: "managed"}, Site: config.Site{URL: "https://media.example.org"}}
+	// A locked-out admin sets a new password from the terminal.
+	cfg := &config.Config{Identity: config.Identity{Mode: "managed"}}
 	out.Reset()
-	if err := signinLink(ctx, cfg, db, k, "ann@example.org", &out); err != nil ||
-		!strings.Contains(out.String(), "https://media.example.org/api/v1/signin#link=") {
-		t.Errorf("link: %v %s", err, out.String())
+	if err := setPassword(ctx, cfg, db, "ann@example.org", strings.NewReader("too short\n"), &out); err == nil {
+		t.Error("a password against the rules")
 	}
-	if err := signinLink(ctx, cfg, db, k, "nobody@example.org", &out); err == nil {
-		t.Error("a link for nobody")
+	if err := setPassword(ctx, cfg, db, "ann@example.org", strings.NewReader("a new one, 2026!\n"), &out); err != nil {
+		t.Errorf("new password: %v %s", err, out.String())
+	}
+	if ann, _ := db.UserByEmail(ctx, "ann@example.org"); !password.Check(ann.PasswordHash, "a new one, 2026!") {
+		t.Error("Ann's password wasn't set")
+	}
+	if err := setPassword(ctx, cfg, db, "nobody@example.org", strings.NewReader("a new one, 2026!\n"), &out); err == nil {
+		t.Error("a password for nobody")
 	}
 }

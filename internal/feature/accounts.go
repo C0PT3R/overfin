@@ -67,3 +67,21 @@ type AccountTemplate struct {
 	MaxStreams  int
 	MaxProfiles int
 }
+
+// Admitted reports, in an AccountGate's methods, whether Overfin's own
+// sign-in already let the person in (an admin made them, or they
+// registered with an invitation): no invitation is required then.
+func Admitted(ctx context.Context) bool { return creation.IsAdmitted(ctx) }
+
+// InviteCookie carries an opened invitation's code to the account's
+// creation (a base name, as package cookie takes it).
+const InviteCookie = "overfin-invite"
+
+// Inviter is implemented by the module that keeps invitations: the core
+// serves their pages (/invite/{code}) and asks it about a code.
+type Inviter interface {
+	// Invitation says whether code opens an invitation that still works,
+	// and, with an identity provider that makes them, its sign-up link
+	// there ("" otherwise).
+	Invitation(ctx context.Context, h Host, code string) (ok bool, signUp string, err error)
+}

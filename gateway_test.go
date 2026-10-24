@@ -93,24 +93,24 @@ func TestReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The library is always on; invites are off until switched on.
+	// The library is always on; migration is off until switched on.
 	if code := status(g, "/api/v1/libraries"); code != 401 {
 		t.Fatalf("library: %d", code)
 	}
-	if switchedOn(g, "invites") {
-		t.Fatal("invites on before switching them on")
+	if switchedOn(g, "migration") {
+		t.Fatal("migration on before switching it on")
 	}
 
-	// The panel switches invites on: it applies at once, and is saved.
+	// The panel switches migration on: it applies at once, and is saved.
 	f := g.Features()
-	f.Plugins.Enable = []string{"invites"}
+	f.Plugins.Enable = []string{"migration"}
 	if err := g.SetFeatures(context.Background(), f); err != nil {
 		t.Fatalf("set features: %v", err)
 	}
-	if !switchedOn(g, "invites") {
-		t.Fatal("invites off after switching them on")
+	if !switchedOn(g, "migration") {
+		t.Fatal("migration off after switching it on")
 	}
-	if raw, _, _ := db.Features(context.Background()); !strings.Contains(string(raw), `"invites"`) {
+	if raw, _, _ := db.Features(context.Background()); !strings.Contains(string(raw), `"migration"`) {
 		t.Errorf("not saved: %s", raw)
 	}
 	// Invalid settings change nothing.
@@ -118,7 +118,7 @@ func TestReload(t *testing.T) {
 	if err := g.SetFeatures(context.Background(), f); err == nil {
 		t.Error("invalid features accepted")
 	}
-	if !switchedOn(g, "invites") {
+	if !switchedOn(g, "migration") {
 		t.Error("running settings lost")
 	}
 
@@ -128,7 +128,7 @@ func TestReload(t *testing.T) {
 	if err := g.reload(env("a")); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if !switchedOn(g, "invites") {
+	if !switchedOn(g, "migration") {
 		t.Error("the file overrode the panel")
 	}
 
@@ -145,7 +145,7 @@ func TestReload(t *testing.T) {
 		if err := g.reload(env("a")); err == nil {
 			t.Errorf("%s: reloaded", name)
 		}
-		if !switchedOn(g, "invites") {
+		if !switchedOn(g, "migration") {
 			t.Errorf("%s: running configuration lost", name)
 		}
 	}

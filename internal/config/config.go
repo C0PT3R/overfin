@@ -174,7 +174,7 @@ type Plugins struct {
 // AlwaysOn are the features every Overfin has. They can't be switched off,
 // and listing them in plugins.enable, as older settings do, changes
 // nothing.
-var AlwaysOn = []string{"library", "playback", "watchlist"}
+var AlwaysOn = []string{"library", "playback", "watchlist", "invites"}
 
 // KnownPlugins are Overfin's features, and what each one needs on with it.
 // The features built on the feature contract add themselves with

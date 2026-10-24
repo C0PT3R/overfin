@@ -1,12 +1,16 @@
 // Package invites is the invites module: links that let people set up an
-// account, made in the control panel from invite templates.
+// account (https://site/invite/<code>), made in the control panel from
+// invite templates, for a number of people or any number, until a date or
+// with no end.
 //
-// Someone opens their invitation link, which leaves a cookie in their
-// browser and sends them on to log in; when their account is set up, the
-// invitation shapes it (its account template, when its access ends, a label)
-// and counts as used. With "accounts only by invitation" on, nobody gets an
-// account without one, except people bringing their previous account over,
-// whose old account is proof enough, and the site's admins.
+// The core serves the link's page and asks this module whether its code
+// works (Invitation); the page leaves the code in a cookie. When the
+// person's account is set up, the invitation shapes it (its account
+// template, when its access ends, a label) and counts as used. With
+// "accounts only by invitation" on, nobody gets an account without one,
+// except people bringing their previous account over, whose old account is
+// proof enough, the site's admins, and people Overfin's own sign-in let in
+// (an admin made them, or they registered with an invitation).
 package invites
 
 import (
@@ -36,7 +40,7 @@ import (
 var files embed.FS
 
 // cookieName carries an opened invitation's code to the account's creation.
-const cookieName = "overfin-invite" // a base name (package cookie)
+const cookieName = feature.InviteCookie
 
 // codePattern is a code's form: 16 random bytes, base64url.
 var codePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
@@ -62,10 +66,6 @@ func (Feature) Info() feature.Info {
 
 func (Feature) Setup(h feature.Host) error {
 	a := admin{h: h, db: h.DB()}
-	// Links look like https://site/api/v1/invite/<code>.
-	if err := h.HandleLink("GET /api/v1/invite/{code}", a.open); err != nil {
-		return err
-	}
 	for pattern, fn := range map[string]http.HandlerFunc{
 		"GET /account-templates": a.accountTemplates,
 		"GET /templates":         a.templates,
@@ -85,38 +85,18 @@ func (Feature) Setup(h feature.Host) error {
 
 // ---- The link and the account gate ------------------------------------------
 
-// open is where an invitation link leads: it keeps the code in a cookie and
-// sends the person on to make their account at the identity provider, or to
-// the site, which has them log in.
-func (a admin) open(w http.ResponseWriter, r *http.Request) {
-	code := r.PathValue("code")
-	inv, err := usable(r.Context(), a.db, code)
+// Invitation says whether code opens an invitation that still works, and
+// its sign-up link at an identity provider that makes them.
+func (Feature) Invitation(ctx context.Context, h feature.Host, code string) (bool, string, error) {
+	inv, err := usable(ctx, h.DB(), code)
+	if err != nil || inv == nil {
+		return false, "", err
+	}
+	link, err := (admin{h: h, db: h.DB()}).signUpLink(ctx, inv)
 	if err != nil {
-		a.h.Logger().Error("reading an invitation failed", "err", err)
-		http.Error(w, "Something went wrong; please try again later.", http.StatusInternalServerError)
-		return
+		h.Logger().Error("getting the invitation's sign-up link failed", "err", err)
 	}
-	if inv == nil {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("This invitation has expired or has already been used. Ask the person who sent it for a new one.\n"))
-		return
-	}
-	cookie.Set(w, r, &http.Cookie{
-		Name: cookieName, Value: code, MaxAge: 24 * 60 * 60,
-		// Lax: it must survive the trip through the identity provider.
-		SameSite: http.SameSiteLaxMode,
-	})
-	// Where the identity provider makes sign-up links, the person goes
-	// there to make their account first.
-	link, err := a.signUpLink(r.Context(), inv)
-	if err != nil {
-		a.h.Logger().Error("getting the invitation's sign-up link failed; sending the person to log in", "err", err)
-	}
-	if link == "" {
-		link = "/"
-	}
-	http.Redirect(w, r, link, http.StatusSeeOther)
+	return true, link, nil
 }
 
 // signUps keeps two people opening the same invitation at once from
@@ -132,7 +112,14 @@ func (a admin) signUpLink(ctx context.Context, inv *invite) (string, error) {
 	if err := a.db.QueryRowContext(ctx, `SELECT signup_token_id FROM invites WHERE id = ?`, inv.ID).Scan(&previous); err != nil {
 		return "", err
 	}
-	link, id, err := a.h.SignUpLink(ctx, previous, inv.MaxUses-inv.Uses, time.Unix(inv.expires, 0))
+	uses, until := inv.MaxUses-inv.Uses, time.Unix(inv.expires, 0)
+	if inv.MaxUses == 0 {
+		uses = 1000 // any number: as many as a provider's link allows
+	}
+	if inv.expires == 0 {
+		until = time.Now().AddDate(1, 0, 0) // no end: a year at a time
+	}
+	link, id, err := a.h.SignUpLink(ctx, previous, uses, until)
 	if err != nil {
 		return "", err
 	}
@@ -164,7 +151,7 @@ func (Feature) NewAccount(ctx context.Context, h feature.Host, r *http.Request) 
 		}
 	}
 	if inv == nil {
-		if h.Setting("required") == "on" && !feature.Adopting(ctx) && !feature.Admin(ctx) {
+		if h.Setting("required") == "on" && !feature.Adopting(ctx) && !feature.Admin(ctx) && !feature.Admitted(ctx) {
 			return nil, &feature.Refusal{Type: feature.InvitationRequired}
 		}
 		return nil, nil
@@ -185,8 +172,8 @@ func (Feature) AccountCreated(ctx context.Context, h feature.Host, _ *http.Reque
 	res, err := h.DB().ExecContext(ctx, `
 		INSERT INTO invites_uses (invite_id, account_id, used_at)
 		SELECT id, ?, ? FROM invites
-		WHERE id = ? AND expires_at > ?
-			AND (SELECT count(*) FROM invites_uses WHERE invite_id = invites.id) < max_uses`,
+		WHERE id = ? AND (expires_at = 0 OR expires_at > ?)
+			AND (max_uses = 0 OR (SELECT count(*) FROM invites_uses WHERE invite_id = invites.id) < max_uses)`,
 		accountID, time.Now().Unix(), plan.Ref, time.Now().Unix())
 	if err != nil {
 		return err
@@ -212,11 +199,12 @@ type invite struct {
 	Label           string `json:"label"`
 	AccountTemplate string `json:"accountTemplate"`
 	AccessDays      int    `json:"accessDays"`
-	MaxUses         int    `json:"maxUses"`
-	Uses            int    `json:"uses"`
-	ExpiresAt       string `json:"expiresAt"`
-	CreatedAt       string `json:"createdAt"`
-	expires         int64
+	// MaxUses is 0 for any number of people; ExpiresAt is "" for no end.
+	MaxUses   int    `json:"maxUses"`
+	Uses      int    `json:"uses"`
+	ExpiresAt string `json:"expiresAt"`
+	CreatedAt string `json:"createdAt"`
+	expires   int64
 }
 
 const inviteColumns = `id, label, account_template, access_days, max_uses,
@@ -229,7 +217,9 @@ func scanInvite(sc interface{ Scan(...any) error }) (*invite, error) {
 		&inv.expires, &created); err != nil {
 		return nil, err
 	}
-	inv.ExpiresAt = time.Unix(inv.expires, 0).UTC().Format(time.RFC3339)
+	if inv.expires != 0 {
+		inv.ExpiresAt = time.Unix(inv.expires, 0).UTC().Format(time.RFC3339)
+	}
 	inv.CreatedAt = time.Unix(created, 0).UTC().Format(time.RFC3339)
 	return &inv, nil
 }
@@ -247,7 +237,7 @@ func usable(ctx context.Context, db *sql.DB, code string) (*invite, error) {
 	if err != nil {
 		return nil, err
 	}
-	if inv.expires <= time.Now().Unix() || inv.Uses >= inv.MaxUses {
+	if (inv.expires != 0 && inv.expires <= time.Now().Unix()) || (inv.MaxUses != 0 && inv.Uses >= inv.MaxUses) {
 		return nil, nil
 	}
 	return inv, nil
@@ -307,8 +297,10 @@ type template struct {
 	Name            string `json:"name"`
 	AccountTemplate string `json:"accountTemplate"`
 	AccessDays      int    `json:"accessDays"`
-	ValidDays       int    `json:"validDays"`
-	MaxUses         int    `json:"maxUses"`
+	// ValidDays is 0 for links with no end; MaxUses, 0 for any number of
+	// people.
+	ValidDays int `json:"validDays"`
+	MaxUses   int `json:"maxUses"`
 }
 
 func (a admin) templates(w http.ResponseWriter, r *http.Request) {
@@ -356,11 +348,11 @@ func (a admin) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	case t.AccessDays < 0 || t.AccessDays > 3650:
 		feature.Problem(w, feature.InvalidRequest, "access: 0 (no end) to 3650 days")
 		return
-	case t.ValidDays < 1 || t.ValidDays > 365:
-		feature.Problem(w, feature.InvalidRequest, "a link works 1 to 365 days")
+	case t.ValidDays < 0 || t.ValidDays > 3650:
+		feature.Problem(w, feature.InvalidRequest, "a link works 1 to 3650 days, or 0 for no end")
 		return
-	case t.MaxUses < 1 || t.MaxUses > 1000:
-		feature.Problem(w, feature.InvalidRequest, "uses: 1 to 1000")
+	case t.MaxUses < 0 || t.MaxUses > 100000:
+		feature.Problem(w, feature.InvalidRequest, "uses: 1 to 100000, or 0 for any number")
 		return
 	}
 	if id := r.PathValue("id"); id != "" {
@@ -452,11 +444,15 @@ func (a admin) createInvite(w http.ResponseWriter, r *http.Request) {
 	code := newCode()
 	now := time.Now()
 	id := newID("inv_")
+	expires := int64(0) // no end
+	if t.ValidDays > 0 {
+		expires = now.AddDate(0, 0, t.ValidDays).Unix()
+	}
 	if _, err := a.db.ExecContext(r.Context(), `
 		INSERT INTO invites (id, code_hash, label, account_template, access_days, max_uses, expires_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, hash(code), req.Label, t.AccountTemplate, t.AccessDays, t.MaxUses,
-		now.AddDate(0, 0, t.ValidDays).Unix(), now.Unix()); err != nil {
+		expires, now.Unix()); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -465,7 +461,7 @@ func (a admin) createInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	feature.JSON(w, map[string]any{"invite": inv, "link": a.h.SiteURL() + "/api/v1/invite/" + code})
+	feature.JSON(w, map[string]any{"invite": inv, "link": a.h.SiteURL() + "/invite/" + code})
 }
 
 func (a admin) deleteInvite(w http.ResponseWriter, r *http.Request) {

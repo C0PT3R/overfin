@@ -143,7 +143,6 @@ export class Overfin {
   /** Sets or changes the password; needs a fresh login (step-up). Other browsers sign in again. */
   setPassword(password) { return this.request('PUT', '/me/password', { password }); }
   /** Removes the password, when codes can come by email; needs a fresh login (step-up). */
-  removePassword() { return this.request('DELETE', '/me/password'); }
 
   // ---- Profiles ----------------------------------------------------------
 

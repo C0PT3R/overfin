@@ -36,6 +36,10 @@ type Account struct {
 	// Mounts are the modules switched on, for their say in creating
 	// accounts and their part of "Download my data".
 	Mounts []Mount
+	// AskFirst has the first visit set the account up (POST /me): its
+	// owner names their profile, and may give it a PIN, before it exists.
+	// Otherwise, with nothing else on offer, the first visit makes it.
+	AskFirst bool
 }
 
 func (Account) Name() string { return "account" }
@@ -89,7 +93,7 @@ type meJSON struct {
 
 func (a Account) me(w http.ResponseWriter, r *http.Request) {
 	id, _ := identity.FromContext(r.Context()) // the registrar guarantees one
-	if len(a.Sessions.SetupOffers) == 0 {
+	if len(a.Sessions.SetupOffers) == 0 && !a.AskFirst {
 		// With nothing else on offer, the first visit creates the account.
 		if _, _, err := a.Provisioner.Ensure(r.Context(), id, creationHooks(r, a.Mounts, a.Provisioner)); err != nil {
 			a.respond(w, r, nil, nil, err, http.StatusOK)

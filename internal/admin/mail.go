@@ -8,7 +8,7 @@ import (
 	"github.com/overfin/server/internal/config"
 )
 
-// Mail is where the panel reads and changes the SMTP server sign-in codes
+// Mail is where the panel reads and changes the SMTP server Overfin's emails
 // go through.
 type Mail interface {
 	// Mail is the SMTP server's settings, whether it has a password, and

@@ -48,15 +48,8 @@ func TestInvites(t *testing.T) {
 		return res.StatusCode, string(b)
 	}
 	// open follows an invitation link, as someone not logged in yet.
-	noFollow := &http.Client{Transport: srv.Client().Transport,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	open := func(link string) *http.Response {
-		res, err := noFollow.Get(srv.URL + link)
-		if err != nil {
-			t.Fatal(err)
-		}
-		res.Body.Close()
-		return res
+	open := func(link string) (*http.Response, string) {
+		return openInvitation(t, srv, link)
 	}
 
 	// Without an invitation, no account.
@@ -82,23 +75,25 @@ func TestInvites(t *testing.T) {
 	code, made := admin("POST", "/invites", map[string]any{"template": it["id"], "label": "Bob"})
 	full, _ := made["link"].(string)
 	link := strings.TrimPrefix(full, "https://media.example.org")
-	if code != 200 || !strings.HasPrefix(full, "https://media.example.org/api/v1/invite/") {
+	if code != 200 || !strings.HasPrefix(full, "https://media.example.org/invite/") {
 		t.Fatalf("invitation: %d %v", code, made)
 	}
 
-	// The link leaves a cookie and leads to the site.
-	res := open(link)
+	// The link's page says so, leaves a cookie and leads to the site.
+	res, page := open(link)
 	var cookie *http.Cookie
 	for _, c := range res.Cookies() {
 		if c.Name == "__Host-overfin-invite" {
 			cookie = c
 		}
 	}
-	if res.StatusCode != 303 || res.Header.Get("Location") != "/" || cookie == nil || !cookie.HttpOnly || !cookie.Secure {
-		t.Fatalf("opening the link: %d %v", res.StatusCode, res.Header)
+	if res.StatusCode != 200 || continueTo(page) != "/" || !strings.Contains(page, "invited to join") ||
+		cookie == nil || !cookie.HttpOnly || !cookie.Secure {
+		t.Fatalf("opening the link: %d %v\n%s", res.StatusCode, res.Header, page)
 	}
-	if res := open("/api/v1/invite/AAAAAAAAAAAAAAAAAAAAAA"); res.StatusCode != 404 {
-		t.Errorf("a made-up code: %d", res.StatusCode)
+	if res, page := open("/invite/AAAAAAAAAAAAAAAAAAAAAA"); res.StatusCode != 200 || !strings.Contains(page, "isn&#39;t valid") ||
+		len(res.Cookies()) != 0 {
+		t.Errorf("a made-up code: %d %s", res.StatusCode, page)
 	}
 
 	if code, body := as("bob", "POST", "/api/v1/me", "{}", cookie); code != 201 {
@@ -108,8 +103,8 @@ func TestInvites(t *testing.T) {
 	if code, body := as("eve", "POST", "/api/v1/me", "{}", cookie); code != 403 || !strings.Contains(body, "invitation-required") {
 		t.Errorf("reusing it: %d %s", code, body)
 	}
-	if res := open(link); res.StatusCode != 404 {
-		t.Errorf("used link: %d", res.StatusCode)
+	if _, page := open(link); !strings.Contains(page, "isn&#39;t valid") {
+		t.Errorf("used link: %s", page)
 	}
 	_, list := admin("GET", "/invites", nil)
 	items, _ := list["items"].([]any)
@@ -154,15 +149,9 @@ func TestInviteSignUpLinks(t *testing.T) {
 		"accessDays": 0, "validDays": 10, "maxUses": 3})
 	full, _ := admin("POST", "/invites", map[string]any{"template": it["id"], "label": "Them"})["link"].(string)
 	link := strings.TrimPrefix(full, "https://media.example.org")
-	noFollow := &http.Client{Transport: srv.Client().Transport,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	open := func() string {
-		res, err := noFollow.Get(srv.URL + link)
-		if err != nil {
-			t.Fatal(err)
-		}
-		res.Body.Close()
-		return res.Header.Get("Location")
+		_, page := openInvitation(t, srv, link)
+		return continueTo(page)
 	}
 	if to := open(); to != "https://auth.example.org/st/tok1" {
 		t.Errorf("first opening: to %q", to)
@@ -203,4 +192,29 @@ func TestInvitesAdminsNeedNone(t *testing.T) {
 	if code, body := as("boss", "friends|site-admins"); code != 201 {
 		t.Errorf("an admin: %d %s", code, body)
 	}
+}
+
+// openInvitation opens an invitation's link, as someone not signed in
+// yet, in English: its answer and its page.
+func openInvitation(t *testing.T, srv *httptest.Server, link string) (*http.Response, string) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", srv.URL+link, nil)
+	req.Header.Set("Accept-Language", "en")
+	res, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res, string(b)
+}
+
+// continueTo is where an invitation's page leads on.
+func continueTo(page string) string {
+	_, after, ok := strings.Cut(page, `<a class="button primary" href="`)
+	if !ok {
+		return ""
+	}
+	to, _, _ := strings.Cut(after, `"`)
+	return strings.ReplaceAll(to, "&amp;", "&")
 }

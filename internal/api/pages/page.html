@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{if eq .P.Mode "invite" "invited"}}{{.InviteTitle}}{{else if eq .P.Mode "fresh"}}{{.T.freshTitle}}{{else if eq .P.Mode "change" "reset-new"}}{{.T.changeTitle}}{{else if eq .P.Mode "reset"}}{{.T.resetTitle}}{{else}}{{.T.title}}{{end}} · {{.Name}}</title>
+<link rel="icon" href="{{.Icon}}">
+<link rel="stylesheet" href="/api/v1/theme.css">
+<link rel="stylesheet" href="{{.CSS}}">
+<script src="{{.JS}}" defer></script>
+</head>
+<body data-mode="{{.P.Mode}}" data-return="{{.P.Return}}" data-failed="{{.T.failed}}" data-checking="{{.T.checking}}"
+      data-differ="{{.T.passwordsDiffer}}" data-registered="{{.T.registered}}" data-reset-sent="{{.T.resetSent}}" data-resent="{{.T.resent}}">
+<main>
+  <div class="brand">
+    {{- if not .Custom}}{{.Banner}}
+    {{- else if .BannerDark}}<img class="banner{{if .BannerLight}} dark{{end}}" src="{{.BannerDark}}" alt="{{.Name}}">
+      {{- if .BannerLight}}<img class="banner light" src="{{.BannerLight}}" alt="{{.Name}}">{{end}}
+    {{- else}}<span class="name">{{.Name}}</span>{{end -}}
+  </div>
+
+  {{if eq .P.Mode "signin"}}
+  <h1>{{.T.title}}</h1>
+  <form id="signin" novalidate>
+    <label>{{.T.email}}<input id="email" type="email" autocomplete="username" required autofocus></label>
+    <label>{{.T.password}}<input id="password" type="password" autocomplete="current-password" required></label>
+    <button class="primary" type="submit">{{.T.signIn}}</button>
+    <p class="links">{{if .P.Mail}}<a href="/reset">{{.T.forgot}}</a>{{else}}<span class="muted">{{.T.askAdmin}}</span>{{end}}</p>
+  </form>
+  <div id="unconfirmed" hidden>
+    <p>{{.T.unconfirmed}}</p>
+    <button type="button" id="resend">{{.T.resend}}</button>
+  </div>
+  <form id="verify" hidden novalidate>
+    <h2>{{.T.verifyTitle}}</h2>
+    <p class="muted">{{.T.verifyIntro}}</p>
+    <button class="primary" type="submit">{{.T.confirm}}</button>
+  </form>
+
+  {{else if eq .P.Mode "fresh"}}
+  <h1>{{.T.freshTitle}}</h1>
+  <p class="muted">{{.FreshIntro}}</p>
+  <form id="fresh" novalidate>
+    <label>{{.T.password}}<input id="password" type="password" autocomplete="current-password" required autofocus></label>
+    <button class="primary" type="submit">{{.T.confirm}}</button>
+  </form>
+
+  {{else if eq .P.Mode "change"}}
+  <h1>{{.T.changeTitle}}</h1>
+  <p class="muted">{{.T.changeIntro}}</p>
+  <form id="change" novalidate>
+    <label>{{.T.password}}<input id="password" type="password" autocomplete="new-password" required autofocus></label>
+    <label>{{.T.passwordAgain}}<input id="password2" type="password" autocomplete="new-password" required></label>
+    <p class="hint muted">{{.Rules}}</p>
+    <button class="primary" type="submit">{{.T.save}}</button>
+  </form>
+
+  {{else if eq .P.Mode "invite"}}
+  <h1>{{.InviteTitle}}</h1>
+  {{if not .P.Valid}}
+  <p>{{.T.inviteInvalid}}</p>
+  <p class="muted">{{.T.inviteAskSender}}</p>
+  {{else if not .P.Mail}}
+  <p>{{.T.inviteNoMail}}</p>
+  {{else}}
+  <form id="register" novalidate>
+    <p class="muted">{{.T.inviteIntro}}</p>
+    <label>{{.T.email}}<input id="email" type="email" autocomplete="username" required autofocus></label>
+    <label>{{.T.password}}<input id="password" type="password" autocomplete="new-password" required></label>
+    <label>{{.T.passwordAgain}}<input id="password2" type="password" autocomplete="new-password" required></label>
+    <p class="hint muted">{{.Rules}}</p>
+    <button class="primary" type="submit">{{.T.register}}</button>
+  </form>
+  <p id="done" hidden></p>
+  {{end}}
+
+  {{else if eq .P.Mode "invited"}}
+  <h1>{{.InviteTitle}}</h1>
+  {{if .P.Valid}}<p><a class="button primary" href="{{.P.Continue}}">{{.T.continue}}</a></p>
+  {{else}}<p>{{.T.inviteInvalid}}</p><p class="muted">{{.T.inviteAskSender}}</p>{{end}}
+
+  {{else if eq .P.Mode "reset"}}
+  <h1>{{.T.resetTitle}}</h1>
+  <form id="reset" novalidate>
+    <p class="muted">{{.T.resetIntro}}</p>
+    <label>{{.T.email}}<input id="email" type="email" autocomplete="username" required autofocus></label>
+    <button class="primary" type="submit">{{.T.resetSend}}</button>
+  </form>
+  <p id="done" hidden></p>
+  <form id="reset-new" hidden novalidate>
+    <label>{{.T.password}}<input id="new-password" type="password" autocomplete="new-password" required></label>
+    <label>{{.T.passwordAgain}}<input id="new-password2" type="password" autocomplete="new-password" required></label>
+    <p class="hint muted">{{.Rules}}</p>
+    <button class="primary" type="submit">{{.T.save}}</button>
+  </form>
+  <p class="links"><a href="/signin">{{.T.backToSignin}}</a></p>
+  {{end}}
+
+  <p id="error" class="error" role="alert"></p>
+  {{if .Custom}}<p class="powered">{{.T.poweredBy}} {{.Banner}}</p>{{end}}
+</main>
+</body>
+</html>

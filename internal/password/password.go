@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -79,3 +80,43 @@ var Dummy = func() string {
 	}
 	return h
 }()
+
+// Rules are what a new password must have, as the operator sets them:
+// a length (never under MinLength), a digit, a special character.
+type Rules struct {
+	MinLength int  `json:"minLength"`
+	Digit     bool `json:"digit"`
+	Special   bool `json:"special"`
+}
+
+// DefaultRules are the rules until the operator changes them.
+var DefaultRules = Rules{MinLength: MinLength, Digit: true, Special: true}
+
+// Valid reports whether the rules can be set: a length from MinLength to
+// 64.
+func (r Rules) Valid() bool { return r.MinLength >= MinLength && r.MinLength <= 64 }
+
+// Lacks names what a password lacks: "length", "digit" or "special"; ""
+// when it follows the rules. Spaces count as special characters.
+func (r Rules) Lacks(pw string) string {
+	n := utf8.RuneCountInString(pw)
+	if n < max(r.MinLength, MinLength) || n > MaxLength {
+		return "length"
+	}
+	var digit, special bool
+	for _, c := range pw {
+		switch {
+		case unicode.IsDigit(c):
+			digit = true
+		case !unicode.IsLetter(c):
+			special = true
+		}
+	}
+	if r.Digit && !digit {
+		return "digit"
+	}
+	if r.Special && !special {
+		return "special"
+	}
+	return ""
+}

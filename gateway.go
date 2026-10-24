@@ -33,6 +33,7 @@ import (
 	"github.com/overfin/server/internal/pin"
 	"github.com/overfin/server/internal/playback"
 	"github.com/overfin/server/internal/plugin"
+	"github.com/overfin/server/internal/proof"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/ratings"
 	"github.com/overfin/server/internal/seerr"
@@ -70,6 +71,9 @@ type shared struct {
 	seerrKey string
 	// emails writes Overfin's emails, from its templates or the operator's.
 	emails *emails.Writer
+	// proof checks the sign-in pages' forms against scripts; one for the
+	// whole run, so a check is used once whatever reloads.
+	proof *proof.Checker
 	// tmdb is TMDB itself, with the operator's token: TMDB's data comes
 	// from it first, from Seerr otherwise.
 	tmdb *tmdb.Client
@@ -194,9 +198,9 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	}
 	var managed *api.Managed
 	if cfg.Identity.Mode == "managed" {
-		managed = &api.Managed{Sessions: sessions, Store: db, Provisioner: prov, CodeKey: k.SigninCode,
-			Mail: sh.mailer, Emails: sh.emails, SiteURL: siteURL(cfg), LoginLifetime: 30 * 24 * time.Hour,
-			FreshFor: 5 * time.Minute, Logger: logger}
+		managed = &api.Managed{Sessions: sessions, Store: db, Provisioner: prov, CodeKey: k.EmailLink,
+			Proof: sh.proof, Mail: sh.mailer, Emails: sh.emails, SiteURL: siteURL(cfg),
+			LoginLifetime: 30 * 24 * time.Hour, FreshFor: 5 * time.Minute, Logger: logger}
 		sessions.StepUpURL, sessions.FreshFor, sessions.SignIn = api.StepUpPath, managed.FreshFor, managed
 		signIn = append(signIn, managed)
 		identityMiddleware = func(h http.Handler) http.Handler { return ids.Middleware(managed.Middleware(h)) }
@@ -246,10 +250,16 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 	// operator enables.
 	plugins := []plugin.Plugin{
 		api.Account{Sessions: sessions, Provisioner: prov, Logger: logger, Mounts: mounts,
-			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images, PINs: checker},
+			KeepOnDelete: cfg.Accounts.OnDelete == "disable", Images: sh.images, PINs: checker,
+			// With Overfin's own sign-in, newcomers name their profile first.
+			AskFirst: managed != nil},
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: db, Service: sh.service,
 			PINs: checker, Images: sh.images, LogoutURL: cfg.Identity.LogoutURL, Logger: logger},
 		api.Branding{Store: db},
+		// Overfin's own pages (signing in, invitations), whatever the
+		// sign-in.
+		api.Pages{Proof: sh.proof},
+		api.Invitations{Mounts: mounts, Managed: managed, Store: db, Logger: logger},
 	}
 	plugins = append(plugins, signIn...)
 	if cfg.Plugins.Enabled("library") {
@@ -426,22 +436,28 @@ func (g *gateway) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
 	return "", false, false
 }
 
-// SigninLink makes a one-time sign-in link, valid a week, that an admin
-// hands to someone (managed sign-in only): on the site's address, or a
-// path when it isn't known.
-func (g *gateway) SigninLink(ctx context.Context, email string) (string, error) {
+// CanMail says whether Overfin's own sign-in can send emails with links:
+// invitations by email, confirming addresses, forgotten passwords.
+func (g *gateway) CanMail() bool {
 	m := g.current.Load().managed
-	if m == nil {
-		return "", errors.New("sign-in links need managed sign-in")
+	return m != nil && m.CanMail()
+}
+
+// SendInvitation emails an invitation's link, in the default language.
+func (g *gateway) SendInvitation(ctx context.Context, to, link string) error {
+	s := g.sh.mail.Load()
+	if s == nil {
+		return problem("Email is off: set it up first.")
 	}
-	path, err := m.SigninLink(ctx, email, 7*24*time.Hour)
+	_, lang, _, _ := g.sh.db.Languages(ctx)
+	msg, err := g.sh.emails.Write(ctx, "invite", lang, emails.Vars{Link: link})
 	if err != nil {
-		return "", err
+		return err
 	}
-	g.mu.Lock()
-	site := siteURL(g.cfg)
-	g.mu.Unlock()
-	return site + path, nil
+	if err := s.SendMessage(ctx, to, msg); err != nil {
+		return problemf("It didn't go through: %v", err)
+	}
+	return nil
 }
 
 // AdminRoutes serves the switched-on modules' control panel routes.
@@ -992,10 +1008,12 @@ func (g *gateway) SendSample(ctx context.Context, name, to string) error {
 		return problem("Email is off: set it up first.")
 	}
 	_, lang, _, _ := g.sh.db.Languages(ctx)
-	v := emails.Vars{Code: "123456", Minutes: 15}
-	if url := siteURL(g.cfg); url != "" {
-		v.Link = strings.TrimSuffix(url, "/") + api.SigninPath + "#link=sample"
-	}
+	// A link that leads where the real one would, but works for nobody.
+	site := strings.TrimSuffix(siteURL(g.cfg), "/")
+	v := emails.Vars{Link: map[string]string{
+		"verify": site + "/signin#verify=sample", "reset": site + "/reset#reset=sample",
+		"exists": site + "/signin", "invite": site + "/invite/sample",
+	}[name]}
 	msg, err := g.sh.emails.Write(ctx, name, lang, v)
 	if err != nil {
 		return err

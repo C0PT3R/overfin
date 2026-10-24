@@ -38,6 +38,7 @@ import (
 	"github.com/overfin/server/internal/oidc"
 	"github.com/overfin/server/internal/personal"
 	"github.com/overfin/server/internal/playback"
+	"github.com/overfin/server/internal/proof"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/ratings"
 	"github.com/overfin/server/internal/seal"
@@ -103,8 +104,8 @@ func run(logger *slog.Logger) error {
 		"after the secret key was lost: give every profile a fresh Jellyfin token sealed with the current key, then exit")
 	importFlag := flag.Bool("import-people", false,
 		"before moving to managed sign-in: let everyone the identity provider ([connector]) has sign in with their email, keeping their accounts, then exit")
-	linkFor := flag.String("signin-link", "",
-		"print a one-time sign-in link, valid a day, for this email (managed sign-in), then exit")
+	passwordFor := flag.String("set-password", "",
+		"set a new password for this email (managed sign-in), read from the terminal, then exit; for an admin locked out")
 	check := flag.Bool("check", false,
 		"test the configuration, the secret key, Jellyfin and the identity provider, say what's wrong, then exit; changes nothing")
 	flag.Parse()
@@ -162,8 +163,8 @@ func run(logger *slog.Logger) error {
 	if *importFlag {
 		return importPeople(context.Background(), cfg, db, os.Stdout)
 	}
-	if *linkFor != "" {
-		return signinLink(context.Background(), cfg, db, k, *linkFor, os.Stdout)
+	if *passwordFor != "" {
+		return setPassword(context.Background(), cfg, db, *passwordFor, os.Stdin, os.Stdout)
 	}
 
 	// Stop cleanly on Ctrl+C or `docker stop`; reload the configuration on
@@ -542,7 +543,8 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 		searches: &api.SearchLimiter{PerMinute: 30}, requested: &api.SeerrRequested{Logger: logger},
 		service: &provision.Service{},
 		// Emails, with the operator's own templates next to the database.
-		emails: &emails.Writer{Dir: filepath.Join(filepath.Dir(cfg.Storage.Path), "mail-templates"), Store: db, Logger: logger}}
+		emails: &emails.Writer{Dir: filepath.Join(filepath.Dir(cfg.Storage.Path), "mail-templates"), Store: db, Logger: logger},
+		proof:  &proof.Checker{Key: k.Proof}}
 	if cn := cfg.Connector; cn.Enabled() {
 		sh.directory = &connector.Cache{Directory: connector.New(cn.Kind, cn.URL, cfg.Secrets.ConnectorToken, oidc.NewClient(cn.Dial))}
 	}
@@ -624,8 +626,14 @@ func purgeExpired(ctx context.Context, db *store.Store, logger *slog.Logger) {
 		if _, err := db.DeleteExpiredLogins(ctx); err != nil && ctx.Err() == nil {
 			logger.Error("purging expired logins failed", "err", err)
 		}
-		if err := db.DeleteOldSigninCodes(ctx); err != nil && ctx.Err() == nil {
-			logger.Error("purging old sign-in codes failed", "err", err)
+		if err := db.DeleteOldEmailLinks(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("purging old links failed", "err", err)
+		}
+		// Those who registered and never confirmed their address go.
+		if n, err := db.DeleteUnconfirmed(ctx, time.Now().Add(-api.UnconfirmedFor)); err != nil && ctx.Err() == nil {
+			logger.Error("removing unconfirmed registrations failed", "err", err)
+		} else if n > 0 {
+			logger.Info("unconfirmed registrations removed", "people", n)
 		}
 		select {
 		case <-ctx.Done():

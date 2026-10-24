@@ -30,7 +30,7 @@ func newWriter(t *testing.T) *Writer {
 func TestTexts(t *testing.T) {
 	for lang, set := range texts {
 		for key := range texts["en"] {
-			if set[key] == "" {
+			if _, ok := set[key]; !ok {
 				t.Errorf("%s: %s missing", lang, key)
 			}
 		}
@@ -42,14 +42,15 @@ func TestTexts(t *testing.T) {
 func TestWrite(t *testing.T) {
 	w := newWriter(t)
 	ctx := context.Background()
-	m, err := w.Write(ctx, "signin", "fr-CA", Vars{Code: "123456", Link: "https://media.example.org/api/v1/signin#link=abc", Minutes: 15})
+	m, err := w.Write(ctx, "verify", "fr-CA", Vars{Link: "https://media.example.org/signin#verify=abc"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Subject != "Votre code de connexion" || strings.Contains(m.Subject, "123456") {
+	if m.Subject != "Confirmez votre adresse" || strings.Contains(m.Subject, "abc") {
 		t.Errorf("subject %q", m.Subject)
 	}
-	for _, want := range []string{"Voici votre code pour vous connecter à Overfin :", "123456", "https://media.example.org/api/v1/signin#link=abc", "Il est valable 15 minutes."} {
+	for _, want := range []string{"Pour finir de créer votre compte sur Overfin, confirmez votre adresse :",
+		"https://media.example.org/signin#verify=abc", "Ce lien est valide pendant 24 heures."} {
 		if !strings.Contains(m.Text, want) {
 			t.Errorf("text lacks %q:\n%s", want, m.Text)
 		}
@@ -71,7 +72,7 @@ func TestWriteCustom(t *testing.T) {
 	w := newWriter(t)
 	ctx := context.Background()
 	w.Store.SetBranding(ctx, true, "zecopter")
-	m, err := w.Write(ctx, "confirm", "en-CA", Vars{Code: "654321", Minutes: 15})
+	m, err := w.Write(ctx, "reset", "en-CA", Vars{Link: "https://media.example.org/reset#reset=abc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestWriteCustom(t *testing.T) {
 		t.Errorf("no banner: %d images\n%s\n%s", len(m.Images), m.Text, m.HTML)
 	}
 	w.Store.SetBrandingFile(ctx, "banner-dark", "image/png", overfinLight, time.Now())
-	m, _ = w.Write(ctx, "confirm", "en-CA", Vars{Code: "654321", Minutes: 15})
+	m, _ = w.Write(ctx, "reset", "en-CA", Vars{Link: "https://media.example.org/reset#reset=abc"})
 	if len(m.Images) != 2 || !strings.Contains(m.HTML, `src="cid:banner"`) || !strings.Contains(m.HTML, `src="cid:overfin"`) {
 		t.Errorf("with a banner: %d images", len(m.Images))
 	}
@@ -92,18 +93,18 @@ func TestOperatorTemplates(t *testing.T) {
 	w := newWriter(t)
 	w.Dir = t.TempDir()
 	ctx := context.Background()
-	os.WriteFile(filepath.Join(w.Dir, "signin.fr.txt"), []byte(`{{define "subject"}}Code pour {{.Site}}{{end}}{{define "content"}}Code : {{.Code}}{{end}}{{define "why"}}.{{end}}`), 0o600)
-	if m, _ := w.Write(ctx, "signin", "fr-CA", Vars{Code: "111111"}); m.Subject != "Code pour Overfin" || !strings.HasPrefix(m.Text, "Code : 111111") {
+	os.WriteFile(filepath.Join(w.Dir, "verify.fr.txt"), []byte(`{{define "subject"}}Adresse pour {{.Site}}{{end}}{{define "content"}}Lien : {{.Link}}{{end}}{{define "why"}}.{{end}}`), 0o600)
+	if m, _ := w.Write(ctx, "verify", "fr-CA", Vars{Link: "L1"}); m.Subject != "Adresse pour Overfin" || !strings.HasPrefix(m.Text, "Lien : L1") {
 		t.Errorf("French: %q %q", m.Subject, m.Text)
 	}
-	if m, _ := w.Write(ctx, "signin", "en-US", Vars{Code: "111111"}); m.Subject != "Your sign-in code" {
+	if m, _ := w.Write(ctx, "verify", "en-US", Vars{Link: "L1"}); m.Subject != "Confirm your address" {
 		t.Errorf("English: %q", m.Subject)
 	}
-	if w.Origin("signin", ".txt", "fr-CA") != "signin.fr.txt" || w.Origin("signin", ".html", "fr-CA") != "" {
+	if w.Origin("verify", ".txt", "fr-CA") != "verify.fr.txt" || w.Origin("verify", ".html", "fr-CA") != "" {
 		t.Error("origins")
 	}
-	os.WriteFile(filepath.Join(w.Dir, "signin.html"), []byte(`{{define "content"}}{{.Nope}}{{end}}`), 0o600)
-	if m, err := w.Write(ctx, "signin", "en-US", Vars{Code: "222222"}); err != nil || !strings.Contains(m.HTML, "222222") {
+	os.WriteFile(filepath.Join(w.Dir, "verify.html"), []byte(`{{define "content"}}{{.Nope}}{{end}}`), 0o600)
+	if m, err := w.Write(ctx, "verify", "en-US", Vars{Link: "https://x/L2"}); err != nil || !strings.Contains(m.HTML, "https://x/L2") {
 		t.Errorf("a broken template: %v", err)
 	}
 }

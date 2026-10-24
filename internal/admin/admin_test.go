@@ -321,9 +321,9 @@ func TestPanelOnSite(t *testing.T) {
 		code         int
 		location     string
 	}{
-		{"", false, false, 303, "/api/v1/signin?return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
+		{"", false, false, 303, "/signin?return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
 		{"ann@example.org", false, true, 403, ""},
-		{"bob@example.org", true, false, 303, "/api/v1/signin?fresh=1&return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
+		{"bob@example.org", true, false, 303, "/signin?fresh=1&return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
 		{"bob@example.org", true, true, 303, "/admin/"},
 	}
 	for _, s := range steps {

@@ -911,6 +911,12 @@ func (s *Store) DeleteOtherLogins(ctx context.Context, subject, keepID string) e
 	return err
 }
 
+// DeleteLogins ends every login of a person.
+func (s *Store) DeleteLogins(ctx context.Context, subject string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM logins WHERE subject = ?`, subject)
+	return err
+}
+
 // DeleteExpiredLogins removes logins past their expiry.
 func (s *Store) DeleteExpiredLogins(ctx context.Context) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM logins WHERE expires_at <= ?`, s.now().Unix())

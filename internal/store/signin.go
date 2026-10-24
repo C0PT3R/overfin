@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -24,17 +23,23 @@ type User struct {
 	Admin        bool
 	Disabled     bool
 	Created      time.Time
+	// Confirmed is false until someone who registered themselves opens the
+	// link that confirms their email; MustChange, that they choose a new
+	// password at their next sign-in.
+	Confirmed  bool
+	MustChange bool
 }
 
 // ErrEmailTaken: another person has that email.
 var ErrEmailTaken = errors.New("store: email already used")
 
-const userColumns = `subject, email, coalesce(password_hash, ''), admin, disabled_at IS NOT NULL, created_at`
+const userColumns = `subject, email, coalesce(password_hash, ''), admin, disabled_at IS NOT NULL, created_at,
+	confirmed, must_change`
 
 func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	var p User
 	var created int64
-	err := sc.Scan(&p.Subject, &p.Email, &p.PasswordHash, &p.Admin, &p.Disabled, &created)
+	err := sc.Scan(&p.Subject, &p.Email, &p.PasswordHash, &p.Admin, &p.Disabled, &created, &p.Confirmed, &p.MustChange)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -193,118 +198,119 @@ func (s *Store) DeleteUser(ctx context.Context, subject string) error {
 	return tx.Commit()
 }
 
-// ---- Sign-in codes --------------------------------------------------------------------
+// ---- Registration and links by email --------------------------------------------------
 
-// SigninCode is a code sent by email. Only keyed hashes of the code, of
-// the link and of the asking browser's cookie are kept.
-type SigninCode struct {
-	Email    string
-	CodeHash []byte
-	LinkHash []byte
-	Binding  []byte
-	// Purpose is "signin", or "fresh" (confirming a login before a
-	// sensitive change).
-	Purpose string
-	Expires time.Time
+// inviteContext binds a sealed invitation code to its person.
+func inviteContext(subject string) string { return "invite " + subject }
+
+// RegisterUser adds someone who registered themselves, with an
+// invitation: their password's hash, the invitation's code (sealed), and
+// not confirmed until they open the link sent to their email.
+func (s *Store) RegisterUser(ctx context.Context, email, passwordHash, inviteCode string) (*User, error) {
+	p := &User{Subject: ids.New(ids.User), Email: email, PasswordHash: passwordHash, Created: s.now().UTC()}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (subject, email, password_hash, created_at, confirmed, invite_code) VALUES (?, ?, ?, ?, 0, ?)`,
+		p.Subject, p.Email, passwordHash, p.Created.Unix(), s.box.Seal([]byte(inviteCode), inviteContext(p.Subject)))
+	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
+		return nil, ErrEmailTaken
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: registering user: %w", err)
+	}
+	return p, nil
 }
 
-// MaxCodeAttempts is how many wrong codes end a code.
-const MaxCodeAttempts = 5
+// ConfirmUser marks a person's email confirmed, and gives the invitation
+// they registered with ("" without one), forgetting it.
+func (s *Store) ConfirmUser(ctx context.Context, subject string) (inviteCode string, err error) {
+	var sealed []byte
+	err = s.db.QueryRowContext(ctx, `SELECT invite_code FROM users WHERE subject = ?`, subject).Scan(&sealed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if sealed != nil {
+		code, err := s.box.Open(sealed, inviteContext(subject))
+		if err != nil {
+			return "", fmt.Errorf("store: an invitation: %w", err)
+		}
+		inviteCode = string(code)
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE users SET confirmed = 1, invite_code = NULL WHERE subject = ?`, subject)
+	return inviteCode, err
+}
 
-// AddSigninCode records a code sent.
-func (s *Store) AddSigninCode(ctx context.Context, c SigninCode) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO signin_codes (id, email, code_hash, link_hash, binding, purpose, expires_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		ids.New(ids.Code), c.Email, c.CodeHash, c.LinkHash, c.Binding, c.Purpose, c.Expires.Unix(), s.now().Unix())
+// SetMustChange says whether a person must choose a new password at their
+// next sign-in.
+func (s *Store) SetMustChange(ctx context.Context, subject string, must bool) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET must_change = ? WHERE subject = ?`, boolInt(must), subject)
 	return err
 }
 
-// CodesSentSince counts the codes sent to an email since a time, live or
-// not, for rate limits.
-func (s *Store) CodesSentSince(ctx context.Context, email string, since time.Time) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM signin_codes WHERE email = ? AND created_at >= ?`,
-		email, since.Unix()).Scan(&n)
-	return n, err
+// DeleteUnconfirmed removes the people who registered before a time and
+// never confirmed their email.
+func (s *Store) DeleteUnconfirmed(ctx context.Context, before time.Time) (int, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE confirmed = 0 AND created_at < ?`, before.Unix())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
-// TakeSigninCode checks a typed code against the live codes sent to that
-// email, for that purpose, from that browser. A match uses up every code of
-// the email; a miss counts against each, and a code with too many misses
-// goes.
-func (s *Store) TakeSigninCode(ctx context.Context, email, purpose string, binding, codeHash []byte) (bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `
-		SELECT id, code_hash FROM signin_codes
-		WHERE email = ? AND purpose = ? AND binding = ? AND expires_at > ? AND attempts < ?`,
-		email, purpose, binding, s.now().Unix(), MaxCodeAttempts)
-	if err != nil {
-		return false, err
-	}
-	var live []string
-	match := false
-	for rows.Next() {
-		var id string
-		var h []byte
-		if err := rows.Scan(&id, &h); err != nil {
-			rows.Close()
-			return false, err
-		}
-		live = append(live, id)
-		if subtle.ConstantTimeCompare(h, codeHash) == 1 {
-			match = true
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	if match {
-		_, err = tx.ExecContext(ctx, `DELETE FROM signin_codes WHERE email = ?`, email)
-	} else {
-		for _, id := range live {
-			if _, err = tx.ExecContext(ctx, `UPDATE signin_codes SET attempts = attempts + 1 WHERE id = ?`, id); err != nil {
-				break
-			}
-		}
-	}
-	if err != nil {
-		return false, err
-	}
-	return match, tx.Commit()
+// EmailLink is a link sent by email: to confirm the address ("verify"),
+// or to choose a new password ("reset"). Only a keyed hash is kept.
+type EmailLink struct {
+	Subject  string
+	LinkHash []byte
+	Purpose  string
+	Expires  time.Time
 }
 
-// TakeSigninLink uses up the code whose link was opened, and every other
-// code of its email, returning its email and purpose.
-func (s *Store) TakeSigninLink(ctx context.Context, linkHash []byte) (email, purpose string, err error) {
+// AddEmailLink records a link sent; earlier links of the same purpose to
+// that person stop working.
+func (s *Store) AddEmailLink(ctx context.Context, l EmailLink) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	defer tx.Rollback()
-	err = tx.QueryRowContext(ctx, `
-		SELECT email, purpose FROM signin_codes WHERE link_hash = ? AND expires_at > ? AND attempts < ?`,
-		linkHash, s.now().Unix(), MaxCodeAttempts).Scan(&email, &purpose)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM email_links WHERE subject = ? AND purpose = ?`, l.Subject, l.Purpose); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO email_links (id, subject, link_hash, purpose, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		ids.New(ids.Code), l.Subject, l.LinkHash, l.Purpose, l.Expires.Unix(), s.now().Unix()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// TakeEmailLink uses up a link of a purpose, returning whose it is.
+func (s *Store) TakeEmailLink(ctx context.Context, purpose string, linkHash []byte) (subject string, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	err = tx.QueryRowContext(ctx, `SELECT subject FROM email_links WHERE link_hash = ? AND purpose = ? AND expires_at > ?`,
+		linkHash, purpose, s.now().Unix()).Scan(&subject)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", ErrNotFound
+		return "", ErrNotFound
 	}
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM signin_codes WHERE email = ?`, email); err != nil {
-		return "", "", err
+	if _, err := tx.ExecContext(ctx, `DELETE FROM email_links WHERE subject = ? AND purpose = ?`, subject, purpose); err != nil {
+		return "", err
 	}
-	return email, purpose, tx.Commit()
+	return subject, tx.Commit()
 }
 
-// DeleteOldSigninCodes removes codes a day past their expiry: kept that
-// long, they still count for rate limits.
-func (s *Store) DeleteOldSigninCodes(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM signin_codes WHERE expires_at <= ?`, s.now().Add(-24*time.Hour).Unix())
+// DeleteOldEmailLinks removes the links past their expiry.
+func (s *Store) DeleteOldEmailLinks(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM email_links WHERE expires_at <= ?`, s.now().Unix())
 	return err
 }

@@ -150,12 +150,14 @@ wizard says how to get one, or skip it), Intro Skipper (optional), Seerr
 **3. Add your libraries** in the control panel (`/admin/`, Libraries), with
 folders under `/media`, where the compose file puts `MEDIA_DIR`.
 
-That's all. People sign in with their email: with a code Overfin sends
-there, or a password they set. Without an email server, they sign in with
-a password, or with a one-time sign-in link you make for them. In the
-control panel: add people, connect an email server (Server, Email), switch
-invitations on, choose your GPU (Server, Transcoding; the compose file
-says how to give Jellyfin one).
+That's all. People sign in with their email and a password. In the
+control panel: add people (People: an email and a first password, which
+they change at their first sign-in), connect an email server (Server,
+Email), make invitations (People, Registration: links anyone can register
+with, confirming their email), choose your GPU (Server, Transcoding; the
+compose file says how to give Jellyfin one). Without an email server,
+there are no invitations or forgotten-password emails: you add people
+yourself.
 
 Overfin keeps its secret key in `overfin-secrets` and everything else in
 `overfin-data`: back both up, apart. Jellyfin's data is in
@@ -284,12 +286,12 @@ in at your provider gets an account, unless you set
 still configured (with its `[connector]`), run `overfin -import-people`
 once: everyone it has, with an email, can then sign in with that email,
 keeping their account, and the panel's admins stay admins. Then switch to
-`identity.mode = "managed"`. People without a password sign in with a code
-by email, or a link from the panel.
+`identity.mode = "managed"`. Imported people have no password yet: they
+choose one with "Forgot your password?", or you set one in the panel.
 
-**Locked out?** `overfin -signin-link you@example.org` prints a one-time
-sign-in link, valid a day (with Docker: `docker exec overfin /overfin
--signin-link you@example.org`).
+**Locked out?** `overfin -set-password you@example.org` asks for a new
+password and ends that account's other logins (with Docker: `docker exec
+-it overfin /overfin -set-password you@example.org`).
 
 ### The control panel
 

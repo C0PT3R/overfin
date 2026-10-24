@@ -31,3 +31,25 @@ func TestHashAndCheck(t *testing.T) {
 		t.Error("dummy matched")
 	}
 }
+
+func TestRules(t *testing.T) {
+	r := DefaultRules
+	for pw, want := range map[string]string{
+		"short1!":         "length",
+		"longenoughpass":  "digit",
+		"longenough123":   "special",
+		"long enough 123": "",
+		"lönger-énough-9": "",
+		"Ã¨¨¨¨¨¨¨¨¨¨¨¨1":  "",
+	} {
+		if got := r.Lacks(pw); got != want {
+			t.Errorf("%q: %q, want %q", pw, got, want)
+		}
+	}
+	if (Rules{MinLength: 9}).Valid() || !(Rules{MinLength: 12}).Valid() || (Rules{MinLength: 65}).Valid() {
+		t.Error("valid lengths")
+	}
+	if (Rules{MinLength: 0}).Lacks("abcdefghij") != "" {
+		t.Error("a length under the minimum still asks for the minimum")
+	}
+}

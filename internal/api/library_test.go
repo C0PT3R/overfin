@@ -37,6 +37,7 @@ import (
 	"github.com/overfin/server/internal/pin"
 	"github.com/overfin/server/internal/playback"
 	"github.com/overfin/server/internal/plugin"
+	"github.com/overfin/server/internal/proof"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/seal"
 	"github.com/overfin/server/internal/seerr"
@@ -378,11 +379,13 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 			identify = func(h http.Handler) http.Handler { return ids.Middleware(auth.Middleware(h)) }
 		}
 	}
+	// checker2 is the pages' check against scripts; tests solve it with solve().
+	checker2 := testProof
 	var managed *api.Managed
 	if o.managed {
 		managed = &api.Managed{Sessions: sessions, Store: st, Provisioner: prov, CodeKey: []byte("code-key"),
 			SiteURL: "https://media.example.org", LoginLifetime: time.Hour, FreshFor: cmp.Or(o.freshFor, 5*time.Minute), Logger: logger,
-			Emails: &emails.Writer{Store: st, Logger: logger}}
+			Emails: &emails.Writer{Store: st, Logger: logger}, Proof: checker2}
 		if box := o.mailbox; box != nil {
 			managed.Mail = func() api.Mailer { return box }
 		}
@@ -457,6 +460,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		api.Profiles{Sessions: sessions, Provisioner: prov, Store: st, Service: service, LogoutURL: "/sign-out", Logger: logger,
 			PINs: checker},
 		api.Branding{Store: st},
+		api.Pages{Proof: checker2},
+		api.Invitations{Mounts: mounts, Managed: managed, Store: st, Logger: logger},
 	}, extra...)
 	var siteHandler http.Handler
 	if o.site {
@@ -1054,4 +1059,26 @@ func otherServer(t *testing.T) string {
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL
+}
+
+// testProof is the pages' check against scripts in tests: solve answers
+// it.
+var testProof = &proof.Checker{Key: []byte("proof-key")}
+
+// solve gets a check from the pages and answers it, as a page's script
+// does.
+func solve(t *testing.T, srv *httptest.Server) map[string]string {
+	t.Helper()
+	res, err := srv.Client().Get(srv.URL + "/api/v1/pages/challenge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var c struct{ Challenge string }
+	json.NewDecoder(res.Body).Decode(&c)
+	for n := 0; ; n++ {
+		if a := strconv.Itoa(n); proof.Solves(c.Challenge, a) {
+			return map[string]string{"challenge": c.Challenge, "answer": a}
+		}
+	}
 }

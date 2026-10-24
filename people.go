@@ -1,19 +1,18 @@
 package overfin
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/mail"
-	"time"
+	"strings"
 
-	"github.com/overfin/server/internal/api"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/connector"
-	"github.com/overfin/server/internal/keys"
 	"github.com/overfin/server/internal/oidc"
+	"github.com/overfin/server/internal/password"
 	"github.com/overfin/server/internal/store"
 )
 
@@ -75,12 +74,13 @@ func importFrom(ctx context.Context, dir connector.Directory, adminGroup string,
 	return nil
 }
 
-// signinLink runs -signin-link: a one-time sign-in link, valid a day, for
-// someone who can't sign in otherwise (no email server, a lost password).
-// Whoever runs it has the server in hand already.
-func signinLink(ctx context.Context, cfg *config.Config, db *store.Store, k *keys.Keys, email string, w io.Writer) error {
+// setPassword runs -set-password: a new password for someone who can't
+// sign in otherwise (an admin locked out, no email server), read from the
+// terminal, following the password rules. Their other logins end. Whoever
+// runs it has the server in hand already.
+func setPassword(ctx context.Context, cfg *config.Config, db *store.Store, email string, in io.Reader, w io.Writer) error {
 	if cfg.Identity.Mode != "managed" {
-		return errors.New("-signin-link is for managed sign-in (identity.mode = \"managed\")")
+		return errors.New("-set-password is for managed sign-in (identity.mode = \"managed\")")
 	}
 	u, err := db.UserByEmail(ctx, email)
 	if errors.Is(err, store.ErrNotFound) {
@@ -89,19 +89,35 @@ func signinLink(ctx context.Context, cfg *config.Config, db *store.Store, k *key
 	if err != nil {
 		return err
 	}
-	if u.Disabled {
-		return fmt.Errorf("%s is disabled", email)
-	}
-	m := &api.Managed{Store: db, CodeKey: k.SigninCode, Logger: slog.New(slog.DiscardHandler)}
-	path, err := m.SigninLink(ctx, u.Email, 24*time.Hour)
+	rules, err := db.PasswordRules(ctx)
 	if err != nil {
 		return err
 	}
-	site := siteURL(cfg)
-	if site == "" {
-		fmt.Fprintf(w, "Open this on the site's address, once, within a day: %s\n", path)
-		return nil
+	fmt.Fprintf(w, "New password for %s (%d characters at least): ", u.Email, rules.MinLength)
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && line == "" {
+		return errors.New("no password given")
 	}
-	fmt.Fprintf(w, "Open this once, within a day: %s%s\n", site, path)
+	pw := strings.TrimRight(line, "\r\n")
+	if lacks := rules.Lacks(pw); lacks != "" {
+		return fmt.Errorf("that password lacks: %s", lacks)
+	}
+	hash, err := password.Hash(pw)
+	if err != nil {
+		return err
+	}
+	if err := db.SetPassword(ctx, u.Subject, hash); err != nil {
+		return err
+	}
+	if _, err := db.ConfirmUser(ctx, u.Subject); err != nil {
+		return err
+	}
+	if err := db.SetMustChange(ctx, u.Subject, false); err != nil {
+		return err
+	}
+	if err := db.DeleteLogins(ctx, u.Subject); err != nil {
+		return err
+	}
+	fmt.Fprintln(w, "\nDone: sign in with it.")
 	return nil
 }

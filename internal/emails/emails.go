@@ -45,7 +45,7 @@ var overfinLight []byte
 var overfinDark []byte
 
 // Names are the emails Overfin sends.
-var Names = []string{"signin", "confirm", "test"}
+var Names = []string{"verify", "reset", "exists", "invite", "test"}
 
 // texts are the built-in sentences, by language ("en", "fr") then key
 // ("poweredBy", "signin.subject"…).
@@ -98,17 +98,14 @@ type data struct {
 	Overfin picture
 	// Light and Dark are the theme's colors (theme.css), by name.
 	Light, Dark map[string]string
-	// Code, Link and Minutes are a sign-in or confirmation code's.
-	Code    string
-	Link    string
-	Minutes int
+	// Link is the email's link: confirming an address, choosing a new
+	// password, signing in, an invitation.
+	Link string
 }
 
 // Vars are an email's own values.
 type Vars struct {
-	Code    string
-	Link    string
-	Minutes int
+	Link string
 }
 
 // Write writes an email in a language (a regional tag such as "fr-CA").
@@ -129,7 +126,7 @@ func (w *Writer) write(ctx context.Context, name, lang string, v Vars) (mail.Mes
 		return mail.Message{}, err
 	}
 	d := data{Lang: lang, Site: brandName(br), Custom: br.On, Light: theme.Colors(true), Dark: theme.Colors(false),
-		Code: v.Code, Link: v.Link, Minutes: v.Minutes}
+		Link: v.Link}
 	var images []mail.Image
 	// The banner on the dark header: the operator's, as a picture email
 	// apps show (not SVG), else their name as text; Overfin's otherwise.
@@ -178,7 +175,7 @@ func sizeOf(b []byte, height int) *picture {
 }
 
 // translator is the "t" function: a sentence in the language (else in
-// English), with {site} and {minutes} filled in.
+// English), with {site} filled in.
 func (w *Writer) translator(lang string, d data) func(string) string {
 	set := texts[strings.SplitN(lang, "-", 2)[0]]
 	return func(key string) string {
@@ -186,7 +183,7 @@ func (w *Writer) translator(lang string, d data) func(string) string {
 		if !ok {
 			s = texts["en"][key]
 		}
-		return strings.NewReplacer("{site}", d.Site, "{minutes}", fmt.Sprint(d.Minutes)).Replace(s)
+		return strings.ReplaceAll(s, "{site}", d.Site)
 	}
 }
 

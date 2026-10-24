@@ -5,16 +5,13 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"embed"
 	"encoding/base64"
 	"errors"
-	"fmt"
-	"html/template"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,76 +19,65 @@ import (
 
 	"github.com/overfin/server/internal/cookie"
 	"github.com/overfin/server/internal/emails"
+	"github.com/overfin/server/internal/feature"
 	"github.com/overfin/server/internal/identity"
 	ofmail "github.com/overfin/server/internal/mail"
 	"github.com/overfin/server/internal/password"
 	"github.com/overfin/server/internal/plugin"
 	"github.com/overfin/server/internal/problem"
+	"github.com/overfin/server/internal/proof"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
-	"github.com/overfin/server/internal/theme"
 )
 
-// SigninPath is the sign-in page: emails' links lead there.
-const SigninPath = signinPath
+// SigninPath is the sign-in page: the site sends people there.
+const SigninPath = signinPagePath
 
 const (
-	signinPath     = "/api/v1/signin"
-	signinCodePath = "/api/v1/signin/code"
-	signinLinkPath = "/api/v1/signin/link"
-	signinJS       = "/api/v1/signin/page.js"
-	signinCSS      = "/api/v1/signin/page.css"
-	signinLogo     = "/api/v1/signin/logo.svg"
-
-	// bindingCookie ties a code to the browser that asked for it (a base
-	// name, as package cookie takes it).
-	bindingCookie = "overfin-signin"
-
 	// ManagedAdminGroup is the group managed sign-in gives admins: the
 	// provisioner's admin group in managed mode.
 	ManagedAdminGroup = "admins"
-)
 
-const (
-	// codeFor is how long a code sent by email works.
-	codeFor = 15 * time.Minute
-	// codesPerHour caps the codes sent to one email.
-	codesPerHour = 5
 	// passwordTries caps wrong passwords for one email per quarter hour.
 	passwordTries = 10
 	// slideEvery is how often a login's lifetime slides with activity.
 	slideEvery = 10 * time.Minute
+	// verifyFor is how long a link confirming an address works; resetFor,
+	// a link to choose a new password.
+	verifyFor = 24 * time.Hour
+	resetFor  = time.Hour
+	// UnconfirmedFor is how long someone who registered has to confirm
+	// their address before they're removed.
+	UnconfirmedFor = 7 * 24 * time.Hour
 )
 
-//go:embed signin
-var signinFiles embed.FS
-
-var signinPage = template.Must(template.ParseFS(signinFiles, "signin/page.html"))
-
 // Managed is Overfin's own sign-in (identity mode "managed"): people sign
-// in with their email and a code Overfin sends there, or with a password if
-// they set one. It also confirms fresh logins (step-up) the same way.
+// in with their email and their password. Accounts come from an admin, or
+// from an invitation (/invite/{code}): the person chooses a password, and
+// confirms their address by a link sent there before the account works.
+// With emails, a forgotten password gets a link to choose another (/reset);
+// without, an admin sets a new one.
 //
-// Whether an email has an account here is never told: asking for a code
-// gets the same answer either way, and a wrong password the same as an
-// unknown email. Codes go to unknown emails only when the visitor brings an
-// invitation; anyone else is someone an admin added.
+// Whether an email has an account here is never told: registering, asking
+// for a link or getting a wrong password answers the same either way.
 type Managed struct {
 	Sessions    *Sessions
 	Store       *store.Store
 	Provisioner *provision.Provisioner
-	// Mounts are the switched-on modules, which say whether a visitor
-	// brings an invitation.
+	// Mounts are the switched-on modules: the invitations' is asked about
+	// a code.
 	Mounts []Mount
-	// CodeKey hashes codes, links and bindings (keys.SigninCode).
+	// CodeKey hashes the links sent by email (keys.EmailLink).
 	CodeKey []byte
-	// Mail is the SMTP server codes go through; nil (or a nil result)
-	// when there's none, and then people sign in with a password only.
+	// Proof checks the pages' forms against scripts.
+	Proof *proof.Checker
+	// Mail is the SMTP server; nil (or a nil result) when there's none:
+	// then nobody registers, and an admin sets forgotten passwords.
 	Mail func() Mailer
-	// Emails writes the codes' emails.
+	// Emails writes the emails.
 	Emails *emails.Writer
-	// SiteURL, when set, is the site's public address: emails then carry
-	// a link besides the code.
+	// SiteURL is the site's public address, for links in emails: without
+	// it, no email with a link can be sent.
 	SiteURL string
 	// LoginLifetime is how long a login lasts without activity; FreshFor,
 	// how long a confirmed login counts as fresh.
@@ -119,18 +105,22 @@ func (m *Managed) init() {
 
 func (m *Managed) Register(r *plugin.Registrar) error {
 	m.init()
-	// The page is where emails' links and the site's redirects lead, so
-	// possibly from elsewhere; it only shows a form.
-	if err := r.HandleNavigation("GET "+signinPath, http.HandlerFunc(m.page)); err != nil {
+	// The pages are where emails' links and the site's redirects lead, so
+	// possibly from elsewhere; they only show a form.
+	if err := r.HandlePage("GET "+signinPagePath, http.HandlerFunc(m.signinPage)); err != nil {
+		return err
+	}
+	if err := r.HandlePage("GET "+resetPagePath, http.HandlerFunc(m.resetPage)); err != nil {
 		return err
 	}
 	for pattern, h := range map[string]http.HandlerFunc{
-		"GET " + signinJS:        m.file("signin/page.js", "text/javascript; charset=utf-8"),
-		"GET " + signinCSS:       m.file("signin/page.css", "text/css; charset=utf-8"),
-		"GET " + signinLogo:      m.file("signin/logo.svg", "image/svg+xml"),
-		"POST " + signinPath:     m.start,
-		"POST " + signinCodePath: m.code,
-		"POST " + signinLinkPath: m.link,
+		"POST /api/v1/signin":          m.signIn,
+		"POST /api/v1/signin/password": m.changePassword,
+		"POST /api/v1/signin/verify":   m.verify,
+		"POST /api/v1/signin/resend":   m.resend,
+		"POST /api/v1/register":        m.register,
+		"POST /api/v1/reset":           m.askReset,
+		"POST /api/v1/reset/password":  m.reset,
 	} {
 		if err := r.HandlePublic(pattern, h); err != nil {
 			return err
@@ -140,9 +130,8 @@ func (m *Managed) Register(r *plugin.Registrar) error {
 		return err
 	}
 	for pattern, h := range map[string]http.HandlerFunc{
-		"GET /api/v1/me/signin":      m.signinInfo,
-		"PUT /api/v1/me/password":    m.setPassword,
-		"DELETE /api/v1/me/password": m.removePassword,
+		"GET /api/v1/me/signin":   m.signinInfo,
+		"PUT /api/v1/me/password": m.setPassword,
 	} {
 		if err := r.HandleFunc(pattern, h); err != nil {
 			return err
@@ -154,15 +143,17 @@ func (m *Managed) Register(r *plugin.Registrar) error {
 // ---- Logins ---------------------------------------------------------------------------
 
 // Middleware sets the identity from the login cookie, for someone who still
-// has an account here and isn't disabled.
+// has an account here, isn't disabled, confirmed their address, and has no
+// new password to choose first. It also marks them admitted: Overfin let
+// them in, so their account needs no invitation of its own.
 func (m *Managed) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, u := m.current(r); u != nil {
+		if _, u := m.current(r); u != nil && u.Confirmed && !u.MustChange {
 			id := identity.Identity{Subject: u.Subject}
 			if u.Admin {
 				id.Groups = []string{ManagedAdminGroup}
 			}
-			r = r.WithContext(identity.With(r.Context(), id))
+			r = r.WithContext(markAdmitted(identity.With(r.Context(), id)))
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -197,7 +188,7 @@ func (m *Managed) current(r *http.Request) (*store.Login, *store.User) {
 // minutes: what the control panel on the site's address lets in.
 func (m *Managed) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
 	l, u := m.current(r)
-	if u == nil {
+	if u == nil || !u.Confirmed || u.MustChange {
 		return "", false, false
 	}
 	return u.Email, u.Admin, !l.Fresh.IsZero() && time.Since(l.Fresh) < m.FreshFor
@@ -206,12 +197,12 @@ func (m *Managed) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
 // Admit lets a request for the site's pages through when the visitor is
 // signed in and allowed; a page visit by anyone else goes to the sign-in.
 func (m *Managed) Admit(w http.ResponseWriter, r *http.Request) bool {
-	return admit(w, r, m.Provisioner, r.URL.RequestURI(), signinPath)
+	return admit(w, r, m.Provisioner, r.URL.RequestURI(), signinPagePath)
 }
 
 // gate answers a reverse proxy asking whether to serve a page of the site.
 func (m *Managed) gate(w http.ResponseWriter, r *http.Request) {
-	if admit(w, r, m.Provisioner, r.Header.Get("X-Forwarded-Uri"), signinPath) {
+	if admit(w, r, m.Provisioner, r.Header.Get("X-Forwarded-Uri"), signinPagePath) {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -230,24 +221,398 @@ func (m *Managed) Logout(w http.ResponseWriter, r *http.Request) string {
 // stepUp sends someone signed in to confirm it's them.
 func (m *Managed) stepUp(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{"fresh": {"1"}, "return": {safeReturn(r.URL.Query().Get("return"))}}
-	http.Redirect(w, r, signinPath+"?"+q.Encode(), http.StatusSeeOther)
+	http.Redirect(w, r, signinPagePath+"?"+q.Encode(), http.StatusSeeOther)
 }
 
-// ---- One's own sign-in --------------------------------------------------------------------
+// ---- The pages ------------------------------------------------------------------------
 
-// signinInfo says how the person signed in signs in: their email, whether
-// they have a password, and whether codes can come by email.
+// signinPage signs someone in; asks the signed-in person to confirm it's
+// them (?fresh=1) or to choose a new password first; or, from an email's
+// link, confirms an address (#verify=…, read by the page).
+func (m *Managed) signinPage(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	p := page{Mode: "signin", Return: safeReturn(q.Get("return")), Mail: m.canMail()}
+	_, u := m.current(r)
+	switch {
+	case u != nil && u.Confirmed && u.MustChange:
+		p.Mode = "change"
+	case u != nil && u.Confirmed && q.Get("fresh") == "1":
+		p.Mode, p.Email = "fresh", u.Email
+	case u != nil && u.Confirmed:
+		http.Redirect(w, r, p.Return, http.StatusSeeOther) // already signed in
+		return
+	}
+	p.Rules = m.rules(r.Context())
+	renderPage(w, r, m.Store, m.Logger, p)
+}
+
+// resetPage asks for an email to send a link to; from that link
+// (#reset=…, read by the page), it takes a new password. Without emails,
+// there's no such page: an admin sets a new password.
+func (m *Managed) resetPage(w http.ResponseWriter, r *http.Request) {
+	if !m.canMail() {
+		http.NotFound(w, r)
+		return
+	}
+	renderPage(w, r, m.Store, m.Logger, page{Mode: "reset", Mail: true, Rules: m.rules(r.Context())})
+}
+
+// InvitationPage is the registration form an invitation leads to.
+func (m *Managed) InvitationPage(w http.ResponseWriter, r *http.Request, valid bool) {
+	renderPage(w, r, m.Store, m.Logger, page{Mode: "invite", Valid: valid, Mail: m.canMail(), Rules: m.rules(r.Context())})
+}
+
+// ---- Signing in -----------------------------------------------------------------------
+
+type signinRequest struct {
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	Link      string `json:"link"`
+	Fresh     bool   `json:"fresh"`
+	Return    string `json:"return"`
+	Challenge string `json:"challenge"`
+	Answer    string `json:"answer"`
+}
+
+// signIn takes an email and a password; or, to confirm it's them, the
+// signed-in person's password alone (that one asks no check against
+// scripts: its person is signed in).
+func (m *Managed) signIn(w http.ResponseWriter, r *http.Request) {
+	req, ok := m.read(w, r)
+	if !ok {
+		return
+	}
+	if req.Fresh {
+		_, signedIn := m.current(r)
+		if signedIn == nil || !signedIn.Confirmed {
+			problem.Send(w, problem.NotAuthenticated, "")
+			return
+		}
+		req.Email = signedIn.Email
+	} else if !m.checked(w, r, req) || !m.cleanEmail(w, r, &req) {
+		return
+	}
+	if !m.byEmail.allow(strings.ToLower(req.Email), time.Now()) {
+		m.refuse(w, r, problem.RateLimited, "tooManyTries")
+		return
+	}
+	u, err := m.Store.UserByEmail(r.Context(), req.Email)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		m.fail(w, r, err)
+		return
+	}
+	// The same work whether or not there's an account.
+	hash := password.Dummy
+	if u != nil && u.PasswordHash != "" {
+		hash = u.PasswordHash
+	}
+	select {
+	case m.hashing <- struct{}{}:
+	case <-r.Context().Done():
+		return
+	}
+	right := password.Check(hash, req.Password)
+	<-m.hashing
+	switch {
+	case !right || u == nil || u.PasswordHash == "" || u.Disabled:
+		m.refuse(w, r, problem.SigninFailed, "wrongPassword")
+		return
+	case !u.Confirmed:
+		// Only with the right password: it tells nothing to anyone else.
+		writeOK(w, map[string]bool{"unconfirmed": true})
+		return
+	}
+	if req.Fresh {
+		m.confirmFresh(w, r, u, req.Return)
+		return
+	}
+	m.startLogin(w, r, u, req.Return)
+}
+
+// startLogin signs someone in, here; one with a new password to choose is
+// sent to choose it first.
+func (m *Managed) startLogin(w http.ResponseWriter, r *http.Request, u *store.User, ret string) {
+	ctx := r.Context()
+	l, token, err := m.Store.CreateLogin(ctx, u.Subject, nil, "", m.LoginLifetime)
+	if err == nil {
+		err = m.Store.SetLoginFresh(ctx, l.ID) // just typed: confirmed
+	}
+	if err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	cookie.Set(w, r, &http.Cookie{Name: LoginCookie, Value: token, MaxAge: int(m.LoginLifetime.Seconds())})
+	if u.MustChange {
+		ret = signinPagePath + "?" + url.Values{"return": {ret}}.Encode()
+	}
+	writeOK(w, map[string]string{"next": ret})
+}
+
+// confirmFresh marks the signed-in person's login confirmed: it's them.
+func (m *Managed) confirmFresh(w http.ResponseWriter, r *http.Request, u *store.User, ret string) {
+	ctx := r.Context()
+	l, signedIn := m.current(r)
+	if signedIn == nil || signedIn.Subject != u.Subject {
+		m.refuse(w, r, problem.SigninFailed, "otherPerson")
+		return
+	}
+	if err := m.Store.SetLoginFresh(ctx, l.ID); err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	// With an account, its session is confirmed too, and PIN locks lift:
+	// the account holder is back (rule 22). An admin may have no account.
+	id, _ := identity.FromContext(ctx)
+	if _, _, err := m.Provisioner.Find(ctx, id); err == nil {
+		c := m.Sessions.CurrentAccount(w, r)
+		if c == nil {
+			return
+		}
+		if err := m.Store.SetFreshLogin(ctx, c.Account.ID, c.Session.ID, time.Now()); err != nil {
+			m.fail(w, r, err)
+			return
+		}
+		if err := m.Store.UnlockPINs(ctx, c.Account.ID); err != nil {
+			m.Logger.Error("step-up: unlocking PINs failed", "err", err)
+		}
+	}
+	writeOK(w, map[string]string{"next": ret})
+}
+
+// changePassword takes the new password of someone signed in who must
+// choose one (an admin made their account, or set it for them).
+func (m *Managed) changePassword(w http.ResponseWriter, r *http.Request) {
+	req, ok := m.read(w, r)
+	if !ok {
+		return
+	}
+	l, u := m.current(r)
+	if u == nil || !u.Confirmed {
+		problem.Send(w, problem.NotAuthenticated, "")
+		return
+	}
+	if !u.MustChange {
+		writeOK(w, map[string]string{"next": req.Return})
+		return
+	}
+	hash, ok := m.newPassword(w, r, req.Password)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	err := m.Store.SetPassword(ctx, u.Subject, hash)
+	if err == nil {
+		err = m.Store.SetMustChange(ctx, u.Subject, false)
+	}
+	if err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	if err := m.Store.DeleteOtherLogins(ctx, u.Subject, l.ID); err != nil {
+		m.Logger.Error("ending other logins after a new password failed", "err", err)
+	}
+	writeOK(w, map[string]string{"next": req.Return})
+}
+
+// ---- Registering ----------------------------------------------------------------------
+
+// register makes the account of someone with an invitation (opened in
+// this browser): their email and password, then a link to their email to
+// confirm it. An email that has an account here gets a notice instead;
+// the answer is the same.
+func (m *Managed) register(w http.ResponseWriter, r *http.Request) {
+	req, ok := m.read(w, r)
+	if !ok || !m.checked(w, r, req) || !m.cleanEmail(w, r, &req) {
+		return
+	}
+	if !m.canMail() {
+		m.refuse(w, r, problem.InvalidRequest, "noMail")
+		return
+	}
+	if !m.byEmail.allow("register "+strings.ToLower(req.Email), time.Now()) {
+		m.refuse(w, r, problem.RateLimited, "tooManyTries")
+		return
+	}
+	code, valid, err := m.invitation(r)
+	if err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	if !valid {
+		m.refuse(w, r, problem.InvitationRequired, "inviteInvalid")
+		return
+	}
+	hash, ok := m.newPassword(w, r, req.Password)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	lang := pageLang(r)
+	u, err := m.Store.RegisterUser(ctx, req.Email, hash, code)
+	switch {
+	case errors.Is(err, store.ErrEmailTaken):
+		m.send(req.Email, lang, "exists", strings.TrimSuffix(m.SiteURL, "/")+signinPagePath)
+	case err != nil:
+		m.fail(w, r, err)
+		return
+	default:
+		m.Logger.Info("someone registered with an invitation", "user", m.Provisioner.LogID(u.Subject))
+		if err := m.sendLink(ctx, u, "verify", verifyFor, lang); err != nil {
+			m.fail(w, r, err)
+			return
+		}
+	}
+	writeOK(w, map[string]bool{"sent": true})
+}
+
+// invitation is the code of the invitation this browser opened, and
+// whether it still works.
+func (m *Managed) invitation(r *http.Request) (string, bool, error) {
+	c, err := cookie.Get(r, feature.InviteCookie)
+	if err != nil {
+		return "", false, nil
+	}
+	inviter, h := inviterOf(m.Mounts)
+	if inviter == nil {
+		return "", false, nil
+	}
+	ok, _, err := inviter.Invitation(r.Context(), h, c.Value)
+	return c.Value, ok, err
+}
+
+// verify takes the link confirming an address: the account works then,
+// and its person is signed in, with their invitation to shape it.
+func (m *Managed) verify(w http.ResponseWriter, r *http.Request) {
+	req, ok := m.read(w, r)
+	if !ok {
+		return
+	}
+	u, ok := m.takeLink(w, r, "verify", req.Link)
+	if !ok {
+		return
+	}
+	code, err := m.Store.ConfirmUser(r.Context(), u.Subject)
+	if err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	m.keepInvitation(w, r, code)
+	u.Confirmed = true
+	m.startLogin(w, r, u, "/")
+}
+
+// keepInvitation leaves the invitation someone registered with in this
+// browser, where their account is about to be set up.
+func (m *Managed) keepInvitation(w http.ResponseWriter, r *http.Request, code string) {
+	if code != "" {
+		cookie.Set(w, r, &http.Cookie{Name: feature.InviteCookie, Value: code, MaxAge: 24 * 60 * 60,
+			SameSite: http.SameSiteLaxMode})
+	}
+}
+
+// resend sends the link confirming an address again, to someone waiting
+// for it; the answer is the same for anyone.
+func (m *Managed) resend(w http.ResponseWriter, r *http.Request) {
+	req, ok := m.read(w, r)
+	if !ok || !m.checked(w, r, req) || !m.cleanEmail(w, r, &req) {
+		return
+	}
+	if !m.byEmail.allow("resend "+strings.ToLower(req.Email), time.Now()) {
+		m.refuse(w, r, problem.RateLimited, "tooManyTries")
+		return
+	}
+	if u, err := m.Store.UserByEmail(r.Context(), req.Email); err == nil && !u.Confirmed && m.canMail() {
+		if err := m.sendLink(r.Context(), u, "verify", verifyFor, pageLang(r)); err != nil {
+			m.fail(w, r, err)
+			return
+		}
+	}
+	writeOK(w, map[string]bool{"sent": true})
+}
+
+// ---- A forgotten password -------------------------------------------------------------
+
+// askReset sends a link to choose a new password, when the email has an
+// account here; the answer is the same either way.
+func (m *Managed) askReset(w http.ResponseWriter, r *http.Request) {
+	req, ok := m.read(w, r)
+	if !ok || !m.checked(w, r, req) || !m.cleanEmail(w, r, &req) {
+		return
+	}
+	if !m.canMail() {
+		m.refuse(w, r, problem.InvalidRequest, "noMail")
+		return
+	}
+	if !m.byEmail.allow("reset "+strings.ToLower(req.Email), time.Now()) {
+		m.refuse(w, r, problem.RateLimited, "tooManyTries")
+		return
+	}
+	u, err := m.Store.UserByEmail(r.Context(), req.Email)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		m.fail(w, r, err)
+		return
+	}
+	if u != nil && !u.Disabled {
+		if err := m.sendLink(r.Context(), u, "reset", resetFor, pageLang(r)); err != nil {
+			m.fail(w, r, err)
+			return
+		}
+	}
+	writeOK(w, map[string]bool{"sent": true})
+}
+
+// reset takes the link to choose a new password, and the password: it
+// ends every other login, confirms the address (the link went there), and
+// signs the person in.
+func (m *Managed) reset(w http.ResponseWriter, r *http.Request) {
+	req, ok := m.read(w, r)
+	if !ok {
+		return
+	}
+	hash, ok := m.newPassword(w, r, req.Password)
+	if !ok {
+		return
+	}
+	u, ok := m.takeLink(w, r, "reset", req.Link)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	err := m.Store.SetPassword(ctx, u.Subject, hash)
+	if err == nil {
+		err = m.Store.SetMustChange(ctx, u.Subject, false)
+	}
+	var code string
+	if err == nil && !u.Confirmed {
+		code, err = m.Store.ConfirmUser(ctx, u.Subject)
+	}
+	if err == nil {
+		err = m.Store.DeleteLogins(ctx, u.Subject)
+	}
+	if err != nil {
+		m.fail(w, r, err)
+		return
+	}
+	m.keepInvitation(w, r, code)
+	u.Confirmed, u.MustChange = true, false
+	m.startLogin(w, r, u, "/")
+}
+
+// ---- One's own password ---------------------------------------------------------------
+
+// signinInfo says how the person signed in signs in: their email, and
+// whether a forgotten password can be reset by email.
 func (m *Managed) signinInfo(w http.ResponseWriter, r *http.Request) {
 	_, u := m.current(r)
 	if u == nil {
 		problem.Send(w, problem.NotAuthenticated, "")
 		return
 	}
-	writeOK(w, map[string]any{"email": u.Email, "hasPassword": u.PasswordHash != "", "codes": m.mailer() != nil})
+	writeOK(w, map[string]any{"email": u.Email, "hasPassword": u.PasswordHash != "", "reset": m.canMail()})
 }
 
-// setPassword sets or changes the password, after a fresh login; other
-// browsers then sign in again.
+// setPassword changes the password, after a fresh login; other browsers
+// then sign in again.
 func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 	l, u, ok := m.freshUser(w, r)
 	if !ok {
@@ -260,9 +625,8 @@ func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 		m.refuse(w, r, problem.InvalidRequest, "")
 		return
 	}
-	hash, err := password.Hash(req.Password)
-	if err != nil {
-		m.refuse(w, r, problem.InvalidRequest, "passwordLength")
+	hash, ok := m.newPassword(w, r, req.Password)
+	if !ok {
 		return
 	}
 	if err := m.Store.SetPassword(r.Context(), u.Subject, hash); err != nil {
@@ -275,30 +639,12 @@ func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]bool{"hasPassword": true})
 }
 
-// removePassword removes the password, after a fresh login, when codes can
-// come by email instead.
-func (m *Managed) removePassword(w http.ResponseWriter, r *http.Request) {
-	_, u, ok := m.freshUser(w, r)
-	if !ok {
-		return
-	}
-	if m.mailer() == nil {
-		m.refuse(w, r, problem.InvalidRequest, "keepPassword")
-		return
-	}
-	if err := m.Store.SetPassword(r.Context(), u.Subject, ""); err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	writeOK(w, map[string]bool{"hasPassword": false})
-}
-
 // freshUser is the person signed in, if they confirmed it's them in the
 // last few minutes; otherwise it answers step-up-required.
 func (m *Managed) freshUser(w http.ResponseWriter, r *http.Request) (*store.Login, *store.User, bool) {
 	l, u := m.current(r)
 	switch {
-	case u == nil:
+	case u == nil || !u.Confirmed:
 		problem.Send(w, problem.NotAuthenticated, "")
 		return nil, nil, false
 	case l.Fresh.IsZero() || time.Since(l.Fresh) >= m.FreshFor:
@@ -310,388 +656,43 @@ func (m *Managed) freshUser(w http.ResponseWriter, r *http.Request) (*store.Logi
 	return l, u, true
 }
 
-// ---- The page -------------------------------------------------------------------------
+// ---- Helpers --------------------------------------------------------------------------
 
-func (m *Managed) file(name, contentType string) http.HandlerFunc {
-	b, err := signinFiles.ReadFile(name)
-	if err != nil {
-		panic(err) // embedded: present at build time
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(b)
-	}
-}
-
-func (m *Managed) page(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	ret := safeReturn(q.Get("return"))
-	fresh := q.Get("fresh") == "1"
-	_, u := m.current(r)
-	switch {
-	case !fresh && u != nil:
-		http.Redirect(w, r, ret, http.StatusSeeOther) // already signed in
-		return
-	case fresh && u == nil:
-		fresh = false // nobody to confirm: an ordinary sign-in
-	}
-	m.ensureBinding(w, r)
-	lang := pageLang(r)
-	data := map[string]any{
-		"Lang": lang, "T": signinTexts[lang], "Return": ret, "Fresh": fresh,
-		"Codes": m.mailer() != nil, "JS": signinJS, "CSS": signinCSS, "Icon": signinLogo,
-		"Banner": template.HTML(theme.Banner),
-	}
-	// The operator's branding, when on: their banner (Overfin's then shows
-	// below, "powered by"), their name in the title, their logo as the icon.
-	if br, err := m.Store.Branding(r.Context()); err == nil && br.On {
-		data["Custom"], data["Name"] = true, BrandName(br)
-		file := func(kind string) string {
-			if at, ok := br.Files[kind]; ok {
-				return fmt.Sprintf("/api/v1/branding/%s?v=%d", kind, at.Unix())
-			}
-			return ""
-		}
-		data["BannerDark"], data["BannerLight"] = file("banner-dark"), file("banner-light")
-		if logo := file("logo"); logo != "" {
-			data["Icon"] = logo
-		}
-	}
-	if fresh {
-		data["Email"] = u.Email
-		data["Intro"] = strings.ReplaceAll(signinTexts[lang]["freshIntro"], "{email}", u.Email)
-	}
-	h := w.Header()
-	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "+
-		"form-action 'none'; frame-ancestors 'none'; base-uri 'none'")
-	if err := signinPage.Execute(w, data); err != nil {
-		m.Logger.Error("the sign-in page failed", "err", err)
-	}
-}
-
-// ensureBinding gives the browser its binding cookie, once.
-func (m *Managed) ensureBinding(w http.ResponseWriter, r *http.Request) {
-	if c, err := cookie.Get(r, bindingCookie); err == nil && len(c.Value) == 43 {
-		return
-	}
-	cookie.Set(w, r, &http.Cookie{Name: bindingCookie, Value: randomToken(), MaxAge: 30 * 24 * 60 * 60})
-}
-
-// binding is the keyed hash of this browser's binding cookie; nil without
-// one.
-func (m *Managed) binding(r *http.Request) []byte {
-	c, err := cookie.Get(r, bindingCookie)
-	if err != nil || len(c.Value) != 43 {
-		return nil
-	}
-	return m.hash("binding", c.Value)
-}
-
-// ---- Signing in -----------------------------------------------------------------------
-
-type signinRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Code     string `json:"code"`
-	Link     string `json:"link"`
-	Fresh    bool   `json:"fresh"`
-	Return   string `json:"return"`
-}
-
-// start takes an email and a password, or an email alone and sends it a
-// code.
-func (m *Managed) start(w http.ResponseWriter, r *http.Request) {
-	req, ok := m.read(w, r)
-	if !ok {
-		return
-	}
-	if req.Password != "" {
-		m.withPassword(w, r, req)
-		return
-	}
-	sender := m.mailer()
-	if sender == nil {
-		m.refuse(w, r, problem.InvalidRequest, "noMail")
-		return
-	}
-	ctx := r.Context()
-	// Every request counts, whether or not the email has an account, so
-	// the limit tells nothing either.
-	n, err := m.Store.CodesSentSince(ctx, req.Email, time.Now().Add(-time.Hour))
-	if err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	if n >= codesPerHour {
-		m.refuse(w, r, problem.RateLimited, "tooManyCodes")
-		return
-	}
-	code, link := randomCode(), randomToken()
-	purpose := "signin"
-	if req.Fresh {
-		purpose = "fresh"
-	}
-	send, err := m.mayGetCode(r, req)
-	if err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	c := store.SigninCode{Email: req.Email, CodeHash: m.hash("code", req.Email, code), LinkHash: m.hash("link", link),
-		Binding: m.binding(r), Purpose: purpose, Expires: time.Now().Add(codeFor)}
-	if !send {
-		// Counted, but nobody can use it: hashes of nothing anyone has.
-		c.CodeHash, c.LinkHash = m.hash("none", randomToken()), m.hash("none", randomToken())
-	}
-	if c.Binding == nil {
-		m.refuse(w, r, problem.InvalidRequest, "reload")
-		return
-	}
-	if err := m.Store.AddSigninCode(ctx, c); err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	if send {
-		// Sent in the background: how long sending takes would otherwise
-		// tell who has an account.
-		browser := pageLang(r)
-		m.sendings.Add(1)
-		go func() {
-			defer m.sendings.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-			// In the account's language, looked up here too: in the
-			// background.
-			msg, err := m.codeEmail(ctx, m.mailLang(ctx, req.Email, browser), purpose, code, link)
-			if err == nil {
-				err = sender.SendMessage(ctx, req.Email, msg)
-			}
-			if err != nil {
-				m.Logger.Error("sending a sign-in code failed", "err", err)
-			}
-		}()
-	}
-	writeOK(w, map[string]bool{"sent": true})
-}
-
-// mayGetCode reports whether the email gets a code: someone with an
-// account here (for a fresh login, the signed-in person), or a newcomer
-// with an invitation.
-func (m *Managed) mayGetCode(r *http.Request, req signinRequest) (bool, error) {
-	u, err := m.Store.UserByEmail(r.Context(), req.Email)
-	switch {
-	case err == nil:
-		return !u.Disabled, nil
-	case !errors.Is(err, store.ErrNotFound):
-		return false, err
-	case req.Fresh:
-		return false, nil
-	}
-	return Invited(r, m.Mounts)
-}
-
-func (m *Managed) withPassword(w http.ResponseWriter, r *http.Request, req signinRequest) {
-	if !m.byEmail.allow(strings.ToLower(req.Email), time.Now()) {
-		m.refuse(w, r, problem.RateLimited, "tooManyTries")
-		return
-	}
-	u, err := m.Store.UserByEmail(r.Context(), req.Email)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		m.fail(w, r, err)
-		return
-	}
-	// The same work whether or not there's an account, or a password.
-	hash := password.Dummy
-	if u != nil && u.PasswordHash != "" {
-		hash = u.PasswordHash
-	}
-	select {
-	case m.hashing <- struct{}{}:
-	case <-r.Context().Done():
-		return
-	}
-	right := password.Check(hash, req.Password)
-	<-m.hashing
-	if !right || u == nil || u.PasswordHash == "" || u.Disabled {
-		m.refuse(w, r, problem.SigninFailed, "wrongPassword")
-		return
-	}
-	m.finish(w, r, u, req)
-}
-
-// code takes the code typed in this browser.
-func (m *Managed) code(w http.ResponseWriter, r *http.Request) {
-	req, ok := m.read(w, r)
-	if !ok {
-		return
-	}
-	code := strings.Map(func(c rune) rune {
-		if c >= '0' && c <= '9' {
-			return c
-		}
-		return -1
-	}, req.Code)
-	binding := m.binding(r)
-	if len(code) != 6 || binding == nil {
-		m.refuse(w, r, problem.SigninFailed, "wrongCode")
-		return
-	}
-	purpose := "signin"
-	if req.Fresh {
-		purpose = "fresh"
-	}
-	match, err := m.Store.TakeSigninCode(r.Context(), req.Email, purpose, binding, m.hash("code", req.Email, code))
-	if err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	if !match {
-		m.refuse(w, r, problem.SigninFailed, "wrongCode")
-		return
-	}
-	m.codeTaken(w, r, req)
-}
-
-// link takes the link from an email, opened in any browser: whoever has
-// the email has it.
-func (m *Managed) link(w http.ResponseWriter, r *http.Request) {
-	var req signinRequest
-	if !m.byIP.allow(identity.ClientIP(r.Context()).String(), time.Now()) {
-		m.refuse(w, r, problem.RateLimited, "tooManyTries")
-		return
-	}
-	if !decode(r, &req) || len(req.Link) != 43 {
-		m.refuse(w, r, problem.SigninFailed, "oldLink")
-		return
-	}
-	req.Return = safeReturn(req.Return)
-	email, purpose, err := m.Store.TakeSigninLink(r.Context(), m.hash("link", req.Link))
-	if errors.Is(err, store.ErrNotFound) {
-		m.refuse(w, r, problem.SigninFailed, "oldLink")
-		return
-	}
-	if err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	req.Email, req.Fresh = email, purpose == "fresh"
-	m.codeTaken(w, r, req)
-}
-
-// codeTaken finishes with the person a right code or link is for, making
-// a newcomer's sign-in if they bring an invitation.
-func (m *Managed) codeTaken(w http.ResponseWriter, r *http.Request, req signinRequest) {
-	ctx := r.Context()
-	u, err := m.Store.UserByEmail(ctx, req.Email)
-	if errors.Is(err, store.ErrNotFound) && !req.Fresh {
-		invited, ierr := Invited(r, m.Mounts)
-		if ierr != nil {
-			m.fail(w, r, ierr)
-			return
-		}
-		if !invited {
-			m.refuse(w, r, problem.InvitationRequired, "noInvitation")
-			return
-		}
-		u, err = m.Store.CreateUser(ctx, req.Email, false)
-		if errors.Is(err, store.ErrEmailTaken) {
-			u, err = m.Store.UserByEmail(ctx, req.Email) // made meanwhile
-		}
-		if err == nil {
-			m.Logger.Info("someone new signed in, with an invitation", "user", m.Provisioner.LogID(u.Subject))
-		}
-	}
-	if errors.Is(err, store.ErrNotFound) {
-		m.refuse(w, r, problem.SigninFailed, "wrongCode")
-		return
-	}
-	if err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	if u.Disabled {
-		m.refuse(w, r, problem.AccountNotAllowed, "")
-		return
-	}
-	m.finish(w, r, u, req)
-}
-
-// finish signs the person in, or, for a fresh login, marks this session
-// confirmed.
-func (m *Managed) finish(w http.ResponseWriter, r *http.Request, u *store.User, req signinRequest) {
-	ctx := r.Context()
-	if req.Fresh {
-		l, signedIn := m.current(r)
-		if signedIn == nil || signedIn.Subject != u.Subject {
-			m.refuse(w, r, problem.SigninFailed, "otherPerson")
-			return
-		}
-		if err := m.Store.SetLoginFresh(ctx, l.ID); err != nil {
-			m.fail(w, r, err)
-			return
-		}
-		// With an account, its session is confirmed too, and PIN locks
-		// lift: the account holder is back (rule 22). An admin may have
-		// no account.
-		id, _ := identity.FromContext(ctx)
-		if _, _, err := m.Provisioner.Find(ctx, id); err == nil {
-			c := m.Sessions.CurrentAccount(w, r)
-			if c == nil {
-				return
-			}
-			if err := m.Store.SetFreshLogin(ctx, c.Account.ID, c.Session.ID, time.Now()); err != nil {
-				m.fail(w, r, err)
-				return
-			}
-			if err := m.Store.UnlockPINs(ctx, c.Account.ID); err != nil {
-				m.Logger.Error("step-up: unlocking PINs failed", "err", err)
-			}
-		}
-		writeOK(w, map[string]string{"next": req.Return})
-		return
-	}
-	l, token, err := m.Store.CreateLogin(ctx, u.Subject, nil, "", m.LoginLifetime)
-	if err == nil {
-		err = m.Store.SetLoginFresh(ctx, l.ID) // just typed: confirmed
-	}
-	if err != nil {
-		m.fail(w, r, err)
-		return
-	}
-	cookie.Set(w, r, &http.Cookie{Name: LoginCookie, Value: token, MaxAge: int(m.LoginLifetime.Seconds())})
-	writeOK(w, map[string]string{"next": req.Return})
-}
-
-// read decodes a sign-in request, within this browser's rate limit, with a
-// usable email (for a fresh login, the signed-in person's).
+// read decodes a request from one of the pages, within this browser's
+// rate limit.
 func (m *Managed) read(w http.ResponseWriter, r *http.Request) (signinRequest, bool) {
 	var req signinRequest
 	if !m.byIP.allow(identity.ClientIP(r.Context()).String(), time.Now()) {
 		m.refuse(w, r, problem.RateLimited, "tooManyTries")
 		return req, false
 	}
-	if !decode(r, &req) || len(req.Password) > password.MaxLength*4 || len(req.Code) > 32 {
+	if !decode(r, &req) || len(req.Password) > password.MaxLength*4 || len(req.Link) > 64 {
 		m.refuse(w, r, problem.InvalidRequest, "")
 		return req, false
 	}
 	req.Return = safeReturn(req.Return)
-	if req.Fresh {
-		_, u := m.current(r)
-		if u == nil {
-			problem.Send(w, problem.NotAuthenticated, "")
-			return req, false
-		}
-		req.Email = u.Email
-		return req, true
+	return req, true
+}
+
+// checked says whether a form anyone can send came with its check against
+// scripts solved, answering when it didn't.
+func (m *Managed) checked(w http.ResponseWriter, r *http.Request, req signinRequest) bool {
+	if m.Proof == nil || !m.Proof.Check(req.Challenge, req.Answer) {
+		m.refuse(w, r, problem.InvalidRequest, "proof")
+		return false
 	}
+	return true
+}
+
+// cleanEmail checks the request's email, answering when it isn't one.
+func (m *Managed) cleanEmail(w http.ResponseWriter, r *http.Request, req *signinRequest) bool {
 	email, ok := cleanEmail(req.Email)
 	if !ok {
 		m.refuse(w, r, problem.InvalidRequest, "badEmail")
-		return req, false
+		return false
 	}
 	req.Email = email
-	return req, true
+	return true
 }
 
 // cleanEmail accepts one plain address, which it returns trimmed.
@@ -707,6 +708,95 @@ func cleanEmail(s string) (string, bool) {
 	return s, true
 }
 
+// rules are the password rules now.
+func (m *Managed) rules(ctx context.Context) password.Rules {
+	r, err := m.Store.PasswordRules(ctx)
+	if err != nil {
+		m.Logger.Error("reading the password rules failed", "err", err)
+	}
+	return r
+}
+
+// newPassword checks a new password against the rules and hashes it,
+// answering what it lacks.
+func (m *Managed) newPassword(w http.ResponseWriter, r *http.Request, pw string) (string, bool) {
+	rules := m.rules(r.Context())
+	if lacks := rules.Lacks(pw); lacks != "" {
+		key := map[string]string{"length": "lacksLength", "digit": "lacksDigit", "special": "lacksSpecial"}[lacks]
+		detail := strings.ReplaceAll(signinTexts[pageLang(r)][key], "{n}", strconv.Itoa(rules.MinLength))
+		problem.Send(w, problem.InvalidRequest, detail)
+		return "", false
+	}
+	hash, err := password.Hash(pw)
+	if err != nil {
+		m.fail(w, r, err)
+		return "", false
+	}
+	return hash, true
+}
+
+// takeLink uses up a link from an email, answering when it doesn't work.
+func (m *Managed) takeLink(w http.ResponseWriter, r *http.Request, purpose, link string) (*store.User, bool) {
+	if len(link) != 43 {
+		m.refuse(w, r, problem.SigninFailed, "oldLink")
+		return nil, false
+	}
+	subject, err := m.Store.TakeEmailLink(r.Context(), purpose, m.hash(purpose, link))
+	if errors.Is(err, store.ErrNotFound) {
+		m.refuse(w, r, problem.SigninFailed, "oldLink")
+		return nil, false
+	}
+	if err != nil {
+		m.fail(w, r, err)
+		return nil, false
+	}
+	u, err := m.Store.UserBySubject(r.Context(), subject)
+	if err != nil || u.Disabled {
+		m.refuse(w, r, problem.SigninFailed, "oldLink")
+		return nil, false
+	}
+	return u, true
+}
+
+// sendLink sends someone a link: to confirm their address ("verify", to
+// /signin) or to choose a new password ("reset", to /reset).
+func (m *Managed) sendLink(ctx context.Context, u *store.User, purpose string, validFor time.Duration, lang string) error {
+	token := randomToken()
+	if err := m.Store.AddEmailLink(ctx, store.EmailLink{Subject: u.Subject, LinkHash: m.hash(purpose, token),
+		Purpose: purpose, Expires: time.Now().Add(validFor)}); err != nil {
+		return err
+	}
+	where := signinPagePath + "#verify="
+	if purpose == "reset" {
+		where = resetPagePath + "#reset="
+	}
+	m.send(u.Email, lang, purpose, strings.TrimSuffix(m.SiteURL, "/")+where+token)
+	return nil
+}
+
+// send sends an email in the background: how long sending takes would
+// otherwise tell who has an account. It's in the account's language when
+// the person has one, else the page's.
+func (m *Managed) send(to, lang, name, link string) {
+	sender := m.mailer()
+	if sender == nil {
+		return
+	}
+	m.sendings.Add(1)
+	go func() {
+		defer m.sendings.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		msg, err := m.Emails.Write(ctx, name, m.mailLang(ctx, to, lang), emails.Vars{Link: link})
+		if err == nil {
+			err = sender.SendMessage(ctx, to, msg)
+		}
+		if err != nil {
+			m.Logger.Error("sending an email failed", "email", name, "err", err)
+		}
+	}()
+}
+
 // Mailer sends one email (mail.Sender).
 type Mailer interface {
 	SendMessage(ctx context.Context, to string, m ofmail.Message) error
@@ -718,6 +808,13 @@ func (m *Managed) mailer() Mailer {
 	}
 	return m.Mail()
 }
+
+// canMail says whether emails with links can be sent: an SMTP server, and
+// the site's address for the links.
+func (m *Managed) canMail() bool { return m.mailer() != nil && m.SiteURL != "" }
+
+// CanMail is canMail, for the control panel.
+func (m *Managed) CanMail() bool { return m.canMail() }
 
 // refuse answers with a problem whose detail is the page's text for key,
 // in the visitor's language.
@@ -731,59 +828,22 @@ func (m *Managed) refuse(w http.ResponseWriter, r *http.Request, t problem.Type,
 
 func (m *Managed) fail(w http.ResponseWriter, r *http.Request, err error) {
 	m.Logger.Error("sign-in failed", "err", err)
-	m.refuse(w, r, problem.Internal, "")
+	m.refuse(w, r, problem.Internal, "failed")
 }
 
-// hash is the keyed hash of a code, a link or a binding, each in its own
-// domain.
+// hash is the keyed hash of a link, in its purpose's own domain.
 func (m *Managed) hash(kind string, parts ...string) []byte {
 	h := hmac.New(sha256.New, m.CodeKey)
 	h.Write([]byte(kind))
 	for _, p := range parts {
 		h.Write([]byte{0})
-		h.Write([]byte(strings.ToLower(p)))
+		h.Write([]byte(p))
 	}
 	return h.Sum(nil)
 }
 
-// codeEmail is the email carrying a code, and its link when the site's
-// address is known.
-func (m *Managed) codeEmail(ctx context.Context, lang, purpose, code, link string) (ofmail.Message, error) {
-	name := "signin"
-	if purpose == "fresh" {
-		name = "confirm"
-	}
-	v := emails.Vars{Code: code, Minutes: int(codeFor.Minutes())}
-	if m.SiteURL != "" {
-		v.Link = strings.TrimSuffix(m.SiteURL, "/") + signinPath + "#link=" + link
-	}
-	return m.Emails.Write(ctx, name, lang, v)
-}
-
-// SigninLink makes a sign-in link for someone an admin hands it to: it
-// works once, in any browser, within validFor. It returns its path on the
-// site.
-func (m *Managed) SigninLink(ctx context.Context, email string, validFor time.Duration) (string, error) {
-	link := randomToken()
-	c := store.SigninCode{Email: email, CodeHash: m.hash("none", randomToken()), LinkHash: m.hash("link", link),
-		Binding: m.hash("none", randomToken()), Purpose: "signin", Expires: time.Now().Add(validFor)}
-	if err := m.Store.AddSigninCode(ctx, c); err != nil {
-		return "", err
-	}
-	return signinPath + "#link=" + link, nil
-}
-
 // Wait waits for emails being sent; for tests.
 func (m *Managed) Wait() { m.sendings.Wait() }
-
-// randomCode is six random digits.
-func randomCode() string {
-	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%06d", n.Int64())
-}
 
 // randomToken is 256 random bits, as 43 URL-safe characters.
 func randomToken() string {
@@ -833,8 +893,8 @@ func (m *Managed) mailLang(ctx context.Context, email, browser string) string {
 	return tag
 }
 
-// pageLang is the visitor's language among the page's: the first of
-// theirs it has.
+// pageLang is the visitor's language among the pages': the first of
+// theirs they have.
 func pageLang(r *http.Request) string {
 	for _, part := range strings.Split(r.Header.Get("Accept-Language"), ",") {
 		tag, _, _ := strings.Cut(strings.TrimSpace(part), ";")

@@ -1,6 +1,7 @@
-// Package mail sends Overfin's few emails (sign-in codes, invitations)
-// through the operator's SMTP server, with the standard library's SMTP
-// client: plain text, UTF-8, one recipient at a time.
+// Package mail sends Overfin's few emails (invitations, address
+// confirmations, forgotten passwords) through the operator's SMTP server,
+// with the standard library's SMTP client: plain text, UTF-8, one
+// recipient at a time.
 package mail
 
 import (

@@ -11,17 +11,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/seal"
 	"github.com/overfin/server/internal/store"
 )
 
-type links []string
+// sent keeps the invitations sent by email.
+type sent []string
 
-func (l *links) SigninLink(_ context.Context, email string) (string, error) {
-	*l = append(*l, email)
-	return "/api/v1/signin#link=x", nil
+func (l *sent) CanMail() bool { return true }
+
+func (l *sent) SendInvitation(_ context.Context, to, link string) error {
+	*l = append(*l, to+" "+link)
+	return nil
 }
 
 func TestPeople(t *testing.T) {
@@ -32,7 +36,7 @@ func TestPeople(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	me, _ := db.CreateUser(context.Background(), "me@example.org", true)
-	made := &links{}
+	made := &sent{}
 	p := &Panel{Features: &memFeatures{f: config.DefaultFeatures()}, Store: db, People: made,
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		SiteAdmin: func(*http.Request) (string, bool, bool) { return "me@example.org", true, true }}
@@ -56,23 +60,53 @@ func TestPeople(t *testing.T) {
 		return rec.Code, out
 	}
 
-	if code, out := do("POST", "/admin/api/people", map[string]any{"email": "Bob <bob@example.org>"}); code != 400 {
+	const pw = "first password 1"
+	if code, out := do("POST", "/admin/api/people", map[string]any{"email": "Bob <bob@example.org>", "password": pw}); code != 400 {
 		t.Errorf("not a plain email: %d %v", code, out)
 	}
-	code, bob := do("POST", "/admin/api/people", map[string]any{"email": "bob@example.org"})
-	if code != 200 || bob["admin"] != false {
+	// The password rules: 10 characters, a digit, a special one.
+	for bad, want := range map[string]string{"short 1": "10 characters", "no digits here": "digit", "nospecial123": "special"} {
+		if code, out := do("POST", "/admin/api/people", map[string]any{"email": "bob@example.org", "password": bad}); code != 400 ||
+			!strings.Contains(out["detail"].(string), want) {
+			t.Errorf("%q: %d %v", bad, code, out)
+		}
+	}
+	code, bob := do("POST", "/admin/api/people", map[string]any{"email": "bob@example.org", "password": pw, "mustChange": true})
+	if code != 200 || bob["admin"] != false || bob["mustChange"] != true {
 		t.Fatalf("adding Bob: %d %v", code, bob)
 	}
-	if code, _ := do("POST", "/admin/api/people", map[string]any{"email": "BOB@example.org"}); code != 409 {
+	if u, _ := db.UserByEmail(context.Background(), "bob@example.org"); u.PasswordHash == "" || !u.MustChange || !u.Confirmed {
+		t.Errorf("Bob: %+v", u)
+	}
+	if code, _ := do("POST", "/admin/api/people", map[string]any{"email": "BOB@example.org", "password": pw}); code != 409 {
 		t.Errorf("the same email twice: %d", code)
 	}
 	id := bob["id"].(string)
 	if code, out := do("PATCH", "/admin/api/people/"+id, map[string]any{"admin": true}); code != 200 || out["admin"] != true {
 		t.Errorf("making Bob an admin: %d %v", code, out)
 	}
-	if code, out := do("POST", "/admin/api/people/"+id+"/link", map[string]any{}); code != 200 ||
-		!strings.HasPrefix(out["link"].(string), "/api/v1/signin#link=") || len(*made) != 1 || (*made)[0] != "bob@example.org" {
-		t.Errorf("Bob's link: %d %v %v", code, out, *made)
+	// A new password from an admin ends Bob's logins.
+	db.CreateLogin(context.Background(), id, nil, "", time.Hour)
+	if code, out := do("PUT", "/admin/api/people/"+id+"/password", map[string]any{"password": "second password 2", "mustChange": false}); code != 200 {
+		t.Errorf("Bob's new password: %d %v", code, out)
+	}
+	if u, _ := db.UserByEmail(context.Background(), "bob@example.org"); u.MustChange {
+		t.Error("Bob must still change it")
+	}
+	// Invitations by email, and the rules, on the registration page.
+	if code, out := do("POST", "/admin/api/registration/send", map[string]any{"email": "ann@example.org", "link": "https://media.example.org/invite/abc"}); code != 200 ||
+		len(*made) != 1 || (*made)[0] != "ann@example.org https://media.example.org/invite/abc" {
+		t.Errorf("sending an invitation: %d %v %v", code, out, *made)
+	}
+	if code, _ := do("POST", "/admin/api/registration/send", map[string]any{"email": "ann@example.org", "link": "https://evil.example/x"}); code != 400 {
+		t.Errorf("not an invitation's link: %d", code)
+	}
+	if code, out := do("PUT", "/admin/api/registration", map[string]any{"rules": map[string]any{"minLength": 9}}); code != 400 {
+		t.Errorf("under 10: %d %v", code, out)
+	}
+	if code, out := do("PUT", "/admin/api/registration", map[string]any{"rules": map[string]any{"minLength": 12, "digit": true}}); code != 200 ||
+		out["rules"].(map[string]any)["minLength"] != float64(12) || out["mail"] != true {
+		t.Errorf("new rules: %d %v", code, out)
 	}
 	// Admins keep themselves: no stepping down, no removing themselves.
 	if code, _ := do("PATCH", "/admin/api/people/"+me.Subject, map[string]any{"admin": false}); code != 400 {

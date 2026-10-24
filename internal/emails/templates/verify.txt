@@ -1,0 +1,11 @@
+{{define "subject"}}{{t "verify.subject"}}{{end}}
+{{define "content" -}}
+{{t "verify.intro"}}
+
+{{.Link}}
+{{- with t "verify.expires"}}
+
+{{.}}
+{{- end}}
+{{- end}}
+{{define "why"}}{{t "verify.why"}}{{end}}

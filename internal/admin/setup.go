@@ -441,9 +441,18 @@ func (s *Setup) admin(w http.ResponseWriter, r *http.Request, body json.RawMessa
 		unusable(w, "The admin's email isn't an email address.")
 		return
 	}
+	// The password rules' defaults: the panel can change them later.
+	if lacks := password.DefaultRules.Lacks(req.Password); lacks != "" {
+		unusable(w, map[string]string{
+			"length":  fmt.Sprintf("The admin's password needs %d to %d characters.", password.MinLength, password.MaxLength),
+			"digit":   "The admin's password needs a digit.",
+			"special": "The admin's password needs a special character.",
+		}[lacks])
+		return
+	}
 	hash, err := password.Hash(req.Password)
 	if err != nil {
-		unusable(w, fmt.Sprintf("The admin's password must be %d to %d characters.", password.MinLength, password.MaxLength))
+		unusable(w, fmt.Sprintf("The admin's password needs %d to %d characters.", password.MinLength, password.MaxLength))
 		return
 	}
 	if err := s.FirstAdmin(r.Context(), email, hash); err != nil {

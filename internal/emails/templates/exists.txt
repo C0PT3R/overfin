@@ -1,0 +1,11 @@
+{{define "subject"}}{{t "exists.subject"}}{{end}}
+{{define "content" -}}
+{{t "exists.intro"}}
+
+{{.Link}}
+{{- with t "exists.expires"}}
+
+{{.}}
+{{- end}}
+{{- end}}
+{{define "why"}}{{t "exists.why"}}{{end}}

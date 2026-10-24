@@ -211,14 +211,15 @@ func TestSetupFirstAdmin(t *testing.T) {
 		t.Errorf("what it asks: %s", got)
 	}
 	for body, want := range map[string]string{
-		`{"code":"K7QM-2XRP","email":"not an email","password":"long enough pw"}`: "isn't an email",
-		`{"code":"K7QM-2XRP","email":"ann@example.org","password":"short"}`:       "10 to 256",
+		`{"code":"K7QM-2XRP","email":"not an email","password":"long enough pw"}`:    "isn't an email",
+		`{"code":"K7QM-2XRP","email":"ann@example.org","password":"long enough pw"}`: "digit",
+		`{"code":"K7QM-2XRP","email":"ann@example.org","password":"short"}`:          "10 to 256",
 	} {
 		if rec := post(h, internet, "admin", body); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
 	}
-	good := `{"code":"K7QM-2XRP","email":"ann@example.org","password":"long enough pw"}`
+	good := `{"code":"K7QM-2XRP","email":"ann@example.org","password":"long enough pw 1"}`
 	if rec := post(h, internet, "admin", good); rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "disk") {
 		t.Fatalf("admin failing: %d %s", rec.Code, rec.Body)
 	}

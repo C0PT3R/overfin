@@ -1,5 +1,8 @@
 // The invites module's tab: invitations, and the invite templates they're
-// made from. Text from the server is only ever set with textContent.
+// made from, on People → Registration. An invitation is for a number of
+// people or any number, until a date or with no end; with Overfin's own
+// sign-in, its link can go by email (panel.sendInvitation). Text from the
+// server is only ever set with textContent.
 export default async function render(root, panel) {
   const { h, api } = panel;
   const { card, field, badge, toast, busy, secret, fill, plural } = panel.ui;
@@ -10,7 +13,9 @@ export default async function render(root, panel) {
   const days = (n) => plural(n, 'day');
 
   // Invitations.
-  const status = (inv) => (inv.uses >= inv.maxUses ? ['Used', ''] : new Date(inv.expiresAt) <= new Date() ? ['Expired', 'err'] : ['Waiting', 'ok']);
+  const status = (inv) => (inv.maxUses && inv.uses >= inv.maxUses ? ['Used', '']
+    : inv.expiresAt && new Date(inv.expiresAt) <= new Date() ? ['Expired', 'err'] : ['Waiting', 'ok']);
+  const uses = (n) => (n ? plural(n, 'use') : 'any number of uses');
   const forWhom = h('input', { maxlength: '64', placeholder: 'e.g. Bob' });
   const from = h('select', {}, templates.map((t) => h('option', { value: t.id }, t.name)));
   const made = h('div', {});
@@ -20,8 +25,20 @@ export default async function render(root, panel) {
     busy(create, async () => {
       const out = await api('POST', '/invites', { template: from.value, label: forWhom.value.trim() });
       const link = out.link.startsWith('/') ? location.origin.replace(/:\d+$/, '') + out.link : out.link;
-      fill(made, secret(`Send this link to ${out.invite.label || 'them'}. It's shown only now: copy it before leaving this page.`, link,
+      fill(made, secret(`Send this link to ${out.invite.label || 'them'}, by email, a message, anything. It's shown only now: copy it before leaving this page.`, link,
         out.link.startsWith('/') ? 'Check the address in front: it must be your site\'s.' : null));
+      if (panel.sendInvitation) {
+        const to = h('input', { type: 'email', placeholder: 'name@example.org', 'aria-label': 'Email' });
+        const send = h('button', { type: 'submit' }, 'Send it by email');
+        made.append(h('form', { class: 'toolbar', onsubmit: (ev) => {
+          ev.preventDefault();
+          busy(send, async () => {
+            const sent = await panel.sendInvitation(to.value.trim(), link);
+            toast(sent.summary);
+            to.value = '';
+          });
+        } }, field('Or send it to', to), send));
+      }
       forWhom.value = '';
       invites.unshift(out.invite);
       drawInvites();
@@ -35,10 +52,10 @@ export default async function render(root, panel) {
       busy(remove, async () => { await api('DELETE', `/invites/${inv.id}`); toast('Invitation deleted.'); reload(); });
     } }, 'Delete');
     return h('tr', {},
-      h('td', {}, h('div', { class: 'name' }, inv.label || 'Anyone with the link'), h('div', { class: 'hint' }, `${inv.uses} of ${plural(inv.maxUses, 'use')}`)),
+      h('td', {}, h('div', { class: 'name' }, inv.label || 'Anyone with the link'), h('div', { class: 'hint' }, inv.maxUses ? `${inv.uses} of ${uses(inv.maxUses)}` : `${inv.uses} used, ${uses(0)}`)),
       h('td', {}, badge(text, kind)),
       h('td', { class: 'hint' }, `${accountName(inv.accountTemplate)}, ${inv.accessDays ? days(inv.accessDays) : 'no end'}`),
-      h('td', { class: 'hint' }, new Date(inv.expiresAt).toLocaleDateString()),
+      h('td', { class: 'hint' }, inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : 'No end'),
       h('td', { class: 'actions' }, remove));
   }) : h('tr', {}, h('td', { colspan: '5', class: 'empty' }, 'No invitations yet.')));
   drawInvites();
@@ -48,13 +65,13 @@ export default async function render(root, panel) {
   const account = h('select', {}, accountTemplates.map((t) => h('option', { value: t.id },
     `${t.name} · ${plural(t.maxStreams, 'stream')}, ${plural(t.maxProfiles, 'profile')}`)));
   const access = h('input', { type: 'number', min: '0', max: '3650', value: '0' });
-  const valid = h('input', { type: 'number', min: '1', max: '365', value: '7' });
-  const uses = h('input', { type: 'number', min: '1', max: '1000', value: '1' });
+  const valid = h('input', { type: 'number', min: '0', max: '3650', value: '7' });
+  const maxUses = h('input', { type: 'number', min: '0', max: '100000', value: '1' });
   let editing = null;
   const title = h('h2', {}, 'A new invite template');
   const save = h('button', { class: 'primary', type: 'button', onclick: () => busy(save, async () => {
     const body = { name: name.value.trim(), accountTemplate: account.value,
-      accessDays: Number(access.value), validDays: Number(valid.value), maxUses: Number(uses.value) };
+      accessDays: Number(access.value), validDays: Number(valid.value), maxUses: Number(maxUses.value) };
     await (editing ? api('PUT', `/templates/${editing}`, body) : api('POST', '/templates', body));
     toast(editing ? 'Invite template saved.' : 'Invite template made.');
     reload();
@@ -66,7 +83,7 @@ export default async function render(root, panel) {
     account.value = t.accountTemplate;
     access.value = t.accessDays;
     valid.value = t.validDays;
-    uses.value = t.maxUses;
+    maxUses.value = t.maxUses;
     title.textContent = `Editing ${t.name}`;
     save.textContent = 'Save';
     cancel.hidden = false;
@@ -80,7 +97,7 @@ export default async function render(root, panel) {
     return h('tr', {},
       h('td', {}, h('div', { class: 'name' }, t.name), h('div', { class: 'hint' }, `Account: ${accountName(t.accountTemplate)}`)),
       h('td', { class: 'hint' }, t.accessDays ? days(t.accessDays) : 'No end'),
-      h('td', { class: 'hint' }, `${days(t.validDays)}, ${plural(t.maxUses, 'use')}`),
+      h('td', { class: 'hint' }, `${t.validDays ? days(t.validDays) : 'no end'}, ${uses(t.maxUses)}`),
       h('td', { class: 'actions' }, h('button', { type: 'button', class: 'small', onclick: () => edit(t) }, 'Edit'), remove));
   }) : [h('tr', {}, h('td', { colspan: '4', class: 'empty' }, 'No invite templates yet: make one below.'))];
 
@@ -102,6 +119,7 @@ export default async function render(root, panel) {
       h('div', { class: 'card-head' }, h('div', {}, title)),
       h('div', { class: 'fields' },
         field('Name', name, null, true), field('Account template', account, 'What the account may do.', true),
-        field('Access lasts', access, 'In days; 0: no end.'), field('Link works', valid, 'In days.'), field('Uses', uses, 'How many people.')),
+        field('Access lasts', access, 'In days; 0: no end.'), field('Link works', valid, 'In days; 0: no end.'),
+        field('Uses', maxUses, 'How many people; 0: any number.')),
       h('div', { class: 'card-foot' }, h('span', { class: 'grow' }), cancel, save)));
 }

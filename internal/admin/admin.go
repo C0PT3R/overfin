@@ -148,7 +148,7 @@ type Panel struct {
 	// they confirmed it's them in the last few minutes. Admins then sign in
 	// to the panel through the site's own sign-in, not Provider.
 	SiteAdmin func(r *http.Request) (email string, admin, fresh bool)
-	// People, with managed sign-in, makes sign-in links; the People view
+	// People, with managed sign-in, sends invitations by email; the People view
 	// lists who may sign in.
 	People People
 	// Mail, with managed sign-in, shows and changes the SMTP server.
@@ -275,7 +275,10 @@ func (p *Panel) handler() http.Handler {
 		mux.HandleFunc("GET /admin/api/people", p.signedIn(p.people))
 		mux.HandleFunc("POST /admin/api/people", p.signedIn(p.addPerson))
 		mux.HandleFunc("PATCH /admin/api/people/{id}", p.signedIn(p.changePerson))
-		mux.HandleFunc("POST /admin/api/people/{id}/link", p.signedIn(p.personLink))
+		mux.HandleFunc("PUT /admin/api/people/{id}/password", p.signedIn(p.setPersonPassword))
+		mux.HandleFunc("GET /admin/api/registration", p.signedIn(p.registration))
+		mux.HandleFunc("PUT /admin/api/registration", p.signedIn(p.setRegistration))
+		mux.HandleFunc("POST /admin/api/registration/send", p.signedIn(p.sendInvitation))
 		mux.HandleFunc("DELETE /admin/api/people/{id}", p.signedIn(p.removePerson))
 	}
 	if p.Mail != nil {
@@ -557,12 +560,12 @@ func (p *Panel) siteLogin(w http.ResponseWriter, r *http.Request) {
 	email, isAdmin, fresh := p.SiteAdmin(r)
 	switch {
 	case email == "":
-		http.Redirect(w, r, "/api/v1/signin?"+url.Values{"return": {back}}.Encode(), http.StatusSeeOther)
+		http.Redirect(w, r, "/signin?"+url.Values{"return": {back}}.Encode(), http.StatusSeeOther)
 	case !isAdmin:
 		p.Logger.Warn("admin sign-in refused: not an admin")
 		http.Error(w, "This account is not an administrator of this server", http.StatusForbidden)
 	case !fresh:
-		http.Redirect(w, r, "/api/v1/signin?"+url.Values{"fresh": {"1"}, "return": {back}}.Encode(), http.StatusSeeOther)
+		http.Redirect(w, r, "/signin?"+url.Values{"fresh": {"1"}, "return": {back}}.Encode(), http.StatusSeeOther)
 	default:
 		p.startSession(w, r, email)
 		http.Redirect(w, r, ret, http.StatusSeeOther)

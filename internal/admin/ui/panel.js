@@ -592,7 +592,7 @@ function mailCard(m) {
   const username = h('input', { value: m.username || '', autocomplete: 'off', spellcheck: 'false' });
   const password = h('input', { type: 'password', autocomplete: 'new-password', placeholder: m.hasPassword ? 'Unchanged' : '' });
   const on = Boolean(m.host);
-  const st = status(on ? 'People can get sign-in codes by email.' : 'People sign in with a password, or a sign-in link you hand them.');
+  const st = status(on ? 'Invitations and forgotten passwords work by email.' : 'Without email, you add people yourself and set their passwords.');
   const send = (body, button) => busy(button, async () => {
     st.set(body.host ? 'Sending you a test email…' : 'Turning email off…');
     const out = await api('PUT', '/admin/api/mail', body);
@@ -603,12 +603,12 @@ function mailCard(m) {
   const save = h('button', { class: 'primary', type: 'button', onclick: () => send({ host: host.value, port: Number(port.value) || 0, tls: tls.value,
     from: from.value, username: username.value, password: password.value }, save) }, 'Send a test and save');
   const off = on && h('button', { type: 'button', onclick: () => {
-    if (confirm('Turn email off? People without a password will need a sign-in link from you.')) {
+    if (confirm('Turn email off? Invitations and forgotten-password emails stop; you will set passwords yourself.')) {
       send({ host: '', port: 0, tls: '', from: '', username: '', password: '' }, off);
     }
   } }, 'Turn off');
   return card({ title: 'Email', badge: on ? badge('On', 'ok') : badge('Off'),
-    description: 'For sign-in codes. Your email provider gives these settings; a test email goes to you before they\'re saved.' },
+    description: 'For invitations, address confirmations and forgotten passwords. Your email provider gives these settings; a test email goes to you before they\'re saved.' },
   h('div', { class: 'fields' },
     field('SMTP server', host, null, true),
     field('Encryption', tls, 'STARTTLS goes with port 587, TLS with 465. None: a relay on your network.'),
@@ -971,7 +971,7 @@ async function peopleView(selected = '') {
 
   show(
     pageHead('People', people
-      ? 'Everyone who can sign in, and their accounts. People sign in with their email: a code sent there, a password, or a link you hand them.'
+      ? 'Everyone who can sign in, and their accounts. People sign in with their email and their password.'
       : 'Everyone with an account here.', addButton),
     adding,
     h('div', { class: 'split' },
@@ -991,37 +991,53 @@ async function peopleView(selected = '') {
   draw();
 }
 
-// addPerson is the form to let someone new sign in, by email.
+// addPerson is the form to make someone's account here: their email and a
+// first password, which they choose again at their first sign-in unless
+// told otherwise.
 function addPerson(reload, close) {
   const email = h('input', { type: 'email', placeholder: 'name@example.org', autocomplete: 'off' });
+  const password = h('input', { type: 'password', autocomplete: 'new-password' });
+  const mustChange = h('input', { type: 'checkbox', checked: true });
   const admin = h('input', { type: 'checkbox' });
   const add = h('button', { class: 'primary', type: 'submit' }, 'Add');
+  const st = status('');
   const submit = (e) => {
     e.preventDefault();
     busy(add, async () => {
-      await api('POST', '/admin/api/people', { email: email.value, admin: admin.checked });
+      await api('POST', '/admin/api/people', { email: email.value, password: password.value, mustChange: mustChange.checked, admin: admin.checked });
       toast(`${email.value} can sign in now.`);
       reload();
-    });
+    }, (err) => st.set(err.message, 'error'));
   };
-  return card({ title: 'Add a person', description: 'They sign in with this email: a code sent there, or a sign-in link you make for them below.' },
-    h('form', { class: 'toolbar', onsubmit: submit },
+  return card({ title: 'Add a person', description: 'Their account is ready at once: hand them their email and this password, privately.' },
+    h('form', { class: 'fields', onsubmit: submit },
       field('Email', email),
-      h('label', { class: 'inline' }, admin, 'Admin'),
-      h('button', { type: 'button', class: 'ghost', onclick: close }, 'Cancel'), add));
+      field('Password', password, 'The rules are on People → Registration.'),
+      h('label', { class: 'inline full' }, mustChange, 'Ask for a new password at the first sign-in'),
+      h('label', { class: 'inline full' }, admin, 'Admin'),
+      h('div', { class: 'row full' }, st, h('button', { type: 'button', class: 'ghost', onclick: close }, 'Cancel'), add)));
 }
 
-// personControls are what an admin can do about someone who signs in by
-// email: a sign-in link to hand over, the admin mark, and, before they have
-// an account, removing them.
+// personControls are what an admin can do about someone who signs in here:
+// a new password (they forgot theirs), the admin mark, and, before they
+// have an account, removing them.
 function personControls(x, reload) {
-  const linkBox = h('div', {});
-  const linkButton = h('button', { type: 'button', class: 'small', onclick: () => busy(linkButton, async () => {
-    const { link } = await api('POST', `/admin/api/people/${x.id}/link`, {});
-    // A path when Overfin doesn't know the site's address: this one, then.
-    const full = link.startsWith('/') ? location.origin + link : link;
-    fill(linkBox, secret('A sign-in link for ' + x.email + ':', full, 'Works once, for a week, in any browser. Hand it over privately.'));
-  }) }, 'Sign-in link');
+  const box = h('div', {});
+  const passwordButton = h('button', { type: 'button', class: 'small', onclick: () => {
+    const password = h('input', { type: 'password', autocomplete: 'new-password', 'aria-label': 'New password' });
+    const mustChange = h('input', { type: 'checkbox', checked: true });
+    const st = status('');
+    const save = h('button', { type: 'button', class: 'primary small', onclick: () => busy(save, async () => {
+      await api('PUT', `/admin/api/people/${x.id}/password`, { password: password.value, mustChange: mustChange.checked });
+      toast(`${x.email} has a new password; their logins ended.`);
+      reload();
+    }, (err) => st.set(err.message, 'error')) }, 'Set it');
+    fill(box, h('div', { class: 'fields' },
+      field('New password', password, 'Hand it over privately. Their logins end.'),
+      h('label', { class: 'inline full' }, mustChange, 'Ask for a new password at the next sign-in'),
+      h('div', { class: 'row full' }, st, save)));
+    password.focus();
+  } }, 'Set a new password');
   const adminButton = !x.you && h('button', { type: 'button', class: 'small', onclick: () => busy(adminButton, async () => {
     await api('PATCH', `/admin/api/people/${x.id}`, { admin: !x.admin });
     toast(x.admin ? `${x.email} is no longer an admin.` : `${x.email} is an admin now.`);
@@ -1035,11 +1051,13 @@ function personControls(x, reload) {
       reload();
     });
   } }, 'Remove');
+  const state = !x.confirmed ? 'Registered: waiting for their address\'s confirmation'
+    : x.mustChange ? 'Chooses a new password at the next sign-in' : '';
   return [
     h('div', { class: 'name' }, x.email, ' ', x.admin && badge('Admin', 'info'), ' ', x.you && badge('You', 'plain'), ' ', x.disabled && badge('Disabled', 'err')),
-    h('div', { class: 'hint' }, x.hasPassword ? 'Has a password' : 'No password: signs in with codes or links'),
-    h('div', { class: 'actions-row' }, linkButton, adminButton, removeButton),
-    linkBox,
+    state && h('div', { class: 'hint' }, state),
+    h('div', { class: 'actions-row' }, passwordButton, adminButton, removeButton),
+    box,
   ];
 }
 
@@ -1328,13 +1346,77 @@ function identificationDetail(t, reload) {
 async function moduleView(name, description) {
   const root = h('div', {});
   show(pageHead(featureName(name), description), root);
+  await mountTab(name, root, {});
+}
+
+// mountTab renders a module's tab into root, with what else the page
+// gives it.
+async function mountTab(name, root, extra) {
   const tab = await import(`/admin/modules/${encodeURIComponent(name)}/panel.js`);
   await tab.default(root, {
     api: (method, path, body) => api(method, `/admin/api/modules/${encodeURIComponent(name)}${path}`, body),
     h,
     // The panel's own building blocks, so a tab looks like the rest.
     ui: { card, field, setting, badge, toast, busy, secret, status, fill, plural, day, ago },
+    ...extra,
   });
+}
+
+// ---- Registration ---------------------------------------------------------------
+
+// registrationView: who may make an account here, and how. With Overfin's
+// own sign-in: the password rules, and invitations, which need email (the
+// person's address is confirmed by a link). With an identity provider:
+// invitations, and whether accounts are only by invitation.
+async function registrationView() {
+  const reg = await api('GET', '/admin/api/registration').catch(() => null);
+  const root = h('div', {});
+  const cards = [];
+  if (reg) {
+    const st = status('');
+    const min = h('input', { type: 'number', min: '10', max: '64', value: reg.rules.minLength, 'aria-label': 'Minimum length' });
+    const digit = h('input', { type: 'checkbox', 'aria-label': 'A digit' });
+    const special = h('input', { type: 'checkbox', 'aria-label': 'A special character' });
+    digit.checked = reg.rules.digit;
+    special.checked = reg.rules.special;
+    const save = h('button', { class: 'primary', type: 'button', onclick: () => busy(save, async () => {
+      const out = await api('PUT', '/admin/api/registration', { rules: { minLength: Number(min.value), digit: digit.checked, special: special.checked } });
+      st.set('Saved: every new password follows them.', 'ok');
+      Object.assign(reg, out);
+    }, (err) => st.set(err.message, 'error')) }, 'Save');
+    cards.push(card({ title: 'Passwords', description: 'What every new password must have: registering, a forgotten one, the account page, and those you set.' },
+      [setting('Minimum length', '10 characters at least.', min),
+        setting('A digit', null, digit),
+        setting('A special character', 'Anything but a letter or a digit; a space counts.', special)],
+      [st, save]));
+    if (!reg.mail) {
+      cards.push(h('p', { class: 'notice' }, 'Invitations need email (Server → Email) and the site\'s address (site.url): the person confirms their address by a link sent there. Until then, accounts are made by you, on People.'));
+    }
+  } else {
+    const state = await api('GET', '/admin/api/features');
+    const f = state.features;
+    const only = h('input', { type: 'checkbox', 'aria-label': 'Accounts only by invitation' });
+    only.checked = f.modules?.invites?.required === 'on';
+    const st = status('');
+    const save = h('button', { class: 'primary', type: 'button', onclick: () => busy(save, async () => {
+      f.modules = f.modules || {};
+      f.modules.invites = { ...(f.modules.invites || {}), required: only.checked ? 'on' : 'off' };
+      await api('PUT', '/admin/api/features', f);
+      st.set('Saved.', 'ok');
+    }, (err) => st.set(err.message, 'error')) }, 'Save');
+    cards.push(card({ title: 'Who gets an account', description: 'People sign in at your identity provider; their account here is made at their first visit.' },
+      setting('Accounts only by invitation', 'Without one, nobody gets an account; admins and people bringing a previous account still do.', only),
+      [st, save]));
+  }
+  show(pageHead('Registration', reg
+    ? 'Who can make an account here: with an invitation, choosing their password, then confirming their address by email.'
+    : 'Invitations, and who gets an account.'), ...cards, root);
+  if (!reg || reg.mail) {
+    await mountTab('invites', root, {
+      // Invitations by email, with Overfin's own sign-in.
+      sendInvitation: reg ? (email, link) => api('POST', '/admin/api/registration/send', { email, link }) : null,
+    });
+  }
 }
 
 // ---- Layout --------------------------------------------------------------------
@@ -1349,13 +1431,14 @@ const views = {
   features: { label: 'Features & limits', icon: icons.sliders, view: () => featuresView() },
   branding: { label: 'Branding', icon: icons.palette, view: () => brandingView() },
   people: { label: 'People', icon: icons.people, view: () => peopleView() },
+  registration: { label: 'Registration', icon: icons.mail, view: () => registrationView() },
   templates: { label: 'Templates', icon: icons.layers, view: () => templatesView() },
   libraries: { label: 'Libraries', icon: icons.folder, view: () => librariesView() },
   identification: { label: 'Identification', icon: icons.check, view: () => identificationView() },
   apps: { label: 'Apps', icon: icons.key, view: () => appsView() },
 };
 // Older addresses still lead somewhere.
-const aliases = { settings: 'server', users: 'people' };
+const aliases = { settings: 'server', users: 'people', 'm/invites': 'registration' };
 const moduleIcons = { invites: icons.mail, migration: icons.move };
 let modules = [];
 
@@ -1380,7 +1463,8 @@ async function start() {
   const who = await api('GET', '/admin/api/session');
   $('#who').textContent = who.name ? `Signed in as ${who.name}` : 'Signed in';
   ({ items: modules } = await api('GET', '/admin/api/modules'));
-  const tabs = modules.filter((m) => m.hasTab);
+  // Invitations live on People → Registration.
+  const tabs = modules.filter((m) => m.hasTab && m.name !== 'invites');
   fill($('nav'),
     h('div', { class: 'group' }, 'Server'),
     link('server', views.server.label, views.server.icon),
@@ -1388,6 +1472,7 @@ async function start() {
     link('branding', views.branding.label, views.branding.icon),
     h('div', { class: 'group' }, 'People'),
     link('people', views.people.label, views.people.icon),
+    link('registration', views.registration.label, views.registration.icon),
     link('templates', views.templates.label, views.templates.icon),
     tabs.map((m) => link(`m/${encodeURIComponent(m.name)}`, featureName(m.name), moduleIcons[m.name] || icons.puzzle)),
     h('div', { class: 'group' }, 'Library'),

@@ -50,52 +50,54 @@ func TestUsers(t *testing.T) {
 	}
 }
 
-// Codes: only from the browser that asked, for their purpose; a match uses
-// up every code of the email; five misses end a code; a link is single use.
-func TestSigninCodes(t *testing.T) {
+// Registering, confirming with a link, and the invitation picked up then.
+func TestRegistration(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
-	add := func(code, link, binding, purpose string) {
-		if err := s.AddSigninCode(ctx, SigninCode{Email: "a@example.org", CodeHash: []byte(code), LinkHash: []byte(link),
-			Binding: []byte(binding), Purpose: purpose, Expires: time.Now().Add(10 * time.Minute)}); err != nil {
-			t.Fatal(err)
-		}
+	u, err := s.RegisterUser(ctx, "new@example.org", "hash", "invite-code")
+	if err != nil {
+		t.Fatal(err)
 	}
-	take := func(code, binding, purpose string) bool {
-		ok, err := s.TakeSigninCode(ctx, "A@example.org", purpose, []byte(binding), []byte(code))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return ok
+	if _, err := s.RegisterUser(ctx, "NEW@example.org", "hash", ""); !errors.Is(err, ErrEmailTaken) {
+		t.Errorf("twice: %v", err)
 	}
-	add("111111", "L1", "B1", "signin")
-	add("222222", "L2", "B1", "signin")
-	if take("111111", "B2", "signin") || take("111111", "B1", "fresh") {
-		t.Error("another browser or purpose")
+	if got, _ := s.UserByEmail(ctx, "new@example.org"); got.Confirmed || got.PasswordHash != "hash" {
+		t.Errorf("registered: %+v", got)
 	}
-	if !take("222222", "B1", "signin") {
-		t.Error("the latest code")
+	s.AddEmailLink(ctx, EmailLink{Subject: u.Subject, LinkHash: []byte("L1"), Purpose: "verify", Expires: time.Now().Add(time.Hour)})
+	// A newer link replaces the first.
+	s.AddEmailLink(ctx, EmailLink{Subject: u.Subject, LinkHash: []byte("L2"), Purpose: "verify", Expires: time.Now().Add(time.Hour)})
+	if _, err := s.TakeEmailLink(ctx, "verify", []byte("L1")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("an older link: %v", err)
 	}
-	if take("111111", "B1", "signin") {
-		t.Error("used up by the match")
+	if _, err := s.TakeEmailLink(ctx, "reset", []byte("L2")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("another purpose: %v", err)
 	}
-	if n, _ := s.CodesSentSince(ctx, "a@example.org", time.Now().Add(-time.Minute)); n != 0 {
-		t.Errorf("sent since: %d", n)
+	if sub, err := s.TakeEmailLink(ctx, "verify", []byte("L2")); err != nil || sub != u.Subject {
+		t.Errorf("the link: %q %v", sub, err)
 	}
-
-	add("333333", "L3", "B1", "signin")
-	for range MaxCodeAttempts {
-		take("000000", "B1", "signin")
+	if _, err := s.TakeEmailLink(ctx, "verify", []byte("L2")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("used twice: %v", err)
 	}
-	if take("333333", "B1", "signin") {
-		t.Error("after five misses")
+	if code, err := s.ConfirmUser(ctx, u.Subject); err != nil || code != "invite-code" {
+		t.Errorf("confirmed: %q %v", code, err)
 	}
-
-	add("444444", "L4", "B1", "fresh")
-	if email, purpose, err := s.TakeSigninLink(ctx, []byte("L4")); err != nil || email != "a@example.org" || purpose != "fresh" {
-		t.Errorf("link: %q %q %v", email, purpose, err)
+	if code, _ := s.ConfirmUser(ctx, u.Subject); code != "" {
+		t.Error("the invitation is kept after it's given")
 	}
-	if _, _, err := s.TakeSigninLink(ctx, []byte("L4")); !errors.Is(err, ErrNotFound) {
-		t.Errorf("link twice: %v", err)
+	if got, _ := s.UserByEmail(ctx, "new@example.org"); !got.Confirmed {
+		t.Error("not confirmed")
+	}
+	// Those who never confirm go.
+	s.RegisterUser(ctx, "late@example.org", "hash", "")
+	if n, err := s.DeleteUnconfirmed(ctx, time.Now().Add(time.Hour)); err != nil || n != 1 {
+		t.Errorf("unconfirmed: %d %v", n, err)
+	}
+	s.SetMustChange(ctx, u.Subject, true)
+	if got, _ := s.UserByEmail(ctx, "new@example.org"); !got.MustChange {
+		t.Error("must change")
+	}
+	if r, _ := s.PasswordRules(ctx); r.MinLength != 10 || !r.Digit || !r.Special {
+		t.Errorf("default rules: %+v", r)
 	}
 }

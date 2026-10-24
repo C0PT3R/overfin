@@ -12,6 +12,7 @@ package plugin
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -92,6 +93,32 @@ func (r *Registrar) HandleNavigation(pattern string, h http.Handler) error {
 	}
 	return nil
 }
+
+// HandlePage adds one of Overfin's own pages at the site's root, such as
+// "GET /signin" or "GET /invite/{code}": public, GET only, one plain word
+// and at most a code after it, served before the site's own pages. People
+// arrive there from elsewhere, so it's a navigation route.
+func (r *Registrar) HandlePage(pattern string, h http.Handler) error {
+	method, path, _ := strings.Cut(pattern, " ")
+	if method != http.MethodGet || !pagePattern.MatchString(path) {
+		return fmt.Errorf("route %q: pages are GET, one word at the root, and a code at most", pattern)
+	}
+	if prev, ok := r.routes[pattern]; ok {
+		return fmt.Errorf("route %q already registered by %s", pattern, prev)
+	}
+	r.routes[pattern] = r.owner
+	r.public[pattern] = true
+	r.mux.Handle(pattern, h)
+	if prefix, coded := strings.CutSuffix(path, "/{code}"); coded {
+		r.codes[prefix+"/"] = true
+	} else {
+		r.nav[path] = true
+	}
+	return nil
+}
+
+// pagePattern is a page's path: /word, or /word/{code}.
+var pagePattern = regexp.MustCompile(`^/[a-z]{2,16}(/\{code\})?$`)
 
 // HandleCrossSite adds a public GET route that accepts any request, from
 // any site: the gate a reverse proxy consults before serving the site's

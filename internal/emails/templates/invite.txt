@@ -1,0 +1,11 @@
+{{define "subject"}}{{t "invite.subject"}}{{end}}
+{{define "content" -}}
+{{t "invite.intro"}}
+
+{{.Link}}
+{{- with t "invite.expires"}}
+
+{{.}}
+{{- end}}
+{{- end}}
+{{define "why"}}{{t "invite.why"}}{{end}}
