@@ -82,4 +82,15 @@ func TestKeep(t *testing.T) {
 	if _, deleted, _ := p.Keep(ctx, nil, time.Now().Add(-time.Hour)); deleted != 0 {
 		t.Errorf("empty wanted deleted %d", deleted)
 	}
+
+	// No more TMDB: every kept image goes, and the folder stays.
+	if err := p.ForgetKept(); err != nil {
+		t.Fatal(err)
+	}
+	if left, err := os.ReadDir(dir); err != nil || len(left) != 0 {
+		t.Errorf("after forgetting: %v %v", left, err)
+	}
+	if err := (&Pipeline{ArtworkDir: filepath.Join(dir, "none")}).ForgetKept(); err != nil {
+		t.Errorf("no folder: %v", err)
+	}
 }

@@ -424,6 +424,15 @@ func newGateway(path string, cfg *config.Config, sh *shared) (*gateway, error) {
 	return g, nil
 }
 
+// forgetTMDB deletes TMDB's data, its kept images too: Overfin no longer
+// gets any, from TMDB or through Seerr.
+func (g *gateway) forgetTMDB(ctx context.Context) error {
+	if err := g.sh.db.ForgetTMDB(ctx); err != nil {
+		return err
+	}
+	return g.sh.images.ForgetKept()
+}
+
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.current.Load().handler.ServeHTTP(w, r)
 }
@@ -738,7 +747,7 @@ func (g *gateway) SetSeerr(ctx context.Context, url, key string) (string, error)
 			// TMDB's data goes with it, as its terms ask, unless it comes
 			// from TMDB itself.
 			if err = g.sh.db.ForgetSeerr(ctx); err == nil && g.sh.tmdb == nil {
-				err = g.sh.db.ForgetTMDB(ctx)
+				err = g.forgetTMDB(ctx)
 			}
 		} else {
 			err = g.sh.db.SetSeerr(ctx, url, key)
@@ -848,7 +857,7 @@ func (g *gateway) SetTMDBToken(ctx context.Context, token string) (string, error
 		err = g.sh.db.SetTMDBToken(ctx, token)
 	}
 	if err == nil && client == nil && g.sh.seerr == nil {
-		err = g.sh.db.ForgetTMDB(ctx)
+		err = g.forgetTMDB(ctx)
 	}
 	if err != nil {
 		g.sh.tmdb = old

@@ -137,3 +137,24 @@ func (p *Pipeline) Keep(ctx context.Context, wanted []TMDBRef, refetch time.Time
 	})
 	return fetched, deleted, err
 }
+
+// ForgetKept deletes every kept image: Overfin no longer uses TMDB's data,
+// and its terms ask for it to be deleted then (SECURITY.md rule 57).
+func (p *Pipeline) ForgetKept() error {
+	if p == nil || p.ArtworkDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(p.ArtworkDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(p.ArtworkDir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
