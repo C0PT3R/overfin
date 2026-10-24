@@ -28,7 +28,7 @@ func TestImportPeopleAndSetPassword(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	// Ann's last login put her in the admins' group.
-	db.CreateLogin(ctx, "sub-ann", []string{"zecopter-admins"}, "", time.Hour)
+	db.CreateLogin(ctx, "sub-ann", []string{"media-admins"}, "", time.Hour)
 	db.CreateLogin(ctx, "sub-bob", nil, "", time.Hour)
 	db.ImportUser(ctx, "sub-cy", "cy@example.org", false) // already there
 	dir := fakeDirectory{
@@ -39,7 +39,7 @@ func TestImportPeopleAndSetPassword(t *testing.T) {
 		"sub-eve": {Email: "eve@example.org", Active: false},
 	}
 	var out strings.Builder
-	if err := importFrom(ctx, dir, "zecopter-admins", db, &out); err != nil {
+	if err := importFrom(ctx, dir, "media-admins", db, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(out.String(), "2 people imported (1 admins); 3 left out") {

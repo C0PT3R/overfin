@@ -82,11 +82,11 @@ func TestSend(t *testing.T) {
 func TestSenderName(t *testing.T) {
 	port, got := fakeSMTP(t)
 	s := &Sender{Host: "127.0.0.1", Port: port, TLS: "none", From: "Movies <noreply@example.org>",
-		Name: func() string { return "zecopter" }}
+		Name: func() string { return "Riverside" }}
 	if err := s.Send(context.Background(), "someone@example.org", "Votre code de connexion", "Code : 123456"); err != nil {
 		t.Fatal(err)
 	}
-	if all := <-got; !strings.Contains(all, "From: \"zecopter\" <noreply@example.org>") {
+	if all := <-got; !strings.Contains(all, "From: \"Riverside\" <noreply@example.org>") {
 		t.Errorf("sender:\n%s", all)
 	}
 }

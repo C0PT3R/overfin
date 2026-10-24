@@ -71,13 +71,13 @@ func TestWrite(t *testing.T) {
 func TestWriteCustom(t *testing.T) {
 	w := newWriter(t)
 	ctx := context.Background()
-	w.Store.SetBranding(ctx, true, "zecopter")
+	w.Store.SetBranding(ctx, true, "Riverside")
 	m, err := w.Write(ctx, "reset", "en-CA", Vars{Link: "https://media.example.org/reset#reset=abc"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(m.Text, "on zecopter:") || !strings.Contains(m.Text, "Powered by Overfin") ||
-		!strings.Contains(m.HTML, ">zecopter</span>") || len(m.Images) != 1 || m.Images[0].ID != "overfin" {
+	if !strings.Contains(m.Text, "on Riverside:") || !strings.Contains(m.Text, "Powered by Overfin") ||
+		!strings.Contains(m.HTML, ">Riverside</span>") || len(m.Images) != 1 || m.Images[0].ID != "overfin" {
 		t.Errorf("no banner: %d images\n%s\n%s", len(m.Images), m.Text, m.HTML)
 	}
 	w.Store.SetBrandingFile(ctx, "banner-dark", "image/png", overfinLight, time.Now())

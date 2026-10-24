@@ -33,8 +33,8 @@ func TestBranding(t *testing.T) {
 	if _, body := get("/api/v1/branding"); strings.Contains(body, "banner-dark") {
 		t.Errorf("off, with a file: %s", body)
 	}
-	st.SetBranding(ctx, true, "zecopter")
-	if _, body := get("/api/v1/branding"); body != `{"custom":true,"name":"zecopter","banner":{"dark":"/api/v1/branding/banner-dark?v=1800000000"}}`+"\n" {
+	st.SetBranding(ctx, true, "Riverside")
+	if _, body := get("/api/v1/branding"); body != `{"custom":true,"name":"Riverside","banner":{"dark":"/api/v1/branding/banner-dark?v=1800000000"}}`+"\n" {
 		t.Errorf("on: %s", body)
 	}
 	res, body := get("/api/v1/branding/banner-dark?v=1800000000")

@@ -13,14 +13,14 @@ func TestBranding(t *testing.T) {
 	}
 	for body, want := range map[string]string{
 		`{"on":true,"name":""}`:                                "Give your site's name",
-		`{"on":true,"name":"<b>zecopter</b>"}`:                 "plain text",
+		`{"on":true,"name":"<b>Riverside</b>"}`:                 "plain text",
 		`{"on":true,"name":"` + strings.Repeat("z", 41) + `"}`: "40 characters",
 	} {
 		if rec := b.do("PUT", "/admin/api/branding", body, nil); rec.Code != 400 || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
 	}
-	if rec := b.do("PUT", "/admin/api/branding", `{"on":true,"name":" zecopter "}`, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"on":true,"name":"zecopter"`) {
+	if rec := b.do("PUT", "/admin/api/branding", `{"on":true,"name":" Riverside "}`, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"on":true,"name":"Riverside"`) {
 		t.Errorf("on: %d %s", rec.Code, rec.Body)
 	}
 

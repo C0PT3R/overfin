@@ -12,7 +12,7 @@ func TestBranding(t *testing.T) {
 	if b, err := s.Branding(ctx); err != nil || b.On || b.Name != "" || len(b.Files) != 0 {
 		t.Fatalf("before: %+v %v", b, err)
 	}
-	if err := s.SetBranding(ctx, true, "zecopter"); err != nil {
+	if err := s.SetBranding(ctx, true, "Riverside"); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_800_000_000, 0).UTC()
@@ -26,7 +26,7 @@ func TestBranding(t *testing.T) {
 		t.Error("an unknown kind was kept")
 	}
 	b, err := s.Branding(ctx)
-	if err != nil || !b.On || b.Name != "zecopter" || len(b.Files) != 1 || !b.Files["banner-dark"].Equal(now.Add(time.Hour)) {
+	if err != nil || !b.On || b.Name != "Riverside" || len(b.Files) != 1 || !b.Files["banner-dark"].Equal(now.Add(time.Hour)) {
 		t.Errorf("after: %+v %v", b, err)
 	}
 	if f, ok, err := s.BrandingFileOf(ctx, "banner-dark"); err != nil || !ok || f.ContentType != "image/png" || string(f.Data) != "png" {
