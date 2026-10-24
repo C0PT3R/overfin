@@ -7,3 +7,4 @@
 .env*
 cmd/custom/
 !.env.example
+!internal/emails/texts/*.toml

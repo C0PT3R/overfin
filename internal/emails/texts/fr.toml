@@ -1,0 +1,36 @@
+# Les courriels d’Overfin, en français. {site} est le nom du site.
+poweredBy = "Propulsé par"
+linkText = "Ou ouvrez ce lien :"
+
+[verify]
+subject = "Confirmez votre adresse"
+intro = "Pour finir de créer votre compte sur {site}, confirmez votre adresse :"
+button = "Confirmer mon adresse"
+expires = "Ce lien est valide pendant 24 heures."
+why = "Vous recevez ce courriel parce que quelqu’un a créé un compte sur {site} avec cette adresse. Si ce n’est pas vous, ignorez-le : le compte ne sera pas créé."
+
+[reset]
+subject = "Choisissez un nouveau mot de passe"
+intro = "Pour choisir un nouveau mot de passe sur {site} :"
+button = "Choisir un mot de passe"
+expires = "Ce lien est valide pendant une heure."
+why = "Vous recevez ce courriel parce que quelqu’un a demandé un nouveau mot de passe pour cette adresse sur {site}. Si ce n’est pas vous, ignorez-le : votre mot de passe ne change pas."
+
+[exists]
+subject = "Vous avez déjà un compte"
+intro = "Quelqu’un a voulu créer un compte sur {site} avec cette adresse, mais vous en avez déjà un. Connectez-vous avec votre mot de passe ; oublié ? La page de connexion permet d’en choisir un nouveau."
+button = "Se connecter"
+expires = ""
+why = "Si ce n’est pas vous, ignorez ce courriel : rien n’a changé."
+
+[invite]
+subject = "Vous êtes invité à rejoindre {site}"
+intro = "Vous êtes invité à rejoindre {site}. Créez votre compte :"
+button = "Créer mon compte"
+expires = ""
+why = "Vous recevez ce courriel parce qu’un administrateur de {site} vous a invité avec cette adresse."
+
+[test]
+subject = "{site} peut envoyer des courriels"
+intro = "Ce test vient du panneau de contrôle : les courriels que les gens recevront arriveront comme lui."
+why = "Vous recevez ce courriel parce qu’un administrateur de {site} a configuré ses courriels avec cette adresse."

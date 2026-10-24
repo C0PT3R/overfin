@@ -1,0 +1,36 @@
+# Overfin's emails, in English. {site} is the site's name.
+poweredBy = "Powered by"
+linkText = "Or open this link:"
+
+[verify]
+subject = "Confirm your address"
+intro = "To finish creating your account on {site}, confirm your address:"
+button = "Confirm my address"
+expires = "This link is valid for 24 hours."
+why = "You got this email because someone created an account on {site} with this address. If it wasn't you, ignore it: the account won't be created."
+
+[reset]
+subject = "Choose a new password"
+intro = "To choose a new password on {site}:"
+button = "Choose a password"
+expires = "This link is valid for an hour."
+why = "You got this email because someone asked for a new password for this address on {site}. If it wasn't you, ignore it: your password doesn't change."
+
+[exists]
+subject = "You already have an account"
+intro = "Someone tried to create an account on {site} with this address, but you already have one. Sign in with your password; forgot it? The sign-in page lets you choose a new one."
+button = "Sign in"
+expires = ""
+why = "If it wasn't you, ignore this email: nothing changed."
+
+[invite]
+subject = "You're invited to join {site}"
+intro = "You're invited to join {site}. Create your account:"
+button = "Create my account"
+expires = ""
+why = "You got this email because an admin of {site} invited you with this address."
+
+[test]
+subject = "{site} can send emails"
+intro = "This test comes from the control panel: the emails people get will arrive like it."
+why = "You got this email because an admin of {site} set up its emails with this address."
