@@ -79,6 +79,9 @@ comes from the internet, and media files can be written by anyone.
     that fails to decode are never served. The one exception is trickplay
     sheets: Jellyfin generates them itself from video frames, so they are
     checked (real JPEG bytes, size and dimension limits) but not re-encoded.
+    Branding pictures an admin uploads are kept as they are, 4 MB at most,
+    any picture but SVG, and served with their image type under the API's
+    headers (no script in them ever runs).
 11. Subtitles are served only as sanitized WebVTT. Fonts and other files
     attached to media are never served.
 12. From upstream responses, only the headers streaming needs are passed on: a
@@ -399,22 +402,29 @@ comes from the internet, and media files can be written by anyone.
     into the servers that shared it.
 
 ### Sign-in by email
-66. With Overfin's own sign-in, whether an email has an account here is
-    never told: asking for a code gets the same answer and counts against
-    the same limit either way, codes are sent in the background, so how
-    long sending takes tells nothing, and a wrong password gets the same
-    answer as an unknown email. Codes go to an email without an account only for a visitor
-    bringing an invitation (rule 63). A code is six digits, works once, for
-    15 minutes, only in the browser that asked for it, and five wrong tries
-    end it; five codes an hour per email at most. The link in the same
-    email works once, in any browser; its token travels in the address's
-    fragment, so it never reaches a server's logs, and is used only on a
-    click, so mail scanners opening links use nothing. A one-time link an
-    admin makes for someone works the same way, for a week. Only keyed
-    hashes of codes, links and the browsers they're bound to are kept.
-    Passwords are 10 to 256 characters; checking one takes the same time
-    whether or not the email has a password, and password tries are
-    limited per email. A new password ends the person's other logins.
+66. With Overfin's own sign-in, people sign in with an email and a
+    password, and whether an email has an account here is never told: a
+    wrong password gets the same answer as an unknown email, and checking
+    one takes the same time either way; asking for a forgotten-password
+    email, registering, or asking for a confirmation again gets the same
+    answer either way (registering with an email that has an account sends
+    that address a note instead). Emails are sent in the background, so how
+    long sending takes tells nothing. Nobody registers without an
+    invitation (rule 63) and an email server; a registered account works
+    only once its address is confirmed, and one still unconfirmed after a
+    week is deleted. Forms anyone can send first solve a check against
+    scripts (a signed challenge, used once, within 10 minutes, whose SHA-256
+    with the answer starts with 17 zero bits), and tries are limited per IP
+    address and per email. The links Overfin emails carry 256 random bits
+    and work once (confirming an address within a day, choosing a new
+    password within an hour); a new one replaces the last. Their token
+    travels in the address's fragment, so it never reaches a server's logs,
+    and is used only on a click, so mail scanners opening links use nothing.
+    Only keyed hashes of them are kept. Passwords are 10 to 256 characters;
+    the operator can ask for more (a longer minimum, a digit, a special
+    character), never less. Someone an admin adds is asked, by default, for
+    a new password at their first sign-in, and gets nothing before choosing
+    one. A new password ends the person's other logins.
 
 ### Overfin's Jellyfin
 67. Overfin's Jellyfin is dedicated to it, and Overfin never changes

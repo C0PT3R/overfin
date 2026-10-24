@@ -28,13 +28,13 @@ internet ──▶ reverse proxy ──▶ Overfin ──▶ Jellyfin / Seerr / 
 
 | Attacker | Goal | Main defenses |
 |---|---|---|
-| Stranger on the internet | Reach Jellyfin, exploit it, get an account | Small fixed API [1], identity before any route [13], provisioning only for allowed identities [15], codes only for known emails or invitations [66], rate limits [31] |
+| Stranger on the internet | Reach Jellyfin, exploit it, get an account | Small fixed API [1], identity before any route [13], provisioning only for allowed identities [15], registration only with an invitation, a confirmed email and a check against scripts [63, 66], rate limits [31] |
 | Logged-in, malicious user | Other users' data, more access, exhausting the server | Ownership checks [23, 24, 26, 27], owner-only account actions [25], checked queues and signed cursors [29, 38], limits [31, 32] |
 | Script injected into the website (XSS) | Act as the user, take over the account, send users to a phishing page | No tokens in reach [4, 17], step-up for lasting damage [21], checked return addresses [19] |
 | A compromised sibling subdomain | Make requests in the user's name | Same-origin requests only [18], `__Host-` cookies over HTTPS [17] |
 | Another server, weak or compromised | Reach into servers that share with it | Peers untrusted, authenticated, limited to what was shared [65] |
 | Attacker-controlled media or metadata | Run code in the browser, reach the internal network, exhaust memory | Untrusted-data rules [5–12] |
-| Network observer | See who watches what, catch passwords or codes | TLS (a secure default: without HTTPS, everything travels in clear), nothing personal in URLs [48] |
+| Network observer | See who watches what, catch passwords or links | TLS (a secure default: without HTTPS, everything travels in clear), nothing personal in URLs [48] |
 | Thief of a database or backup | Tokens, identities, PINs | Encryption and keyed PIN hashes [20], pseudonyms [47], minimal data [40] |
 
 ## Case 1: a compromised website
@@ -50,10 +50,9 @@ logged-in user's browser on that site.
   changes must be JSON [18]. The compromised site is the only way in.
 - **It can act as the user, but not do lasting damage.** Rare destructive
   actions need a fresh login: on the identity provider's own domain, which
-  the script can't read or fake; or, with Overfin's own sign-in, a password
-  or a code from the person's mailbox. The script can't read the mailbox,
-  but it runs on the same origin as the sign-in page, so it could show a
-  fake prompt and catch what's typed: with Overfin's own sign-in, this
+  the script can't read or fake; or, with Overfin's own sign-in, the
+  person's password. The script runs on the same origin as the sign-in
+  page, so it could show a fake prompt and catch what's typed: with Overfin's own sign-in, this
   protection is weaker than a provider's login on its own domain. A PIN typed into the page could be captured by
   the script, so PINs only guard frequent, recoverable actions [21].
 - **Overfin's own responses never become the XSS.** Images are re-encoded and
@@ -130,12 +129,13 @@ subtitles and attachments) from anywhere.
   them and revokes its Jellyfin tokens [16]. With Overfin's own sign-in,
   every request checks the person, so disabling them works at once.
 - **Guessing who has an account:** Overfin's own sign-in answers the same
-  for every email, and sends codes to unknown ones only with an
-  invitation, so it can't be used to spam strangers either [66].
+  for every email, and registering needs an invitation, solves a check
+  against scripts and is limited per email, so it can't be used to spam
+  strangers either [66].
 - **A stolen mailbox:** with Overfin's own sign-in, whoever reads someone's
-  email can sign in as them, as with any "forgot password" email. Codes
-  work even for people who set a password, so a password doesn't close
-  that way in.
+  email can choose a new password with a "forgot password" email, which
+  ends the person's other logins. Without an email server, there is no
+  such way in [66].
 - **Taking someone else's history:** copying it from another server
   requires that account's password, attempts are limited, and an account
   there can be copied into only one Overfin account. The token that sign-in
