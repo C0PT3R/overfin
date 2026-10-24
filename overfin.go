@@ -354,7 +354,13 @@ func run(logger *slog.Logger) error {
 			where = append(where, "panel", cfg.Admin.Listen)
 		}
 		if managed && adminSrv == nil {
-			site.set(setup.PublicHandler())
+			// admin.private keeps the setup page to private addresses too,
+			// like the panel it comes before.
+			if cfg.Admin.Private {
+				site.set(setup.PrivateSiteHandler())
+			} else {
+				site.set(setup.PublicHandler())
+			}
 			where = append(where, "site", cmp.Or(cfg.Site.URL, addr))
 		}
 		logger.Warn("Overfin isn't set up yet: open its address (/admin/) and finish setting it up with this one-time code", where...)

@@ -235,6 +235,19 @@ func TestSetupFirstAdmin(t *testing.T) {
 	}
 }
 
+// With admin.private, the setup page on the site is for private addresses
+// only, like the panel after it; it still says to sign in on the site.
+func TestSetupPrivateSite(t *testing.T) {
+	s, _ := newSetup()
+	h := s.PrivateSiteHandler()
+	if got := get(h, "203.0.113.5:4000"); strings.Contains(got, "steps") {
+		t.Errorf("from the internet: %s", got)
+	}
+	if got := get(h, "192.168.1.20:4000"); !strings.Contains(got, `"site":true`) {
+		t.Errorf("from the LAN: %s", got)
+	}
+}
+
 // On a fresh server, the wizard asks the default language too.
 func TestSetupLanguage(t *testing.T) {
 	s, _ := newSetup()

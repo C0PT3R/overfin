@@ -157,6 +157,10 @@ func (s *Setup) Handler() http.Handler { return privateOnly(s.handler(false)) }
 // anyone: the one-time code is what keeps others out.
 func (s *Setup) PublicHandler() http.Handler { return s.handler(true) }
 
+// PrivateSiteHandler serves the setup page on the site's own address, to
+// private addresses only (admin.private).
+func (s *Setup) PrivateSiteHandler() http.Handler { return privateOnly(s.handler(true)) }
+
 func (s *Setup) handler(public bool) http.Handler {
 	mux := http.NewServeMux()
 	ui, _ := fs.Sub(uiFiles, "ui")
