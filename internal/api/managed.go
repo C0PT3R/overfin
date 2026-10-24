@@ -641,8 +641,8 @@ func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // SiteOwner reports whether the person signed in uses, in this browser,
-// their account's owner profile (or has no account yet): only then does
-// their login open the control panel on the site. Whoever uses another
+// their account's owner profile (or has no account yet, or no session
+// here): only then does their login open the control panel on the site. Whoever uses another
 // profile here shares that login, fresh for a few minutes after each
 // sign-in (rule 25).
 func (m *Managed) SiteOwner(r *http.Request) bool {
@@ -663,9 +663,9 @@ func (m *Managed) SiteOwner(r *http.Request) bool {
 			return sess.ActiveProfileID == owner.ID || (sess.ActiveProfileID == "" && !owner.HasPIN)
 		}
 	}
-	// No session here yet: one would start on the owner profile, unless
-	// it has a PIN.
-	return !owner.HasPIN
+	// No session in this browser: nobody uses another profile here (an
+	// admin on the control panel's own address, say).
+	return true
 }
 
 // ownerHere says whether this browser uses the account owner's profile,

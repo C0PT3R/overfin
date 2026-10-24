@@ -486,7 +486,33 @@ func TestSiteOwner(t *testing.T) {
 	acct, main, _ := st.CreateAccount(ctx, boss.Subject, store.NewOwner{Name: "Boss"})
 	kid, _ := st.AddProfile(ctx, acct.ID, store.NewProfile{Name: "Kid", Kind: "kids", MovieCeiling: "G", SeriesCeiling: "TV-Y"}, 5)
 	if !owner() {
-		t.Error("no session yet, no PIN: the owner's")
+		t.Error("no session yet: nobody on another profile")
+	}
+	// The owner protected by a PIN, another browser: with no session there
+	// (the panel's own address), it opens; once a session starts with no
+	// profile chosen (the profile picker), it doesn't.
+	if err := st.SetPIN(ctx, acct.ID, main.ID, []byte("hash")); err != nil {
+		t.Fatal(err)
+	}
+	b2 := newBrowser(srv)
+	signinPost(t, b2, srv, "/api/v1/signin", checked(t, srv, map[string]any{"email": "boss@example.org", "password": "a long password 1"}))
+	ownerIn := func(c *http.Client) bool {
+		r := httptest.NewRequest("GET", srv.URL+"/admin/login", nil)
+		u, _ := url.Parse(srv.URL)
+		for _, ck := range c.Jar.Cookies(u) {
+			r.AddCookie(ck)
+		}
+		return m.SiteOwner(r)
+	}
+	if !ownerIn(b2) {
+		t.Error("no session, owner with a PIN")
+	}
+	visit(t, b2, srv, "/api/v1/profiles", nil)
+	if ownerIn(b2) {
+		t.Error("a session with no profile chosen")
+	}
+	if err := st.ReplacePIN(ctx, acct.ID, main.ID, nil); err != nil {
+		t.Fatal(err)
 	}
 	if c, out := signinPost(t, b, srv, "/api/v1/profiles/"+kid.ID+"/activate", map[string]any{}); c != 200 {
 		t.Fatalf("to the kid: %d %v", c, out)
