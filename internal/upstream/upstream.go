@@ -2,7 +2,9 @@
 package upstream
 
 import (
+	"context"
 	"errors"
+	"net"
 	"net/url"
 )
 
@@ -27,3 +29,11 @@ type plainError struct {
 
 func (e *plainError) Error() string { return e.op + ": " + e.err.Error() }
 func (e *plainError) Unwrap() error { return e.err }
+
+// Unreachable says whether err is a server that couldn't be reached, or
+// didn't answer in time, rather than one that answered with an error:
+// trying again later may work.
+func Unreachable(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) || errors.Is(err, context.DeadlineExceeded)
+}

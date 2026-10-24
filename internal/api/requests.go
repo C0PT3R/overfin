@@ -19,6 +19,7 @@ import (
 	"github.com/overfin/server/internal/problem"
 	"github.com/overfin/server/internal/seerr"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/upstream"
 )
 
 // Requests asks Seerr for titles no library has (milestone 5, step 5), on
@@ -284,6 +285,9 @@ func (q Requests) seerrError(w http.ResponseWriter, err error) {
 		problem.Send(w, problem.AlreadyRequested, "")
 	case errors.Is(err, seerr.ErrRefused):
 		problem.Send(w, problem.RequestRefused, "")
+	case upstream.Unreachable(err):
+		q.Library.Logger.Warn("Seerr can't be reached", "err", err)
+		problem.Send(w, problem.ServerBusy, "")
 	default:
 		q.Library.Logger.Error("Seerr call failed", "err", err)
 		problem.Send(w, problem.Internal, "")

@@ -25,6 +25,7 @@ import (
 	"github.com/overfin/server/internal/problem"
 	"github.com/overfin/server/internal/provision"
 	"github.com/overfin/server/internal/store"
+	"github.com/overfin/server/internal/upstream"
 )
 
 // Library serves browsing: libraries, item queries, details and the home
@@ -136,8 +137,16 @@ func (l Library) upstreamError(w http.ResponseWriter, err error) {
 			}
 		}()
 	}
-	l.Logger.Error("jellyfin call failed", "err", err)
-	problem.Send(w, problem.Internal, "")
+	switch {
+	case errors.Is(err, context.Canceled):
+		// The client left: nobody to answer, nothing wrong.
+	case upstream.Unreachable(err):
+		l.Logger.Warn("Jellyfin can't be reached", "err", err)
+		problem.Send(w, problem.ServerBusy, "")
+	default:
+		l.Logger.Error("jellyfin call failed", "err", err)
+		problem.Send(w, problem.Internal, "")
+	}
 }
 
 // hidden answers for an item the profile may not see, or for the error
