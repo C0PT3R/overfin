@@ -141,7 +141,7 @@ func TestHandOverInTerminalSaysHowToReset(t *testing.T) {
 	other.Users["alice"] = takeovertest.User{Password: "secret", Admin: true}
 	var out strings.Builder
 	_, _, err := handOverInTerminal(context.Background(), emptyStore(t), url, strings.NewReader("overfin-admin\nwrong\n"), &out)
-	if err == nil || !strings.Contains(err.Error(), url+"/Users/ForgotPassword") || !strings.Contains(err.Error(), `"EnteredUsername":"overfin-admin"`) {
-		t.Errorf("error: %v", err)
+	if err == nil || !strings.Contains(out.String(), url+"/Users/ForgotPassword") || !strings.Contains(out.String(), `"EnteredUsername":"overfin-admin"`) {
+		t.Errorf("error %v, said: %s", err, out.String())
 	}
 }
