@@ -163,7 +163,7 @@ and existing installs' tables moved there once.
 
 **Connectors to sibling tools**, later: first Stewarr (storage
 intelligence for the *arr stack), which reads what Overfin knows (title
-scores and requests, never who) and decides what the server gets and
+values and requests, never who) and decides what the server gets and
 keeps (see "Requests in Overfin" below).
 
 ## Milestone 2: administration
@@ -694,27 +694,36 @@ nothing beyond what that needs.
     is available" by email, with the email templates.
   - **Leaving Seerr:** its requests are copied into Overfin once, as the
     watch history is; then Seerr support goes.
-- **Title scores**, for what the server gets. Overfin scores titles from
-  two signals: what people say they want (each account's owner names
-  titles they'd like on the server, asked at onboarding and changeable any
-  time; the wishes are the account's own data, in its export, gone with
-  it), and what they actually watch (finished, rewatched, a series
-  followed to the end, given up early), older activity counting less.
-  Wishes reach titles not on the server through TMDB's similar titles.
-  Each signal's score is given apart, with the combined one. Only per-title
-  scores and counts ever leave Overfin, never who, and a title's score
-  only once enough people are behind it, so a small server's scores don't
-  reveal one person's taste.
-- **Stewarr**, when the operator plugs requests into it: it reads the
-  requests (by an anonymous account ID, for nothing but counting) and the
-  scores through Overfin's apps API, mixes them with what it knows of the
-  torrents, and decides what goes in and what goes out. It sends requests
-  to Radarr and Sonarr itself, and keeps the resource limits: storage per
+- **Title valuation**, computed by Overfin, which knows the titles and the
+  people. Every title is valued the same way, on the server or not, and
+  without regard to its files or size: storage isn't Overfin's concern.
+  The value mixes the title's ratings (IMDb's own daily ratings dataset
+  first, then TMDB's; IMDb's terms to check first) with two signals: what
+  people say they want (each account's owner names titles they'd like on
+  the server, asked at onboarding and changeable any time; the wishes are
+  the account's own data, in its export, gone with it), and what they
+  actually watch (finished, rewatched, a series followed to the end, given
+  up early), older activity counting less. Wishes reach titles not on the
+  server through TMDB's similar titles. Series are valued by season too.
+  Each part is given apart, with the combined value. Only per-title values
+  and counts ever leave Overfin, never who, and a title's watch and wish
+  signals only once enough people are behind them, so a small server's
+  values don't reveal one person's taste.
+- **Stewarr**, when the operator plugs requests into it, is the one that
+  cares about storage. It reads the requests (by an anonymous account ID,
+  for nothing but counting) and the values through Overfin's apps API, so
+  it needs no TMDB key or ratings of its own any more. It sends requests to
+  Radarr and Sonarr itself, and keeps the resource limits: storage per
   library, genre and so on, traffic and simultaneous downloads, seeding.
+  When it needs space, it asks Overfin for the least valuable titles on
+  the server, weighs them with what only it knows (sizes, from the
+  filesystem, and each torrent's value from the history it records), and
+  decides what goes. It depends on Jellyfin as little as possible.
   Overfin keeps the limits on people (quotas, approval, kids), Stewarr
   those on resources; the most wanted titles download first when
   resources are short. It tells Overfin each request's status and what's
-  leaving soon.
+  **leaving soon**, which titles then show, so people get a last chance
+  to watch them.
 - Profile avatars, profile transfers.
 - ~~Trickplay~~ (done), lyrics, bitrate test.
 
