@@ -541,6 +541,7 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 		device = "another device"
 	}
 	limit := caller.Account.Template.MaxStreams
+	var replaced []*playback.Stream
 	if limit > 0 {
 		active := pb.Tickets.ForAccount(p.AccountID)
 		if len(active) >= limit {
@@ -548,14 +549,25 @@ func (pb Playback) start(w http.ResponseWriter, r *http.Request) {
 				problem.Send(w, problem.StreamLimitReached, "")
 				return
 			}
-			for _, old := range active[:len(active)-limit+1] {
-				pb.end(old, "taken-over", device)
-			}
+			replaced = active[:len(active)-limit+1]
 		}
 	}
-	if dec.Method == "transcode" && pb.MaxTranscodes > 0 && pb.Tickets.Transcodes() >= pb.MaxTranscodes {
-		problem.Send(w, problem.ServerBusy, "")
-		return
+	// Every transcode taken: refused before anything stops, counting those
+	// the playbacks it replaces would free.
+	if dec.Method == "transcode" && pb.MaxTranscodes > 0 {
+		busy := pb.Tickets.Transcodes()
+		for _, old := range replaced {
+			if pb.Tickets.Method(old) == "transcode" {
+				busy--
+			}
+		}
+		if busy >= pb.MaxTranscodes {
+			problem.Send(w, problem.ServerBusy, "")
+			return
+		}
+	}
+	for _, old := range replaced {
+		pb.end(old, "taken-over", device)
 	}
 
 	sourceID, _ := jellyfin.NormalizeID(dec.Source.Id)

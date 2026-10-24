@@ -68,6 +68,14 @@ type fakeJellyfin struct {
 	// first, instead of an empty one.
 	partnerSeesAll bool
 	users          map[string]string // created users: name -> ID (the first gets partnerJF)
+	// direct offers the movie to play as it is, instead of transcoded.
+	direct bool
+}
+
+func (f *fakeJellyfin) setDirect(on bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.direct = on
 }
 
 func (f *fakeJellyfin) called(prefix string) int {
@@ -207,7 +215,7 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"PlaySessionId": "abc123",
 			"MediaSources": []map[string]any{{
 				"Id": fmt.Sprintf("%032x", 1), "Name": "1080p", "Protocol": "File", "Path": "/mnt/media/secret.mkv",
-				"SupportsTranscoding": true, "TranscodingSubProtocol": "hls",
+				"SupportsTranscoding": true, "TranscodingSubProtocol": "hls", "SupportsDirectPlay": f.direct,
 				"TranscodingUrl": "/videos/" + fmt.Sprintf("%032x", 1) + "/master.m3u8?ApiKey=" + token + "&MediaSourceId=x&TranscodeReasons=VideoCodecNotSupported,AudioCodecNotSupported",
 				"RunTimeTicks":   72000000000, "Container": "mkv", "Bitrate": 9258000,
 				"MediaStreams": []map[string]any{
@@ -268,6 +276,8 @@ func newServerLimited(t *testing.T, maxStreams int) (*httptest.Server, *fakeJell
 // options changes how the test server is set up.
 type options struct {
 	maxStreams int
+	// maxTranscodes caps transcodes in total (none: no cap).
+	maxTranscodes int
 	// provider, when set, enables step-up; with login, also Overfin's own
 	// login (identity mode "oidc"), re-checked on every request.
 	provider *oidc.Provider
@@ -416,7 +426,7 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 	if o.store != nil {
 		*o.store = st
 	}
-	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), Logger: logger}
+	pb := api.Playback{Library: lib, Tickets: playback.NewTickets(time.Hour), MaxTranscodes: o.maxTranscodes, Logger: logger}
 	checker := &pin.Checker{Key: []byte("pin-key"), Store: st}
 	// The watchlist and migration modules, mounted as the real program
 	// mounts them, each with a database of its own; migration copies
@@ -941,6 +951,37 @@ func TestPlaybackLanguages(t *testing.T) {
 		if code, _ := put(t, srv, "PUT", "/api/v1/me/subtitles", bad); code != 400 {
 			t.Errorf("%s: %d", bad, code)
 		}
+	}
+}
+
+// Every transcode taken: a playback that needs one is refused before the
+// account's oldest stream stops, unless stopping it frees one (rule 32).
+func TestTranscodeLimitStopsNothing(t *testing.T) {
+	srv, fake := newServerWith(t, options{maxStreams: 2, maxTranscodes: 1})
+	fake.setDirect(true)
+	direct := startPlayback(t, srv, "Laptop")
+	fake.setDirect(false)
+	transcoded := startPlayback(t, srv, "Phone")
+	// At the limit of 2, a transcode would replace the direct playback:
+	// no transcode is free, so it's refused, and nothing stops.
+	code, body := post(t, srv, "/api/v1/playback",
+		`{"itemId":"item_`+fmt.Sprintf("%032x", 1)+`","capabilities":{},"device":"TV"}`)
+	if code != http.StatusServiceUnavailable || !strings.Contains(body, "server-busy") {
+		t.Errorf("a third: %d %s", code, body)
+	}
+	for _, id := range []string{direct, transcoded} {
+		if code, _ := getAs(t, srv, subject, "/api/v1/playback/"+id); code != 200 {
+			t.Errorf("%s after the refusal: %d", id, code)
+		}
+	}
+	// When the oldest is the transcode, replacing it frees one.
+	post(t, srv, "/api/v1/playback/"+direct+"/stop", `{}`)
+	fake.setDirect(true)
+	startPlayback(t, srv, "TV")
+	fake.setDirect(false)
+	startPlayback(t, srv, "Tablet")
+	if code, _ := getAs(t, srv, subject, "/api/v1/playback/"+transcoded); code != http.StatusGone {
+		t.Errorf("the oldest, a transcode, replaced: %d", code)
 	}
 }
 
