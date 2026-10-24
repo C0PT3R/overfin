@@ -42,8 +42,9 @@ func signedInPanel(t *testing.T) (*Panel, *browser, *store.Store, *[]string) {
 	t.Cleanup(jfSrv.Close)
 	jf, _ := jellyfin.New(jfSrv.URL, "test")
 	p.Store = db
-	p.Provisioner = &provision.Provisioner{Store: db, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"),
+	prov := &provision.Provisioner{Store: db, Jellyfin: jf, AdminKey: "admin", LogKey: []byte("k"),
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	p.Provisioner = func() *provision.Provisioner { return prov }
 	b := &browser{h: p.Handler(), cookies: map[string]string{}}
 	if rec := signIn(t, b, idp, []string{"overfin-admins"}); rec.Code != http.StatusSeeOther {
 		t.Fatalf("sign in: %d", rec.Code)

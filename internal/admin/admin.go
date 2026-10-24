@@ -130,11 +130,13 @@ type Panel struct {
 	// SearchTMDB, when set, searches TMDB for films and series
 	// (Identification); Images serves their posters; OnRetitled runs after
 	// a title was identified by hand.
-	SearchTMDB  func(ctx context.Context, query string) ([]tmdb.Title, error)
-	Images      *images.Pipeline
-	OnRetitled  func()
-	Store       *store.Store
-	Provisioner *provision.Provisioner
+	SearchTMDB func(ctx context.Context, query string) ([]tmdb.Title, error)
+	Images     *images.Pipeline
+	OnRetitled func()
+	Store      *store.Store
+	// Provisioner is the one in effect now: Seerr and the features change
+	// live.
+	Provisioner func() *provision.Provisioner
 	// Directory, when set, tells who the people behind accounts are. It
 	// keeps what it read briefly (connector.Cache).
 	Directory connector.Directory

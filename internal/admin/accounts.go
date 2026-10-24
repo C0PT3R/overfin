@@ -226,7 +226,7 @@ func (p *Panel) deleteAccount(w http.ResponseWriter, r *http.Request, s *session
 		return
 	}
 	keep := p.Features.Features().Accounts.OnDelete == "disable"
-	if _, err := p.Provisioner.DeleteAccount(r.Context(), r.PathValue("id"), keep); errors.Is(err, store.ErrNotFound) {
+	if _, err := p.Provisioner().DeleteAccount(r.Context(), r.PathValue("id"), keep); errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "No such account", http.StatusNotFound)
 		return
 	} else if err != nil {
