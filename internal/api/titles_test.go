@@ -283,3 +283,21 @@ func TestPlayNextEpisode(t *testing.T) {
 		}
 	}
 }
+
+// The home page shows titles no library has only when the panel says so.
+func TestHomeMissing(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{store: &st})
+	var me struct {
+		Home struct {
+			MissingTitles bool `json:"missingTitles"`
+		} `json:"home"`
+	}
+	if code := get(t, srv, "/api/v1/me", &me); code != 200 || me.Home.MissingTitles {
+		t.Fatalf("by default: %d %+v", code, me)
+	}
+	st.SetHomeMissing(context.Background(), true)
+	if code := get(t, srv, "/api/v1/me", &me); code != 200 || !me.Home.MissingTitles {
+		t.Errorf("switched on: %d %+v", code, me)
+	}
+}

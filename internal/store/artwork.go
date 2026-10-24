@@ -247,3 +247,25 @@ func (s *Store) SetTitlesShown(ctx context.Context, shown string) error {
 		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, []byte(shown))
 	return err
 }
+
+// HomeMissing is whether the home page shows titles no library has, among
+// what's trending and in its slideshow; off until the panel says otherwise.
+func (s *Store) HomeMissing(ctx context.Context) (bool, error) {
+	var v []byte
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE name = 'home-missing'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return string(v) == "on", err
+}
+
+// SetHomeMissing changes it.
+func (s *Store) SetHomeMissing(ctx context.Context, on bool) error {
+	v := "off"
+	if on {
+		v = "on"
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (name, value) VALUES ('home-missing', ?)
+		ON CONFLICT (name) DO UPDATE SET value = excluded.value`, []byte(v))
+	return err
+}

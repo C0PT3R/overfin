@@ -723,10 +723,12 @@ type ratingsJSON struct {
 	Countries []string `json:"countries"`
 	// Shown is which titles no library has are shown: all, released,
 	// home (see store.TitlesShown).
-	Shown   string `json:"shown"`
-	Fetched int    `json:"fetched"`
-	Total   int    `json:"total"`
-	Source  bool   `json:"source"`
+	Shown string `json:"shown"`
+	// HomeMissing is whether the home page shows them too.
+	HomeMissing bool `json:"homeMissing"`
+	Fetched     int  `json:"fetched"`
+	Total       int  `json:"total"`
+	Source      bool `json:"source"`
 	// Token is whether the operator gave TMDB's token, and whether the
 	// environment sets it.
 	Token struct {
@@ -753,6 +755,9 @@ func (p *Panel) ratingsState(ctx context.Context) (ratingsJSON, error) {
 	if out.Shown, err = p.Store.TitlesShown(ctx); err != nil {
 		return out, err
 	}
+	if out.HomeMissing, err = p.Store.HomeMissing(ctx); err != nil {
+		return out, err
+	}
 	out.Fetched, out.Total, err = p.Store.RatingProgress(ctx)
 	return out, err
 }
@@ -771,12 +776,13 @@ func (p *Panel) ratings(w http.ResponseWriter, r *http.Request, s *session) {
 var titlesShown = []string{"all", "released", "home"}
 
 // setRatings changes the ratings country, to one TMDB has scales for
-// (kids profiles' ceilings are cleared with it), and which titles no
-// library has are shown.
+// (kids profiles' ceilings are cleared with it), which titles no library
+// has are shown, and whether the home page shows them.
 func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 	var req struct {
-		Country string `json:"country"`
-		Shown   string `json:"shown"`
+		Country     string `json:"country"`
+		Shown       string `json:"shown"`
+		HomeMissing *bool  `json:"homeMissing"`
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -798,6 +804,19 @@ func (p *Panel) setRatings(w http.ResponseWriter, r *http.Request, s *session) {
 		}
 		if err != nil {
 			p.Logger.Error("changing the titles shown failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
+			return
+		}
+	}
+	if req.HomeMissing != nil {
+		old, err := p.Store.HomeMissing(ctx)
+		if err == nil && old != *req.HomeMissing {
+			if err = p.Store.SetHomeMissing(ctx, *req.HomeMissing); err == nil {
+				p.Logger.Info("titles no library has on the home page changed in the control panel", "on", *req.HomeMissing, "by", s.name)
+			}
+		}
+		if err != nil {
+			p.Logger.Error("changing the home page's titles failed", "err", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"type": "internal", "detail": "Overfin's log says why"})
 			return
 		}

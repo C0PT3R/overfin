@@ -91,6 +91,14 @@ type meJSON struct {
 	Languages []lang.Choice `json:"languages"`
 	// Limits are the account template's: what the site offers follows them.
 	Limits meLimitsJSON `json:"limits"`
+	// Home is how the operator set the site's home page.
+	Home meHomeJSON `json:"home"`
+}
+
+type meHomeJSON struct {
+	// MissingTitles: titles no library has are shown among what's
+	// trending and in the slideshow.
+	MissingTitles bool `json:"missingTitles"`
 }
 
 type meLimitsJSON struct {
@@ -242,6 +250,9 @@ func (s *Sessions) me(r *http.Request, acct *store.Account, prof *store.Profile)
 		Limits: meLimitsJSON{MaxProfiles: acct.Template.MaxProfiles, MaxStreams: acct.Template.MaxStreams}}
 	if slices.Contains(offered, acct.Language) {
 		out.Language = acct.Language
+	}
+	if out.Home.MissingTitles, err = s.Store.HomeMissing(ctx); err != nil {
+		return meJSON{}, err
 	}
 	for _, c := range lang.Choices {
 		if slices.Contains(offered, c.Tag) {

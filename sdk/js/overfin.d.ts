@@ -75,6 +75,9 @@ export interface Me {
   languages: { tag: string; name: string }[];
   /** The account template's limits; 0 means none. */
   limits: { maxProfiles: number; maxStreams: number };
+  /** How the operator set the home page: missingTitles shows titles no
+   * library has among what's trending and in the slideshow. */
+  home: { missingTitles: boolean };
 }
 
 export interface Session {

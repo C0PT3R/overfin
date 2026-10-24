@@ -2792,7 +2792,7 @@ components:
 
     Me:
       type: object
-      required: [accountId, language, languages, limits]
+      required: [accountId, language, languages, limits, home]
       properties:
         accountId:
           type: string
@@ -2829,6 +2829,15 @@ components:
             maxStreams:
               type: integer
               examples: [3]
+        home:
+          type: object
+          description: How the operator set the site's home page.
+          required: [missingTitles]
+          properties:
+            missingTitles:
+              type: boolean
+              description: Titles no library has are shown among what's
+                trending and in the slideshow, to be requested.
         displayName:
           type: string
           description: From the identity provider, when it provides one.

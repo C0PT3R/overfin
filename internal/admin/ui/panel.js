@@ -736,6 +736,8 @@ function tmdbCard(rt) {
   const shown = h('select', {}, [['all', 'All, announced ones too'], ['released', 'Released, in theatres too'],
     ['home', 'Watchable at home']].map(([v, t]) => h('option', { value: v }, t)));
   shown.value = rt.shown;
+  const homeMissing = h('input', { type: 'checkbox', 'aria-label': 'On the home page' });
+  homeMissing.checked = rt.homeMissing;
   const describe = (r) => {
     if (!r.source && !r.token.set) return ['Without TMDB, no title can be rated, so kids profiles see nothing.', 'error'];
     if (!r.source) return ['TMDB can\'t be reached: no title can be rated, so kids profiles see nothing.', 'error'];
@@ -745,14 +747,14 @@ function tmdbCard(rt) {
   const st = status('');
   st.set(...describe(rt));
   const save = h('button', { class: 'primary', type: 'button', disabled: !rt.countries.length, onclick: () => busy(save, async () => {
-    if (country.value === rt.country && shown.value === rt.shown) return;
+    if (country.value === rt.country && shown.value === rt.shown && homeMissing.checked === rt.homeMissing) return;
     if (country.value !== rt.country &&
       !confirm('Every kids profile will need new limits from its account\'s owner, and sees nothing until then. Change the country?')) {
       country.value = rt.country;
       return;
     }
-    const out = await api('PUT', '/admin/api/ratings', { country: country.value, shown: shown.value });
-    Object.assign(rt, { country: out.country, shown: out.shown });
+    const out = await api('PUT', '/admin/api/ratings', { country: country.value, shown: shown.value, homeMissing: homeMissing.checked });
+    Object.assign(rt, { country: out.country, shown: out.shown, homeMissing: out.homeMissing });
     st.set(...describe(out));
     toast('TMDB settings saved.');
   }, (err) => st.set(err.message, 'error')) }, 'Save');
@@ -764,6 +766,7 @@ function tmdbCard(rt) {
     keySt,
     setting('Ratings country', 'Kids profiles\' limits use this country\'s ratings. A title with none there is hidden from them.', country),
     setting('Titles shown', 'Of those no library has, in discovery and requests. A title a library has is always shown.', shown),
+    setting('On the home page', 'Also show them on the home page, among what\'s trending and in the slideshow, to be requested. Off: the home page shows the libraries only.', homeMissing),
   ],
   [st, save]);
 }
