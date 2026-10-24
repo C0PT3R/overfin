@@ -96,7 +96,7 @@ type page struct {
 // renderPage shows one of the pages, in the visitor's language and the
 // site's brand.
 func renderPage(w http.ResponseWriter, r *http.Request, st *store.Store, logger *slog.Logger, p page) {
-	lang := pageLang(r)
+	lang := pageLang(r, st)
 	t := signinTexts[lang]
 	data := map[string]any{
 		"Lang": lang, "T": t, "P": p, "JS": pagesJS, "CSS": pagesCSS, "Icon": pagesLogo,

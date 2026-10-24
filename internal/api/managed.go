@@ -453,7 +453,7 @@ func (m *Managed) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	lang := pageLang(r)
+	lang := pageLang(r, m.Store)
 	u, err := m.Store.RegisterUser(ctx, req.Email, hash, code)
 	switch {
 	case errors.Is(err, store.ErrEmailTaken):
@@ -524,7 +524,7 @@ func (m *Managed) resend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u, err := m.Store.UserByEmail(r.Context(), req.Email); err == nil && !u.Confirmed && m.canMail() {
-		m.sendLink(u, "verify", verifyFor, pageLang(r))
+		m.sendLink(u, "verify", verifyFor, pageLang(r, m.Store))
 	}
 	writeOK(w, map[string]bool{"sent": true})
 }
@@ -552,7 +552,7 @@ func (m *Managed) askReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u != nil && !u.Disabled {
-		m.sendLink(u, "reset", resetFor, pageLang(r))
+		m.sendLink(u, "reset", resetFor, pageLang(r, m.Store))
 	}
 	writeOK(w, map[string]bool{"sent": true})
 }
@@ -782,7 +782,7 @@ func (m *Managed) followsRules(w http.ResponseWriter, r *http.Request, pw string
 	rules := m.rules(r.Context())
 	if lacks := rules.Lacks(pw); lacks != "" {
 		key := map[string]string{"length": "lacksLength", "digit": "lacksDigit", "special": "lacksSpecial"}[lacks]
-		detail := strings.ReplaceAll(signinTexts[pageLang(r)][key], "{n}", strconv.Itoa(rules.MinLength))
+		detail := strings.ReplaceAll(signinTexts[pageLang(r, m.Store)][key], "{n}", strconv.Itoa(rules.MinLength))
 		problem.Send(w, problem.InvalidRequest, detail)
 		return false
 	}
@@ -901,7 +901,7 @@ func (m *Managed) CanMail() bool { return m.canMail() }
 func (m *Managed) refuse(w http.ResponseWriter, r *http.Request, t problem.Type, key string) {
 	detail := ""
 	if key != "" {
-		detail = signinTexts[pageLang(r)][key]
+		detail = signinTexts[pageLang(r, m.Store)][key]
 	}
 	problem.Send(w, t, detail)
 }
@@ -974,13 +974,22 @@ func (m *Managed) mailLang(ctx context.Context, email, browser string) string {
 }
 
 // pageLang is the visitor's language among the pages': the first of
-// theirs they have.
-func pageLang(r *http.Request) string {
+// theirs they have, else the server's default language (st's, when the
+// pages have it), else English.
+func pageLang(r *http.Request, st *store.Store) string {
 	for _, part := range strings.Split(r.Header.Get("Accept-Language"), ",") {
 		tag, _, _ := strings.Cut(strings.TrimSpace(part), ";")
 		code, _, _ := strings.Cut(strings.ToLower(tag), "-")
 		if _, ok := signinTexts[code]; ok {
 			return code
+		}
+	}
+	if st != nil {
+		if _, def, _, err := st.Languages(r.Context()); err == nil {
+			code, _, _ := strings.Cut(strings.ToLower(def), "-")
+			if _, ok := signinTexts[code]; ok {
+				return code
+			}
 		}
 	}
 	return "en"

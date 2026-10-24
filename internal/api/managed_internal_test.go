@@ -29,7 +29,7 @@ func TestPageLang(t *testing.T) {
 	} {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.Header.Set("Accept-Language", header)
-		if got := pageLang(r); got != want {
+		if got := pageLang(r, nil); got != want {
 			t.Errorf("%q: %s, want %s", header, got, want)
 		}
 	}

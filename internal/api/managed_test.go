@@ -500,6 +500,40 @@ func TestSiteOwner(t *testing.T) {
 	}
 }
 
+// A browser whose languages the pages don't have gets the server's default
+// language, and so do the emails it asks for.
+func TestPagesInDefaultLanguage(t *testing.T) {
+	box := &mailbox{}
+	var st *store.Store
+	var m *api.Managed
+	srv, _ := newServerWith(t, options{managed: true, mailbox: box, store: &st, signIn: &m})
+	ctx := context.Background()
+	if _, err := st.SetLanguages(ctx, []string{"fr-CA", "en-US"}, "fr-CA"); err != nil {
+		t.Fatal(err)
+	}
+	st.CreateUser(ctx, "ann@example.org", false)
+	b := newBrowser(srv)
+	for _, header := range []string{"", "de-DE,de;q=0.9"} {
+		_, body := visit(t, b, srv, "/reset", map[string]string{"Accept-Language": header, "Sec-Fetch-Dest": "document"})
+		if !strings.Contains(body, `<html lang="fr">`) {
+			t.Errorf("%q: not in French", header)
+		}
+	}
+	raw, _ := json.Marshal(checked(t, srv, map[string]any{"email": "ann@example.org"}))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/reset", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "same-origin") // no Accept-Language at all
+	res, err := b.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("asking a link: %v %v", res, err)
+	}
+	res.Body.Close()
+	m.Wait()
+	if mails := box.all(); len(mails) != 1 || mails[0].subject != "Choisissez un nouveau mot de passe" {
+		t.Errorf("emails: %+v", mails)
+	}
+}
+
 // Only wrong passwords count towards an email's limit: someone signing in
 // often isn't locked out, and the right password starts the count over.
 // (Each server allows 20 tries a minute from one address.)
