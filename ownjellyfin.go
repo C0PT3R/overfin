@@ -245,6 +245,16 @@ func handOverInTerminal(ctx context.Context, db *store.Store, fixed string, in i
 	username := ask("Its administrator's username: ")
 	password := ask("Password (it shows as you type): ")
 	survey, err := takeover.Inspect(ctx, jf, username, password)
+	if errors.Is(err, takeover.ErrLogin) {
+		// Overfin closed access when it took the server: nobody knows an
+		// administrator's password. Jellyfin's own reset gives one.
+		return "", "", fmt.Errorf("%w\n\nNobody knows its administrators' passwords since Overfin took it over. "+
+			"Jellyfin gives one back, from its own network:\n"+
+			"  1. curl -X POST %s/Users/ForgotPassword -H 'Content-Type: application/json' -d '{\"EnteredUsername\":\"%s\"}'\n"+
+			"  2. Read the PIN in the passwordreset*.json file it names, in Jellyfin's config folder.\n"+
+			"  3. curl -X POST %s/Users/ForgotPassword/Pin -H 'Content-Type: application/json' -d '{\"Pin\":\"THE-PIN\"}'\n"+
+			"Then run this again, with that username and the PIN as the password.", err, url, cmp.Or(username, takeover.AdminName), url)
+	}
 	if err != nil {
 		return "", "", err
 	}

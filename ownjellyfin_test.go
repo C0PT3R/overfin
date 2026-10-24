@@ -132,3 +132,16 @@ func TestTakeOverOnSetupPage(t *testing.T) {
 		t.Error("recorded as open")
 	}
 }
+
+// Handed over in the terminal (a lost secret key): a login Jellyfin
+// refuses comes with how to get one back, since nobody knows its
+// administrators' passwords once Overfin took it.
+func TestHandOverInTerminalSaysHowToReset(t *testing.T) {
+	other, url := takeovertest.New(t, true)
+	other.Users["alice"] = takeovertest.User{Password: "secret", Admin: true}
+	var out strings.Builder
+	_, _, err := handOverInTerminal(context.Background(), emptyStore(t), url, strings.NewReader("overfin-admin\nwrong\n"), &out)
+	if err == nil || !strings.Contains(err.Error(), url+"/Users/ForgotPassword") || !strings.Contains(err.Error(), `"EnteredUsername":"overfin-admin"`) {
+		t.Errorf("error: %v", err)
+	}
+}
