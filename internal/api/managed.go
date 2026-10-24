@@ -463,10 +463,7 @@ func (m *Managed) register(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		m.Logger.Info("someone registered with an invitation", "user", m.Provisioner.LogID(u.Subject))
-		if err := m.sendLink(ctx, u, "verify", verifyFor, lang); err != nil {
-			m.fail(w, r, err)
-			return
-		}
+		m.sendLink(u, "verify", verifyFor, lang)
 	}
 	writeOK(w, map[string]bool{"sent": true})
 }
@@ -527,10 +524,7 @@ func (m *Managed) resend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u, err := m.Store.UserByEmail(r.Context(), req.Email); err == nil && !u.Confirmed && m.canMail() {
-		if err := m.sendLink(r.Context(), u, "verify", verifyFor, pageLang(r)); err != nil {
-			m.fail(w, r, err)
-			return
-		}
+		m.sendLink(u, "verify", verifyFor, pageLang(r))
 	}
 	writeOK(w, map[string]bool{"sent": true})
 }
@@ -558,10 +552,7 @@ func (m *Managed) askReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u != nil && !u.Disabled {
-		if err := m.sendLink(r.Context(), u, "reset", resetFor, pageLang(r)); err != nil {
-			m.fail(w, r, err)
-			return
-		}
+		m.sendLink(u, "reset", resetFor, pageLang(r))
 	}
 	writeOK(w, map[string]bool{"sent": true})
 }
@@ -811,25 +802,28 @@ func (m *Managed) takeLink(w http.ResponseWriter, r *http.Request, purpose, link
 }
 
 // sendLink sends someone a link: to confirm their address ("verify", to
-// /signin) or to choose a new password ("reset", to /reset).
-func (m *Managed) sendLink(ctx context.Context, u *store.User, purpose string, validFor time.Duration, lang string) error {
+// /signin) or to choose a new password ("reset", to /reset). The link is
+// saved in the background too, with the email: saving it takes time only
+// when there's someone to send it to (rule 66).
+func (m *Managed) sendLink(u *store.User, purpose string, validFor time.Duration, lang string) {
 	token := randomToken()
-	if err := m.Store.AddEmailLink(ctx, store.EmailLink{Subject: u.Subject, LinkHash: m.hash(purpose, token),
-		Purpose: purpose, Expires: time.Now().Add(validFor)}); err != nil {
-		return err
-	}
 	where := signinPagePath + "#verify="
 	if purpose == "reset" {
 		where = resetPagePath + "#reset="
 	}
-	m.send(u.Email, lang, purpose, strings.TrimSuffix(m.SiteURL, "/")+where+token)
-	return nil
+	m.sendAfter(u.Email, lang, purpose, strings.TrimSuffix(m.SiteURL, "/")+where+token, func(ctx context.Context) error {
+		return m.Store.AddEmailLink(ctx, store.EmailLink{Subject: u.Subject, LinkHash: m.hash(purpose, token),
+			Purpose: purpose, Expires: time.Now().Add(validFor)})
+	})
 }
 
 // send sends an email in the background: how long sending takes would
 // otherwise tell who has an account. It's in the account's language when
 // the person has one, else the page's.
-func (m *Managed) send(to, lang, name, link string) {
+func (m *Managed) send(to, lang, name, link string) { m.sendAfter(to, lang, name, link, nil) }
+
+// sendAfter is send, once first (when not nil) worked.
+func (m *Managed) sendAfter(to, lang, name, link string, first func(context.Context) error) {
 	sender := m.mailer()
 	if sender == nil {
 		return
@@ -839,6 +833,12 @@ func (m *Managed) send(to, lang, name, link string) {
 		defer m.sendings.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
+		if first != nil {
+			if err := first(ctx); err != nil {
+				m.Logger.Error("saving an email's link failed", "email", name, "err", err)
+				return
+			}
+		}
 		msg, err := m.Emails.Write(ctx, name, m.mailLang(ctx, to, lang), emails.Vars{Link: link})
 		if err == nil {
 			err = sender.SendMessage(ctx, to, msg)
