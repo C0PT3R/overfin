@@ -571,14 +571,16 @@ func (m *Managed) askReset(w http.ResponseWriter, r *http.Request) {
 // signs the person in.
 func (m *Managed) reset(w http.ResponseWriter, r *http.Request) {
 	req, ok := m.read(w, r)
-	if !ok {
+	if !ok || !m.followsRules(w, r, req.Password) {
 		return
 	}
-	hash, ok := m.newPassword(w, r, req.Password)
-	if !ok {
-		return
-	}
+	// The link first: hashing is slow on purpose, and this page asks no
+	// check against scripts.
 	u, ok := m.takeLink(w, r, "reset", req.Link)
+	if !ok {
+		return
+	}
+	hash, ok := m.hashPassword(w, r, req.Password)
 	if !ok {
 		return
 	}
@@ -749,14 +751,35 @@ func (m *Managed) rules(ctx context.Context) password.Rules {
 // newPassword checks a new password against the rules and hashes it,
 // answering what it lacks.
 func (m *Managed) newPassword(w http.ResponseWriter, r *http.Request, pw string) (string, bool) {
+	if !m.followsRules(w, r, pw) {
+		return "", false
+	}
+	return m.hashPassword(w, r, pw)
+}
+
+// followsRules says whether a new password follows the rules, answering
+// when it doesn't.
+func (m *Managed) followsRules(w http.ResponseWriter, r *http.Request, pw string) bool {
 	rules := m.rules(r.Context())
 	if lacks := rules.Lacks(pw); lacks != "" {
 		key := map[string]string{"length": "lacksLength", "digit": "lacksDigit", "special": "lacksSpecial"}[lacks]
 		detail := strings.ReplaceAll(signinTexts[pageLang(r)][key], "{n}", strconv.Itoa(rules.MinLength))
 		problem.Send(w, problem.InvalidRequest, detail)
+		return false
+	}
+	return true
+}
+
+// hashPassword hashes a new password, a few at a time (it's slow on
+// purpose).
+func (m *Managed) hashPassword(w http.ResponseWriter, r *http.Request, pw string) (string, bool) {
+	select {
+	case m.hashing <- struct{}{}:
+	case <-r.Context().Done():
 		return "", false
 	}
 	hash, err := password.Hash(pw)
+	<-m.hashing
 	if err != nil {
 		m.fail(w, r, err)
 		return "", false

@@ -491,6 +491,37 @@ func TestSigninLimitCountsWrongPasswords(t *testing.T) {
 	}
 }
 
+// A new password, however it's set, ends the links asked before to choose
+// one: someone who saw the email can't use it after the owner reacted.
+func TestResetLinkEndsWithNewPassword(t *testing.T) {
+	box := &mailbox{}
+	var st *store.Store
+	var m *api.Managed
+	srv, _ := newServerWith(t, options{managed: true, mailbox: box, store: &st, signIn: &m})
+	ctx := context.Background()
+	ann, _ := st.CreateUser(ctx, "ann@example.org", false)
+	b := newBrowser(srv)
+	if c, out := signinPost(t, b, srv, "/api/v1/reset", checked(t, srv, map[string]any{"email": "ann@example.org"})); c != 200 {
+		t.Fatalf("asking a link: %d %v", c, out)
+	}
+	m.Wait()
+	mails := box.all()
+	if len(mails) != 1 {
+		t.Fatalf("emails: %+v", mails)
+	}
+	token := linkIn(mails[0].body, "reset")
+	hash, _ := password.Hash("the owner's own, 2026")
+	if err := st.SetPassword(ctx, ann.Subject, hash); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := signinPost(t, b, srv, "/api/v1/reset/password", map[string]any{"link": token, "password": "someone else's, 2026"}); c != 401 {
+		t.Errorf("the old link: %d", c)
+	}
+	if u, _ := st.UserByEmail(ctx, "ann@example.org"); !password.Check(u.PasswordHash, "the owner's own, 2026") {
+		t.Error("the password was changed")
+	}
+}
+
 // An email goes out in the account's language, whatever the browser's.
 func TestSigninEmailLanguage(t *testing.T) {
 	box := &mailbox{}

@@ -138,8 +138,19 @@ func (s *Store) SetPassword(ctx context.Context, subject, hash string) error {
 	if hash != "" {
 		v = hash
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE subject = ?`, v, subject)
-	return oneRow(res, err)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := oneRow(tx.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE subject = ?`, v, subject)); err != nil {
+		return err
+	}
+	// A link to choose a new password, asked before, no longer works.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM email_links WHERE subject = ? AND purpose = 'reset'`, subject); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetEmail changes someone's email.
