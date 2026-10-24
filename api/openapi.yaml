@@ -63,9 +63,15 @@ info:
     the account's owner profile answer `owner-only` (403) to other profiles.
     An account the operator disabled answers `account-not-allowed` (403),
     and one whose access has ended `account-expired` (403), to every request.
+    Any endpoint answers `invalid-request` (400) to a request it can't take,
+    and `rate-limited` (429) over its limits; requests from another site
+    get `cross-site-request` (403), changes not sent as JSON
+    `unsupported-media-type` (415), and a failure of the server itself
+    `internal-error` (500).
 
-    **Language.** Metadata comes in the language of the `Accept-Language`
-    header, unless the active profile sets its own.
+    **Language.** Metadata comes in the account's language (`PATCH /me`),
+    among those the operator offers; a new account starts with the
+    browser's (`Accept-Language`), else the operator's default.
 
     **PINs.** Frequent sensitive actions need a profile's PIN, sent in the
     request. A missing PIN gives `pin-required`, a wrong one `pin-incorrect`
@@ -154,6 +160,22 @@ paths:
                       light:
                         type: string
                         description: The banner for light pages.
+
+  /theme.css:
+    get:
+      operationId: getTheme
+      summary: Overfin's look, as CSS
+      description: Overfin's theme (colors, shadows, corners, font) as CSS
+        custom properties, for light and dark pages, which clients may use.
+      tags: [system]
+      security: []
+      responses:
+        "200":
+          description: The stylesheet.
+          content:
+            text/css:
+              schema:
+                type: string
 
   /branding/{kind}:
     get:
@@ -852,8 +874,9 @@ paths:
     get:
       operationId: signinInfo
       summary: How the person signed in signs in
-      description: With managed sign-in only. Their email, whether they have
-        a password, and whether a forgotten one can be reset by email
+      description: With managed sign-in only, for the account owner's
+        profile (`owner-only` otherwise). Their email, whether they have a
+        password, and whether a forgotten one can be reset by email
         (`reset`).
       tags: [account]
       responses:
@@ -877,8 +900,10 @@ paths:
       operationId: setPassword
       summary: Change the password
       description: With managed sign-in only, after a fresh login (a sign-in
-        just made counts); otherwise `step-up-required`. It follows the
-        password rules, and the person's other logins end.
+        just made counts; otherwise `step-up-required`), from the account
+        owner's profile (`owner-only` otherwise). It follows the password
+        rules, the person's other logins end, and links asked to choose a
+        new password stop working.
       tags: [account]
       requestBody:
         required: true
@@ -2838,9 +2863,6 @@ components:
               type: boolean
               description: Titles no library has are shown among what's
                 trending and in the slideshow, to be requested.
-        displayName:
-          type: string
-          description: From the identity provider, when it provides one.
         activeProfile:
           description: Absent while this session has no profile chosen; the
             site then shows the profile list.
@@ -2878,8 +2900,9 @@ components:
           $ref: "#/components/schemas/ImageRef"
         language:
           type: string
-          description: Preferred metadata language (BCP 47), overriding
-            `Accept-Language`.
+          writeOnly: true
+          description: Kept when set, not used yet (metadata comes in the
+            account's language) and not returned.
           examples: [fr-CA]
         movieCeiling:
           type: string
@@ -3641,8 +3664,11 @@ components:
           minimum: 64
         queue:
           type: array
-          description: Items to play after this one (next episodes, an
-            album's tracks). Each is checked against the active profile.
+          x-status: planned
+          description: Planned. Items to play after this one (next
+            episodes, an album's tracks). Each is checked against the active
+            profile. Until queues are served, a non-empty queue is refused
+            (`invalid-request`).
           maxItems: 500
           items:
             type: string
@@ -3835,8 +3861,10 @@ components:
                 language: {type: string}
                 bitrateKbps: {type: integer}
         queue:
-          description: Where playback is in the queue. The whole queue is
-            available from `GET /playback/{id}/queue`.
+          x-status: planned
+          description: Planned, not sent yet. Where playback is in the
+            queue. The whole queue is available from
+            `GET /playback/{id}/queue`.
           type: object
           required: [index, length]
           properties:
