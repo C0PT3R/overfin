@@ -642,9 +642,9 @@ func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 
 // SiteOwner reports whether the person signed in uses, in this browser,
 // their account's owner profile (or has no account yet, or no session
-// here): only then does their login open the control panel on the site. Whoever uses another
-// profile here shares that login, fresh for a few minutes after each
-// sign-in (rule 25).
+// here): only then does their login open the control panel on the site.
+// Whoever uses another profile here shares that login, fresh for a few
+// minutes after each sign-in (rule 25).
 func (m *Managed) SiteOwner(r *http.Request) bool {
 	_, u := m.current(r)
 	if u == nil {
