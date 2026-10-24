@@ -688,6 +688,13 @@ nothing beyond what that needs.
   whether the GPU does it, and how far ahead the server has prepared the
   video, shown as the ready part of the seek bar. A "Playback info" panel
   in overfin-web.
+- **What people would like on the server, feeding what it gets.** Each
+  account's owner says what they would want to see on the server, in
+  terms of titles: asked at onboarding (account setup), and changeable
+  any time after. Those wishes, with live statistics of how people
+  actually watch, feed an algorithm that generates import lists for
+  Radarr and Sonarr. The wishes are the account's own data (in its
+  export, gone with it).
 
 - **Native-app login.** Today's login works in browsers (and webview apps).
   Native apps, including third-party ones, need:
