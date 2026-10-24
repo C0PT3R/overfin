@@ -698,18 +698,56 @@ nothing beyond what that needs.
 - **Title valuation**, computed by Overfin, which knows the titles and the
   people. Every title is valued the same way, on the server or not, and
   without regard to its files or size: storage isn't Overfin's concern.
-  The value mixes the title's ratings (IMDb's own daily ratings dataset
-  first, then TMDB's; IMDb's terms to check first) with two signals: what
-  people say they want (each account's owner names titles they'd like on
-  the server, asked at onboarding and changeable any time; the wishes are
-  the account's own data, in its export, gone with it), and what they
-  actually watch (finished, rewatched, a series followed to the end, given
-  up early), older activity counting less. Wishes reach titles not on the
-  server through TMDB's similar titles. Series are valued by season too.
-  Each part is given apart, with the combined value. Only per-title values
-  and counts ever leave Overfin, never who, and a title's watch and wish
-  signals only once enough people are behind them, so a small server's
-  values don't reveal one person's taste.
+  Films are valued as a whole, series season by season.
+  - **The operator's weights.** A Library → Valuation page in the panel
+    has a slider from 0 to 10 per criterion: the more the operator cares
+    about one, the higher. Every criterion raises the value; none counts
+    against it. The criteria: **watch time**, **audience** (how many
+    accounts watched at all), **followed** (series people keep up with),
+    **favourites**, **watchlist**, **requested**, **rating**, **new
+    release** (how recent the film or season is) and **popularity**
+    (TMDB's). **Wishes** join when people can say what they'd like on the
+    server (asked at onboarding, changeable any time; the account's own
+    data, in its export, gone with it). Below the sliders, the most and
+    least valuable titles update as they move; any title shows why it has
+    its value, criterion by criterion; one button resets the defaults.
+  - **Watch time** is counted in full views: one person watching all of a
+    film is 1, two watching half each is 1, watching twice is 2. A season
+    counts against the whole season (its ten episodes watched once each
+    are one view; episodes weighted by length), so a series isn't worth
+    more for having more episodes. Recent viewing counts more (a
+    three-month half-life, from the last viewing until each viewing is
+    logged).
+  - **No one person decides.** An account counts for at most three views
+    of a title, kids' profiles count half (children rewatch), and accounts
+    no one has used for six months stop counting (their favourites,
+    watchlist and requests included). Valuation counts one voice per
+    account, so a big household doesn't outweigh the rest.
+  - **Fair numbers.** Each criterion ranks titles against each other, so
+    one huge hit doesn't flatten the rest and no criterion drowns the
+    others by its scale. The rating is TMDB's, weighted by its number of
+    votes (a few votes pull it toward the average of all titles, as IMDb
+    does for its own lists). IMDb's ratings dataset is not used: its terms
+    allow personal, non-commercial use and forbid building a database of
+    movie information from it; it may come later as an operator's opt-in,
+    used only inside the valuation, with IMDb's attribution.
+  - **One score, confidence included.** The result is one score from 0 to
+    100 per title (per season for series). With little data behind it, the
+    score is pulled toward 50: an uncertain title is neither protected nor
+    first to go.
+- **One general apps endpoint**, `GET /apps/v1/titles`, instead of one per
+  use: a row per title (or per season), with every ID known (TMDB, IMDb,
+  TVDB), and field groups each tied to the app key's scopes: `score`,
+  `stats` (plays, viewers, favourites, last played: today's
+  `/apps/v1/watch-stats`, which it replaces after a while), `availability`
+  (on the server or not) and, later, `requests`. Filters and sorting
+  (`inLibrary`, `sort=score`, `order`, `limit`), cursor paging, `since`
+  for what changed. Overtide asks for the score alone; dashboards, bots,
+  collection makers and *arr import lists (the best-valued missing
+  titles) use the same endpoint. One privacy rule for every field: counts
+  below 2 are given as 0.
+- **Favourites count on the site.** A title's page shows how many profiles
+  marked it a favourite, from 2 up, so a count never points at one person.
 - **Overtide**, when the operator plugs requests into it, is the one that
   cares about storage. It reads the requests (by an anonymous account ID,
   for nothing but counting) and the values through Overfin's apps API, so
