@@ -52,6 +52,39 @@ func TestSeriesUpNext(t *testing.T) {
 	}
 }
 
+// Several episodes finished at once, as when a season is marked played: the
+// one after the latest of them. One finished that no library has: the one
+// after it all the same.
+func TestSeriesUpNextAfterMarking(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	_, prof, _ := s.CreateAccount(ctx, "subject-1", owner("1"))
+	id := func(n int) string { return strings.Repeat("0", 31) + string(rune('a'+n)) }
+	n := func(i int) *int { return &i }
+	ep := func(i, season, e int) CatalogItem {
+		return CatalogItem{ID: id(i), Kind: "episode", Name: "E", SortName: "e", SeriesID: id(0), SeasonNumber: n(season), EpisodeNumber: n(e)}
+	}
+	s.PutCatalog(ctx, []CatalogItem{{ID: id(0), Kind: "series", Name: "S", SortName: "s", TMDB: "1"},
+		ep(1, 0, 1), ep(2, 1, 1), ep(3, 1, 2), ep(4, 2, 1), ep(5, 2, 2)}, 1)
+	s.RefreshTitleKeys(ctx)
+	series := TitleRef{Kind: "series", Source: "tmdb", ID: "1"}
+	check := func(about, want string) {
+		t.Helper()
+		if key, _, err := s.SeriesUpNext(ctx, prof.ID, series, nil); err != nil || key != want {
+			t.Errorf("%s: %q %v, want %q", about, key, err, want)
+		}
+	}
+	now := time.Now()
+	for _, e := range []string{"s1/e2", "s0/e1", "s1/e1"} {
+		s.RecordPlay(ctx, prof.ID, "series/tmdb/1/"+e, "", 0, true, now.Add(-time.Hour))
+	}
+	check("a season marked", "series/tmdb/1/s2/e1")
+	s.RecordPlay(ctx, prof.ID, "series/tmdb/1/s2/e9", "", 0, true, now)
+	check("the end, past the library's", "series/tmdb/1/s1/e1")
+	s.RecordPlay(ctx, prof.ID, "series/tmdb/1/s1/e7", "", 0, true, now.Add(time.Minute))
+	check("one no library has", "series/tmdb/1/s2/e1")
+}
+
 // A series taken out of Continue Watching stays out until watched again.
 func TestDismissContinue(t *testing.T) {
 	s := openTest(t)

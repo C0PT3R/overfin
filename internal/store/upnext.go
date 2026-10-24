@@ -25,8 +25,8 @@ func (s *Store) SeriesUpNext(ctx context.Context, profileID string, series Title
 	if err != nil {
 		return "", 0, err
 	}
-	var episodes []string
-	at := map[string]int{}
+	var episodes []TitleRef
+	at := map[string]bool{}
 	for rows.Next() {
 		var k string
 		var sn, en int
@@ -34,9 +34,9 @@ func (s *Store) SeriesUpNext(ctx context.Context, profileID string, series Title
 			rows.Close()
 			return "", 0, err
 		}
-		if _, seen := at[k]; !seen {
-			at[k] = len(episodes)
-			episodes = append(episodes, k)
+		if r, ok := ParseTitleKey(k); ok && !at[k] {
+			at[k] = true
+			episodes = append(episodes, r)
 		}
 	}
 	rows.Close()
@@ -50,27 +50,48 @@ func (s *Store) SeriesUpNext(ctx context.Context, profileID string, series Title
 		WHERE profile_id = ? AND title >= ? AND title < ? AND position_ms > 0 AND played = 0
 		ORDER BY last_played_at DESC LIMIT 1`, profileID, lo, hi).Scan(&title, &pos)
 	if err == nil {
-		if _, ok := at[title]; ok {
+		if at[title] {
 			return title, pos, nil
 		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return "", 0, err
 	}
-	// The one after the last finished; the first after the end.
-	err = s.db.QueryRowContext(ctx, `SELECT title FROM profile_titles
+	// The one after the last finished: the latest in the series when several
+	// were finished at once, as when a season is marked played. The first
+	// after the end.
+	rows, err = s.db.QueryContext(ctx, `SELECT title FROM profile_titles
 		WHERE profile_id = ? AND title >= ? AND title < ? AND played = 1
-		ORDER BY coalesce(last_played_at, 0) DESC, updated_at DESC LIMIT 1`, profileID, lo, hi).Scan(&title)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-	case err != nil:
+		AND coalesce(last_played_at, 0) = (SELECT max(coalesce(last_played_at, 0)) FROM profile_titles
+			WHERE profile_id = ? AND title >= ? AND title < ? AND played = 1)`, profileID, lo, hi, profileID, lo, hi)
+	if err != nil {
 		return "", 0, err
-	default:
-		// Specials come next only after a special.
-		if i, ok := at[title]; ok && i+1 < len(episodes) && (isSpecial(title) || !isSpecial(episodes[i+1])) {
-			return episodes[i+1], 0, nil
+	}
+	var latest *TitleRef
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			return "", 0, err
+		}
+		if r, ok := ParseTitleKey(k); ok && r.Kind == "episode" && (latest == nil || r.Season > latest.Season ||
+			(r.Season == latest.Season && r.Episode > latest.Episode)) {
+			latest = &r
 		}
 	}
-	return episodes[0], 0, nil
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", 0, err
+	}
+	if latest != nil {
+		// Specials come next only after a special.
+		for _, e := range episodes {
+			if (e.Season > latest.Season || (e.Season == latest.Season && e.Episode > latest.Episode)) &&
+				(e.Season > 0 || latest.Season == 0) {
+				return e.Key(), 0, nil
+			}
+		}
+	}
+	return episodes[0].Key(), 0, nil
 }
 
 // DismissContinue takes a series out of a profile's Continue Watching: its
@@ -99,11 +120,6 @@ func (s *Store) dismissed(ctx context.Context, profileID string) (map[string]int
 		out[k] = at
 	}
 	return out, rows.Err()
-}
-
-func isSpecial(key string) bool {
-	r, ok := ParseTitleKey(key)
-	return ok && r.Season == 0
 }
 
 // DismissedSeries lists, for the data download, the series a profile took
