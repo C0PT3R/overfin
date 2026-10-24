@@ -115,6 +115,18 @@ func TestPeople(t *testing.T) {
 	if code, _ := do("DELETE", "/admin/api/people/"+me.Subject, nil); code != 400 {
 		t.Errorf("removing myself: %d", code)
 	}
+	// Nor through their account, in Users: disabled or deleted, they'd lose
+	// the panel.
+	mine, _, _ := db.CreateAccount(context.Background(), me.Subject, store.NewOwner{Name: "Me"})
+	if code, _ := do("PATCH", "/admin/api/accounts/"+mine.ID, map[string]any{"disabled": true}); code != 400 {
+		t.Errorf("disabling my account: %d", code)
+	}
+	if code, _ := do("DELETE", "/admin/api/accounts/"+mine.ID, nil); code != 400 {
+		t.Errorf("deleting my account: %d", code)
+	}
+	if a, _ := db.AccountByID(context.Background(), mine.ID); a == nil || a.Disabled {
+		t.Errorf("my account: %+v", a)
+	}
 	code, list := do("GET", "/admin/api/people", nil)
 	if items := list["items"].([]any); code != 200 || len(items) != 2 || items[1].(map[string]any)["you"] != true {
 		t.Errorf("people: %d %v", code, list)

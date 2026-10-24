@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/overfin/server/internal/connector"
@@ -150,7 +152,7 @@ type accountChange struct {
 	TemplateID *string `json:"templateId"`
 }
 
-func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, _ *session) {
+func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, s *session) {
 	ctx := r.Context()
 	var c accountChange
 	dec := json.NewDecoder(r.Body)
@@ -176,6 +178,10 @@ func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, _ *session
 	a, err := p.Store.AccountByID(ctx, id)
 	if err != nil {
 		http.Error(w, "No such account", http.StatusNotFound)
+		return
+	}
+	if c.Disabled != nil && *c.Disabled && p.own(ctx, a, s) {
+		invalid(w, "You can't disable your own account: you'd lose the control panel. Another admin can.")
 		return
 	}
 	if c.Label != nil {
@@ -214,7 +220,11 @@ func (p *Panel) changeAccount(w http.ResponseWriter, r *http.Request, _ *session
 
 // deleteAccount deletes an account like its owner would: its Jellyfin users
 // deleted with their history, or kept disabled, as the instance is set.
-func (p *Panel) deleteAccount(w http.ResponseWriter, r *http.Request, _ *session) {
+func (p *Panel) deleteAccount(w http.ResponseWriter, r *http.Request, s *session) {
+	if a, err := p.Store.AccountByID(r.Context(), r.PathValue("id")); err == nil && p.own(r.Context(), a, s) {
+		invalid(w, "You can't delete your own account here: you'd lose the control panel. Another admin can, or you can from the site.")
+		return
+	}
 	keep := p.Features.Features().Accounts.OnDelete == "disable"
 	if _, err := p.Provisioner.DeleteAccount(r.Context(), r.PathValue("id"), keep); errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "No such account", http.StatusNotFound)
@@ -280,4 +290,15 @@ func invalid(w http.ResponseWriter, detail string) {
 type templateRef struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// own says whether a is the account of the admin signed in to the panel,
+// with Overfin's own sign-in (an identity provider's admins come in by its
+// groups, whatever their account).
+func (p *Panel) own(ctx context.Context, a *store.Account, s *session) bool {
+	if p.SiteAdmin == nil {
+		return false
+	}
+	u, err := p.Store.UserBySubject(ctx, a.Subject)
+	return err == nil && strings.EqualFold(u.Email, s.name)
 }
