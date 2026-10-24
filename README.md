@@ -210,7 +210,8 @@ away.
 
 **Or behind your own reverse proxy**, which handles HTTPS and passes
 everything to Overfin on port 8080. Tell Overfin the site's address and the
-proxy's, in `/etc/overfin/overfin.toml`
+proxy's (with an `https://` address, Overfin's cookies are HTTPS ones, and
+it tells browsers to come back over HTTPS only), in `/etc/overfin/overfin.toml`
 ([overfin.example.toml](overfin.example.toml) has every setting):
 
 ```toml

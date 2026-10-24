@@ -180,8 +180,9 @@ func run(logger *slog.Logger) error {
 	var siteHandler http.Handler = site
 	if strings.HasPrefix(cfg.Site.URL, "https://") {
 		// Its public address says HTTPS: cookies are HTTPS ones, whatever
-		// the proxy in front says.
-		siteHandler = cookie.AlwaysSecure(site)
+		// the proxy in front says, and browsers are told to come back over
+		// HTTPS only (they heed that only when it came over HTTPS).
+		siteHandler = hsts(cookie.AlwaysSecure(site))
 	}
 	srv := &http.Server{
 		Addr:              addr,
@@ -579,9 +580,9 @@ func runRecovery(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.
 	return recoverTokensWith(ctx, logger, db, newProvisioner(cfg, sh), k.Check)
 }
 
-// hsts tells browsers to come back over HTTPS only, for a year: on the
-// site Overfin serves HTTPS for itself. Its other subdomains are the
-// operator's business.
+// hsts tells browsers to come back over HTTPS only, for a year: on a site
+// served over HTTPS, by Overfin itself or by a proxy in front (site.url
+// says https://). Its other subdomains are the operator's business.
 func hsts(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
