@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -306,7 +308,23 @@ func TestReloadKeepsSavedJellyfin(t *testing.T) {
 func TestSetJellyfin(t *testing.T) {
 	first := fakeJellyfinServer(t, "12.2.0", "server-1").URL
 	sameServer := fakeJellyfinServer(t, "12.2.0", "server-1").URL
-	otherServer := fakeJellyfinServer(t, "12.2.0", "server-2").URL
+	// Another server, which answers to any key, and notes who sent one.
+	var sentKey atomic.Bool
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Authorization"), "Token=") {
+			sentKey.Store(true)
+		}
+		switch r.URL.Path {
+		case "/System/Info/Public":
+			fmt.Fprint(w, `{"Version":"12.2.0","Id":"server-2","StartupWizardCompleted":true}`)
+		case "/Library/MediaFolders":
+			fmt.Fprint(w, `{"Items":[]}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(other.Close)
+	otherServer := other.URL
 
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "overfin.db")
@@ -351,6 +369,9 @@ func TestSetJellyfin(t *testing.T) {
 	}
 	if url, _ := g.Jellyfin(); url != first {
 		t.Errorf("changed after refusals: %s", url)
+	}
+	if sentKey.Load() {
+		t.Error("Overfin's key went to another server")
 	}
 
 	// The same server at a new address, the key kept: applied and saved.

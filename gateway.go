@@ -543,16 +543,14 @@ func (g *gateway) SetJellyfin(ctx context.Context, url string) (string, error) {
 	}
 	url = strings.TrimRight(strings.TrimSpace(url), "/")
 	key := g.cfg.Secrets.JellyfinAdminKey
-	found, err := testJellyfin(ctx, url, key)
-	if err != nil {
-		return "", err
-	}
+	// The server's ID first: Overfin's key goes to no other server.
 	saved, err := g.sh.db.JellyfinServer(ctx)
 	if err != nil {
 		return "", err
 	}
-	if saved != "" && found.serverID != saved {
-		return "", problem("That's another Jellyfin server. Only a new address for the same one can be set here.")
+	found, err := testJellyfin(ctx, url, key, saved)
+	if err != nil {
+		return "", err
 	}
 	cfg := *g.cfg
 	cfg.Jellyfin.URL, cfg.Secrets.JellyfinAdminKey = url, key

@@ -177,7 +177,7 @@ func (c *checker) jellyfin(ctx context.Context, cfg *config.Config) {
 		c.fail("Jellyfin %s, at %s: set up by someone else, or Overfin's key for it is gone; "+
 			"Overfin takes it only if it's handed over, on the setup page", found.Server.Version, url)
 	default:
-		found, err := testJellyfin(ctx, url, key)
+		found, err := testJellyfin(ctx, url, key, "")
 		if err != nil {
 			c.fail("%v", err)
 			return
@@ -209,9 +209,10 @@ type jellyfinFound struct {
 }
 
 // testJellyfin tells whether the Jellyfin server at url is Overfin's own:
-// reachable, version 12, answering to key. Its error says what's wrong in
-// plain words; the control panel shows it as is.
-func testJellyfin(ctx context.Context, url, key string) (jellyfinFound, error) {
+// reachable, version 12, the server serverID ("" when unknown), answering
+// to key, which it's sent only then. Its error says what's wrong in plain
+// words; the control panel shows it as is.
+func testJellyfin(ctx context.Context, url, key, serverID string) (jellyfinFound, error) {
 	if err := config.CheckJellyfinURL(url); err != nil {
 		return jellyfinFound{}, problemf("Jellyfin's address %s", err)
 	}
@@ -219,12 +220,12 @@ func testJellyfin(ctx context.Context, url, key string) (jellyfinFound, error) {
 	if err != nil {
 		return jellyfinFound{}, problemf("Jellyfin's address: %v", err)
 	}
-	found, err := takeover.Look(ctx, jf, key, "")
+	found, err := takeover.Look(ctx, jf, key, serverID)
 	if err != nil {
 		return jellyfinFound{}, err
 	}
 	if found.State != takeover.Ours {
-		return jellyfinFound{}, problemf("Jellyfin at %s doesn't answer to Overfin's key: it's another server", url)
+		return jellyfinFound{}, problemf("Jellyfin at %s isn't Overfin's: that's another Jellyfin server. Only a new address for the same one can be set here", url)
 	}
 	n, err := jf.CountLibraries(ctx, jellyfin.Auth{Token: key, DeviceID: "overfin-check"})
 	if err != nil {
