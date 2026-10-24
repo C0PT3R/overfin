@@ -73,6 +73,8 @@ export interface Me {
   language: string;
   /** Those it may choose among, each named in itself. */
   languages: { tag: string; name: string }[];
+  /** The account template's limits; 0 means none. */
+  limits: { maxProfiles: number; maxStreams: number };
 }
 
 export interface Session {

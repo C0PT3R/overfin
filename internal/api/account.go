@@ -89,6 +89,13 @@ type meJSON struct {
 	// Languages those it may choose among.
 	Language  string        `json:"language"`
 	Languages []lang.Choice `json:"languages"`
+	// Limits are the account template's: what the site offers follows them.
+	Limits meLimitsJSON `json:"limits"`
+}
+
+type meLimitsJSON struct {
+	MaxProfiles int `json:"maxProfiles"`
+	MaxStreams  int `json:"maxStreams"`
 }
 
 func (a Account) me(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +238,8 @@ func (s *Sessions) me(r *http.Request, acct *store.Account, prof *store.Profile)
 		}
 		acct.Language = tag
 	}
-	out := meJSON{AccountID: acct.ID, Language: def, Languages: []lang.Choice{}}
+	out := meJSON{AccountID: acct.ID, Language: def, Languages: []lang.Choice{},
+		Limits: meLimitsJSON{MaxProfiles: acct.Template.MaxProfiles, MaxStreams: acct.Template.MaxStreams}}
 	if slices.Contains(offered, acct.Language) {
 		out.Language = acct.Language
 	}

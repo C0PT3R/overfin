@@ -76,7 +76,7 @@ func TestAccountGate(t *testing.T) {
 	}
 
 	g.failAfter = false
-	if code, body := ask("POST", "/api/v1/me", true); code != 201 {
+	if code, body := ask("POST", "/api/v1/me", true); code != 201 || !strings.Contains(body, `"limits":{"maxProfiles":`) {
 		t.Fatalf("with an invitation: %d %s", code, body)
 	}
 	if len(g.created) != 1 || g.created[0] != "inv-1" {

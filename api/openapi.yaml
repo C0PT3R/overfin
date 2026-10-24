@@ -2792,7 +2792,7 @@ components:
 
     Me:
       type: object
-      required: [accountId, language, languages]
+      required: [accountId, language, languages, limits]
       properties:
         accountId:
           type: string
@@ -2817,6 +2817,18 @@ components:
               name:
                 type: string
                 examples: [English (United States)]
+        limits:
+          type: object
+          description: What the account may have, from its account template
+            (0 means no limit), so the site offers only what will work.
+          required: [maxProfiles, maxStreams]
+          properties:
+            maxProfiles:
+              type: integer
+              examples: [3]
+            maxStreams:
+              type: integer
+              examples: [3]
         displayName:
           type: string
           description: From the identity provider, when it provides one.
