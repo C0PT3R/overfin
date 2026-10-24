@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/overfin/server/internal/jellyfin"
 	"github.com/overfin/server/internal/takeover"
@@ -42,6 +43,22 @@ func TestFreshServerIsSetUp(t *testing.T) {
 	// From then on, it's Overfin's.
 	if found, err := takeover.Look(ctx, jf, key, "server-1"); err != nil || found.State != takeover.Ours {
 		t.Errorf("after setup: %+v, %v", found, err)
+	}
+}
+
+// Once set up, only the password SetUp threw away opens the server: a key
+// that fails to come is asked again, rather than leaving a server nobody
+// can get into.
+func TestSetUpTriesTheKeyAgain(t *testing.T) {
+	takeover.SetKeyWait(time.Millisecond)
+	f, jf := newFake(t, false)
+	f.FailKeys = 2
+	key, err := takeover.SetUp(context.Background(), jf, jellyfin.Startup{UICulture: "en-US", Country: "US", Language: "en"})
+	if err != nil || f.Keys[key] != takeover.AppName {
+		t.Fatalf("key %q, %v", key, err)
+	}
+	if len(f.Tokens) != 0 {
+		t.Errorf("still signed in: %d tokens", len(f.Tokens))
 	}
 }
 

@@ -24,7 +24,9 @@ type Jellyfin struct {
 	Tokens    map[string]string // login token → user name
 	LoggedOut int
 	Writes    []string // what changed, in order
-	made      int      // keys made so far
+	// FailKeys is how many of the next requests to make a key fail.
+	FailKeys int
+	made     int // keys made so far
 }
 
 // UserID is the ID the fake gives a user.
@@ -162,6 +164,9 @@ func (f *Jellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]string{"AccessToken": k, "AppName": app})
 		}
 		reply(map[string]any{"Items": items})
+	case route == "POST /Auth/Keys" && f.FailKeys > 0:
+		f.FailKeys--
+		w.WriteHeader(http.StatusInternalServerError)
 	case route == "POST /Auth/Keys":
 		f.made++
 		k := fmt.Sprintf("%032x", f.made)

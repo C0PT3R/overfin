@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/overfin/server/internal/jellyfin"
 )
@@ -93,10 +94,31 @@ func SetUp(ctx context.Context, jf *jellyfin.Client, st jellyfin.Startup) (key s
 	if err := jf.RunStartup(ctx, st, AdminName, password); err != nil {
 		return "", fmt.Errorf("takeover: setting Jellyfin up: %w", err)
 	}
-	return withAdmin(ctx, jf, AdminName, password, func(a jellyfin.Auth) (string, error) {
-		return jf.CreateKey(ctx, a, AppName)
-	})
+	// From now on, only this password opens the server: the key is made
+	// even if whoever asked went away, and tried again a few times, or the
+	// server would be lost to Overfin.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), keyTries*time.Minute)
+	defer cancel()
+	for try := 1; ; try++ {
+		key, err = withAdmin(ctx, jf, AdminName, password, func(a jellyfin.Auth) (string, error) {
+			return jf.CreateKey(ctx, a, AppName)
+		})
+		if err == nil || try == keyTries {
+			return key, err
+		}
+		select {
+		case <-ctx.Done():
+			return "", err
+		case <-time.After(time.Duration(try) * keyWait):
+		}
+	}
 }
+
+// keyTries is how many times SetUp tries to make its key, keyWait more
+// between each.
+const keyTries = 5
+
+var keyWait = 2 * time.Second
 
 // Survey is what a Jellyfin server holds, for the operator to see before
 // handing it over.
