@@ -113,6 +113,11 @@ func TestSanitizeVTT(t *testing.T) {
 	if _, ok := SanitizeVTT([]byte("<html>")); ok {
 		t.Error("accepted a non-WebVTT file")
 	}
+	// Text that reads as markup in WebVTT is escaped, so it shows as is.
+	out, _ = SanitizeVTT([]byte("WEBVTT\n\n00:01.000 --> 00:02.000\nx < y & z > w, &lt;i&gt;\n"))
+	if want := "WEBVTT\n\n00:01.000 --> 00:02.000\nx &lt; y &amp; z &gt; w,\n"; string(out) != want {
+		t.Errorf("escaping: %q", out)
+	}
 }
 
 // An HDR video Jellyfin copies comes with SDR versions it would re-encode,

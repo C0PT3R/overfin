@@ -173,7 +173,7 @@ func rewrite(body []byte, upstream Upstream, tags []string,
 					return nil, err
 				}
 				line = `#EXT-X-MAP:URI="` + neutral + `"`
-			} else if strings.Contains(line, "URI=") {
+			} else if strings.Contains(line, "URI=") || strings.Contains(line, "://") {
 				continue // any other tag pointing elsewhere is dropped
 			}
 			b.WriteString(line + "\n")

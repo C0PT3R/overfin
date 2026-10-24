@@ -20,6 +20,10 @@ const (
 
 var cueTiming = regexp.MustCompile(`^((?:\d{1,3}:)?\d{2}:\d{2}\.\d{3})\s+-->\s+((?:\d{1,3}:)?\d{2}:\d{2}\.\d{3})(\s.*)?$`)
 
+// cueText escapes plain text for a cue: in WebVTT, "<" opens a tag and "&"
+// an entity, so "x < y" would show as "x ".
+var cueText = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 // SanitizeVTT rebuilds a WebVTT file from its cue timings and plain text.
 func SanitizeVTT(in []byte) ([]byte, bool) {
 	if len(in) > maxSubtitleBytes {
@@ -51,7 +55,7 @@ func SanitizeVTT(in []byte) ([]byte, bool) {
 		var body []string
 		for _, l := range lines[timing+1:] {
 			if c := textclean.Plain(l, maxCueLine); c != "" {
-				body = append(body, c)
+				body = append(body, cueText.Replace(c))
 			}
 		}
 		if len(body) == 0 {
