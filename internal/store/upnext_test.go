@@ -19,13 +19,20 @@ func TestSeriesUpNext(t *testing.T) {
 	ep := func(i, season, e int) CatalogItem {
 		return CatalogItem{ID: id(i), Kind: "episode", Name: "E", SortName: "e", SeriesID: id(0), SeasonNumber: n(season), EpisodeNumber: n(e)}
 	}
+	first := ep(2, 1, 1)
+	first.Tags = []string{"Pilot"}
 	s.PutCatalog(ctx, []CatalogItem{{ID: id(0), Kind: "series", Name: "S", SortName: "s", TMDB: "1"},
-		ep(1, 0, 1), ep(2, 1, 1), ep(3, 1, 2), ep(4, 2, 1)}, 1)
+		ep(1, 0, 1), first, ep(3, 1, 2), ep(4, 2, 1)}, 1)
 	s.RefreshTitleKeys(ctx)
 	series := TitleRef{Kind: "series", Source: "tmdb", ID: "1"}
+	// A profile the first episode is hidden from starts at the next one it
+	// may see.
+	if key, _, err := s.SeriesUpNext(ctx, prof.ID, series, &Access{BlockedTags: []string{"pilot"}}); key != "series/tmdb/1/s1/e2" || err != nil {
+		t.Errorf("first one hidden: %q %v", key, err)
+	}
 	check := func(about, want string, wantPos int64) {
 		t.Helper()
-		key, pos, err := s.SeriesUpNext(ctx, prof.ID, series)
+		key, pos, err := s.SeriesUpNext(ctx, prof.ID, series, nil)
 		if err != nil || key != want || pos != wantPos {
 			t.Errorf("%s: %q %d %v, want %q %d", about, key, pos, err, want, wantPos)
 		}
@@ -40,7 +47,7 @@ func TestSeriesUpNext(t *testing.T) {
 	check("into the next season", "series/tmdb/1/s2/e1", 0)
 	s.RecordPlay(ctx, prof.ID, "series/tmdb/1/s2/e1", id(4), 0, true, now.Add(-time.Minute))
 	check("the end: the first again", "series/tmdb/1/s1/e1", 0)
-	if key, _, err := s.SeriesUpNext(ctx, prof.ID, TitleRef{Kind: "series", Source: "tmdb", ID: "2"}); key != "" || err != nil {
+	if key, _, err := s.SeriesUpNext(ctx, prof.ID, TitleRef{Kind: "series", Source: "tmdb", ID: "2"}, nil); key != "" || err != nil {
 		t.Errorf("no episodes: %q %v", key, err)
 	}
 }

@@ -747,7 +747,12 @@ func (l Library) upNext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	key, pos, err := l.Provisioner.Store.SeriesUpNext(ctx, p.ID, t.Ref)
+	a, err := l.access(ctx, p)
+	if err != nil {
+		l.storeError(w, err)
+		return
+	}
+	key, pos, err := l.Provisioner.Store.SeriesUpNext(ctx, p.ID, t.Ref, a)
 	if err != nil {
 		l.storeError(w, err)
 		return

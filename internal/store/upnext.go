@@ -10,12 +10,18 @@ import (
 // SeriesUpNext is the episode playing a series starts, for a profile: the
 // one it's in the middle of (and where), else the one after the last it
 // finished, else the first; among the episodes the libraries have, in
-// order, specials last. "" when the libraries have none.
-func (s *Store) SeriesUpNext(ctx context.Context, profileID string, series TitleRef) (key string, positionMs int64, err error) {
+// order, specials last; with a, only those it allows. "" when the
+// libraries have none.
+func (s *Store) SeriesUpNext(ctx context.Context, profileID string, series TitleRef, a *Access) (key string, positionMs int64, err error) {
 	lo, hi := keyRange(series.Key() + "/s")
+	allowed, args := "1 = 1", []any(nil)
+	if a != nil {
+		allowed, args = a.itemAllowed("catalog_items")
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT title_key, season_number, episode_number FROM catalog_items
 		WHERE kind = 'episode' AND title_key >= ? AND title_key < ? AND season_number IS NOT NULL AND episode_number IS NOT NULL
-		ORDER BY season_number = 0, season_number, episode_number`, lo, hi)
+		AND `+allowed+`
+		ORDER BY season_number = 0, season_number, episode_number`, append([]any{lo, hi}, args...)...)
 	if err != nil {
 		return "", 0, err
 	}
