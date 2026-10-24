@@ -166,7 +166,8 @@ func (p *Provisioner) Create(ctx context.Context, id identity.Identity, hooks *H
 		}
 		return nil, nil, err
 	}
-	return acct, owner, nil
+	// Read back whole: its template, which an invitation may have chosen.
+	return p.Find(ctx, id)
 }
 
 // allowed checks the parts of rule 15 that don't need the database.

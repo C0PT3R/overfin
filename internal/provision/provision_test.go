@@ -416,6 +416,19 @@ func TestDeletingAnAccountDeletesItsSeerrUser(t *testing.T) {
 	}
 }
 
+// A new account comes back whole: with its template's limits.
+func TestCreateGivesTemplate(t *testing.T) {
+	ctx := context.Background()
+	p := setup(t, &fakeJellyfin{}, "")
+	acct, _, err := p.Create(ctx, identity.Identity{Subject: "me"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acct.Template.ID != store.DefaultTemplate || acct.Template.MaxProfiles == 0 || acct.Template.MaxStreams == 0 {
+		t.Errorf("template: %+v", acct.Template)
+	}
+}
+
 // Someone with an account brings their history into the profile they're
 // on, once, merged with what's there; kids profiles can't.
 func TestCopyInto(t *testing.T) {
