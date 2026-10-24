@@ -607,6 +607,9 @@ func (m *Managed) signinInfo(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotAuthenticated, "")
 		return
 	}
+	if !m.ownerHere(w, r) {
+		return
+	}
 	writeOK(w, map[string]any{"email": u.Email, "hasPassword": u.PasswordHash != "", "reset": m.canMail()})
 }
 
@@ -614,7 +617,7 @@ func (m *Managed) signinInfo(w http.ResponseWriter, r *http.Request) {
 // then sign in again.
 func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 	l, u, ok := m.freshUser(w, r)
-	if !ok {
+	if !ok || !m.ownerHere(w, r) {
 		return
 	}
 	var req struct {
@@ -636,6 +639,27 @@ func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 		m.Logger.Error("ending other logins after a new password failed", "err", err)
 	}
 	writeOK(w, map[string]bool{"hasPassword": true})
+}
+
+// ownerHere says whether this browser uses the account owner's profile,
+// answering otherwise: the sign-in is the whole account's (SECURITY.md
+// rule 25), and whoever uses another profile here shares its login, fresh
+// for a few minutes after each sign-in. Before there's an account, there's
+// no other profile.
+func (m *Managed) ownerHere(w http.ResponseWriter, r *http.Request) bool {
+	id, _ := identity.FromContext(r.Context())
+	if _, _, err := m.Provisioner.Find(r.Context(), id); errors.Is(err, provision.ErrNoAccount) {
+		return true
+	}
+	c := m.Sessions.Current(w, r)
+	if c == nil {
+		return false
+	}
+	if !c.IsOwner() {
+		problem.Send(w, problem.OwnerOnly, "")
+		return false
+	}
+	return true
 }
 
 // freshUser is the person signed in, if they confirmed it's them in the

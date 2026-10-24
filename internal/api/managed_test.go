@@ -375,6 +375,54 @@ func TestManagedPassword(t *testing.T) {
 	}
 }
 
+// The password is the whole account's: another profile on a browser just
+// signed in can neither change it nor read the email (rule 25).
+func TestManagedPasswordOwnerOnly(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{managed: true, store: &st, freshFor: time.Minute})
+	ctx := context.Background()
+	ann, _ := st.CreateUser(ctx, "ann@example.org", false)
+	hash, _ := password.Hash("a long password 1")
+	st.SetPassword(ctx, ann.Subject, hash)
+	acct, owner, _ := st.CreateAccount(ctx, ann.Subject, store.NewOwner{Name: "Ann"})
+	kid, err := st.AddProfile(ctx, acct.ID, store.NewProfile{Name: "Kid", Kind: "kids", MovieCeiling: "G", SeriesCeiling: "TV-Y"}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBrowser(srv)
+	if c, out := signinPost(t, b, srv, "/api/v1/signin", checked(t, srv, map[string]any{"email": "ann@example.org", "password": "a long password 1"})); c != 200 {
+		t.Fatalf("signing in: %d %v", c, out)
+	}
+	put := func() int {
+		req, _ := http.NewRequest("PUT", srv.URL+"/api/v1/me/password", strings.NewReader(`{"password":"the kid's choice, 2026"}`))
+		req.Header.Set("Content-Type", "application/json")
+		res, err := b.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if c, out := signinPost(t, b, srv, "/api/v1/profiles/"+kid.ID+"/activate", map[string]any{}); c != 200 {
+		t.Fatalf("switching to the kid: %d %v", c, out)
+	}
+	if code := put(); code != 403 {
+		t.Errorf("the kid's new password: %d", code)
+	}
+	if res, _ := visit(t, b, srv, "/api/v1/me/signin", nil); res.StatusCode != 403 {
+		t.Errorf("the email, to the kid: %d", res.StatusCode)
+	}
+	if u, _ := st.UserByEmail(ctx, "ann@example.org"); !password.Check(u.PasswordHash, "a long password 1") {
+		t.Fatal("the password was changed")
+	}
+	if c, out := signinPost(t, b, srv, "/api/v1/profiles/"+owner.ID+"/activate", map[string]any{}); c != 200 {
+		t.Fatalf("back to the owner: %d %v", c, out)
+	}
+	if code := put(); code != 200 {
+		t.Errorf("the owner's new password: %d", code)
+	}
+}
+
 // An email goes out in the account's language, whatever the browser's.
 func TestSigninEmailLanguage(t *testing.T) {
 	box := &mailbox{}
