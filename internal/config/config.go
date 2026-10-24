@@ -70,7 +70,7 @@ type Jellyfin struct {
 
 type Identity struct {
 	// Mode is "managed" (the default: Overfin signs people in itself, with
-	// their email and a code it sends, or a password), "oidc" (Overfin logs
+	// their email and a password), "oidc" (Overfin logs
 	// users in with the [oidc] provider), "forwardauth" (a reverse proxy
 	// does, and sends identity headers) or "anonymous".
 	Mode string `toml:"mode"`

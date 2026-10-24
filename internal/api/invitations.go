@@ -42,11 +42,12 @@ func (v Invitations) open(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if valid {
-		cookie.Set(w, r, &http.Cookie{
-			Name: feature.InviteCookie, Value: code, MaxAge: 24 * 60 * 60,
+		c := &http.Cookie{Name: feature.InviteCookie, Value: code, MaxAge: 24 * 60 * 60}
+		if v.Managed == nil {
 			// Lax: it must survive the trip through an identity provider.
-			SameSite: http.SameSiteLaxMode,
-		})
+			c.SameSite = http.SameSiteLaxMode
+		}
+		cookie.Set(w, r, c)
 	}
 	if v.Managed != nil {
 		v.Managed.InvitationPage(w, r, valid)

@@ -29,7 +29,7 @@ internet ──▶ reverse proxy ──▶ Overfin ──▶ Jellyfin / Seerr / 
 | Attacker | Goal | Main defenses |
 |---|---|---|
 | Stranger on the internet | Reach Jellyfin, exploit it, get an account | Small fixed API [1], identity before any route [13], provisioning only for allowed identities [15], registration only with an invitation, a confirmed email and a check against scripts [63, 66], rate limits [31] |
-| Logged-in, malicious user | Other users' data, more access, exhausting the server | Ownership checks [23, 24, 26, 27], owner-only account actions [25], checked queues and signed cursors [29, 38], limits [31, 32] |
+| Logged-in, malicious user | Other users' data, more access, exhausting the server | Ownership checks [23, 24, 26, 27], owner-only account actions [25], signed cursors [38], limits [31, 32] |
 | Script injected into the website (XSS) | Act as the user, take over the account, send users to a phishing page | No tokens in reach [4, 17], step-up for lasting damage [21], checked return addresses [19] |
 | A compromised sibling subdomain | Make requests in the user's name | Same-origin requests only [18], `__Host-` cookies over HTTPS [17] |
 | Another server, weak or compromised | Reach into servers that share with it | Peers untrusted, authenticated, limited to what was shared [65] |
@@ -78,18 +78,18 @@ Nothing is enforced by the UI.
   are reserved for the owner profile [25, 51, 52].
 - **Escaping a kids profile:** PINs are checked on the server, wrong guesses
   slow down and then require the owner to log in again, and the client never
-  picks which Jellyfin user acts [21, 22, 26]. Kids can only request titles
+  picks who acts upstream [21, 22, 26]. Kids can only request titles
   within their rating ceiling, and unknown ratings are refused [28].
 - **Exhausting resources:** stream, transcode and rate limits, fixed image
   sizes [31]. Limits fail gently and never cut off another user [32]. Faking
   `X-Forwarded-For` doesn't dodge rate limits, because the client IP comes only
   from the trusted proxy [14].
 - **Injecting upstream:** strict IDs, allowed values and length caps [2].
-- **Smuggling through cursors, queues or counts:** cursors are signed and bound
-  to their query [38], every queue entry is checked against the profile [29],
-  and counts never include hidden items, so they can't reveal them [56].
-- **Brute force and link sharing:** long single-use transfer codes,
-  short-lived session-bound stream tickets [30]. Tickets are not bound to IP
+- **Smuggling through cursors or counts:** cursors are signed and bound to
+  their query [38], and counts never include hidden items, so they can't
+  reveal them [56].
+- **Brute force and link sharing:** short-lived, session-bound stream
+  tickets [30]; emailed links are long and work once [66]. Tickets are not bound to IP
   addresses: phones change networks mid-stream, and storing IPs would break
   [42].
 - **Spying through upstream data:** Overfin's data model has no fields for
@@ -124,9 +124,9 @@ subtitles and attachments) from anywhere.
   first one win. A protected route with no identity is refused, and every
   route is protected unless explicitly public [13].
 - **Open sign-up at the identity provider:** only identities in the configured
-  group or claim get Jellyfin users, at a limited rate [15].
+  group or claim get accounts, at a limited rate [15].
 - **Offboarding:** sessions are revalidated, and disabling an identity ends
-  them and revokes its Jellyfin tokens [16]. With Overfin's own sign-in,
+  them [16]. With Overfin's own sign-in,
   every request checks the person, so disabling them works at once.
 - **Guessing who has an account:** Overfin's own sign-in answers the same
   for every email, and registering needs an invitation, solves a check

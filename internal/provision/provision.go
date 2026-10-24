@@ -1,11 +1,9 @@
-// Package provision creates an account, its owner profile and a matching
-// Jellyfin user the first time someone logs in.
-//
-// Jellyfin users get opaque names and random passwords nobody ever sees
-// (SECURITY.md rule 47); the password is used once to obtain the user's own
-// token, then forgotten. Only identities in the required group are
-// provisioned, at a limited rate (rule 15). A failure after the Jellyfin user
-// exists deletes that user again, so nothing is left behind.
+// Package provision creates an account and its owner profile the first
+// time someone logs in. Accounts need no Jellyfin user of their own:
+// Overfin's one Jellyfin account serves everyone (SECURITY.md rule 3).
+// Profiles from before that may still have one, which goes with them.
+// Only identities in the required group are provisioned, at a limited
+// rate (rule 15).
 package provision
 
 import (

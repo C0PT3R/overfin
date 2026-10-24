@@ -505,7 +505,7 @@ func newCode() string {
 }
 
 func newID(prefix string) string {
-	b := make([]byte, 12)
+	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return prefix + hex.EncodeToString(b)
 }

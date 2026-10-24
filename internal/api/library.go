@@ -50,7 +50,7 @@ type Library struct {
 	// they're shown without them.
 	Texts *catalog.Texts
 	// Searches, when set, limits how often each account searches.
-	Searches *SearchLimiter
+	Searches *AccountLimiter
 	// Requested, when set, is what Seerr says anyone requested.
 	Requested *SeerrRequested
 }

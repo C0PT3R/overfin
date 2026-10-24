@@ -245,3 +245,18 @@ func TestNoRequestsWithoutSeerr(t *testing.T) {
 		t.Errorf("request: %d", code)
 	}
 }
+
+// Requests to Seerr are limited per account (rule 31).
+func TestRequestsLimited(t *testing.T) {
+	seerrSrv := httptest.NewServer(&fakeSeerrRequests{users: map[int]map[string]any{}, requests: map[int]map[string]any{}})
+	defer seerrSrv.Close()
+	client, _ := seerr.New(seerrSrv.URL, "key")
+	srv, _ := newServerWith(t, options{seerr: client})
+	code := 0
+	for i := 0; i < 21 && code != 429; i++ {
+		code, _ = post(t, srv, "/api/v1/requests", `{"titleId":"title_movie_tmdb_999999"}`)
+	}
+	if code != 429 {
+		t.Errorf("21 requests in a minute: %d", code)
+	}
+}

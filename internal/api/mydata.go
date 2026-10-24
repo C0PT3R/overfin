@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -64,6 +65,21 @@ type exportJSON struct {
 type exportAccountJSON struct {
 	ID        string `json:"id"`
 	CreatedAt string `json:"createdAt"`
+	// With Overfin's own sign-in: the email it signs in with, and whether
+	// it's an admin's.
+	Email    string `json:"email,omitempty"`
+	Admin    bool   `json:"admin,omitempty"`
+	Language string `json:"language,omitempty"`
+	// What the operator set: a label, when access ends, what it may do.
+	Label     string           `json:"label,omitempty"`
+	ExpiresAt string           `json:"expiresAt,omitempty"`
+	Limits    exportLimitsJSON `json:"limits"`
+}
+
+type exportLimitsJSON struct {
+	Template    string `json:"template"`
+	MaxStreams  int    `json:"maxStreams"`
+	MaxProfiles int    `json:"maxProfiles"`
 }
 
 type exportProfileJSON struct {
@@ -168,7 +184,21 @@ func (a Account) export(w http.ResponseWriter, r *http.Request) {
 			problem.Send(w, problem.Internal, "")
 			return
 		}
-		out.Account = &exportAccountJSON{ID: c.Account.ID, CreatedAt: c.Account.Created.Format(time.RFC3339)}
+		acct := c.Account
+		out.Account = &exportAccountJSON{ID: acct.ID, CreatedAt: acct.Created.Format(time.RFC3339),
+			Language: acct.Language, Label: acct.Label,
+			Limits: exportLimitsJSON{Template: acct.Template.Name, MaxStreams: acct.Template.MaxStreams, MaxProfiles: acct.Template.MaxProfiles}}
+		if !acct.Expires.IsZero() {
+			out.Account.ExpiresAt = acct.Expires.UTC().Format(time.RFC3339)
+		}
+		switch u, err := a.Sessions.Store.UserBySubject(ctx, acct.Subject); {
+		case err == nil:
+			out.Account.Email, out.Account.Admin = u.Email, u.Admin
+		case !errors.Is(err, store.ErrNotFound):
+			a.Logger.Error("reading the account's sign-in for an export failed", "err", err)
+			problem.Send(w, problem.Internal, "")
+			return
+		}
 	}
 	names := map[string]string{}
 	for _, p := range profiles {

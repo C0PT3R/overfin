@@ -34,6 +34,8 @@ type Requests struct {
 	// Directory, when set, is the identity provider's connector: people's
 	// names come from it first.
 	Directory connector.Directory
+	// Limit, when set, limits requests and cancellations per account.
+	Limit *AccountLimiter
 }
 
 func (Requests) Name() string { return "requests" }
@@ -200,6 +202,10 @@ func (q Requests) create(w http.ResponseWriter, r *http.Request) {
 	l := q.Library
 	caller := l.Sessions.Current(w, r)
 	if caller == nil {
+		return
+	}
+	if q.Limit != nil && !q.Limit.allow(caller.Account.ID, time.Now()) {
+		problem.Send(w, problem.RateLimited, "")
 		return
 	}
 	c := q.client(w)
@@ -393,6 +399,10 @@ func (q Requests) cancel(w http.ResponseWriter, r *http.Request) {
 	l := q.Library
 	caller := l.Sessions.Current(w, r)
 	if caller == nil {
+		return
+	}
+	if q.Limit != nil && !q.Limit.allow(caller.Account.ID, time.Now()) {
+		problem.Send(w, problem.RateLimited, "")
 		return
 	}
 	c := q.client(w)

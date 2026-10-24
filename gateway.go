@@ -86,7 +86,9 @@ type shared struct {
 	// texts keeps titles' texts in the other languages offered.
 	texts *catalog.Texts
 	// searches limits searches per account, across reloads.
-	searches *api.SearchLimiter
+	searches *api.AccountLimiter
+	// requests limits requests to Seerr per account, across reloads.
+	requests *api.AccountLimiter
 	// requested is what Seerr says anyone requested, kept across reloads.
 	requested *api.SeerrRequested
 	// directory is the identity provider's connector, when configured:
@@ -281,7 +283,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		} else if sh.requested != nil {
 			sh.requested.SetClient(nil)
 		}
-		rq := api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }}
+		rq := api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }, Limit: sh.requests}
 		if sh.directory != nil {
 			rq.Directory = sh.directory
 		}

@@ -410,7 +410,8 @@ func newServerWith(t *testing.T, o options) (*httptest.Server, *fakeJellyfin) {
 		lib.Requested = &api.SeerrRequested{}
 		lib.Requested.SetClient(func() *seerr.Client { return client })
 		disc.Library = lib
-		extra = append(extra, disc, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }, Directory: o.directory})
+		extra = append(extra, disc, api.Requests{Library: lib, Seerr: func() *seerr.Client { return client }, Directory: o.directory,
+			Limit: &api.AccountLimiter{PerMinute: 20}})
 	}
 	if o.store != nil {
 		*o.store = st

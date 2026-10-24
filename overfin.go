@@ -540,7 +540,7 @@ func newShared(cfg *config.Config, db *store.Store, moduleDBs map[string]*sql.DB
 	art.ArtworkDir = filepath.Join(filepath.Dir(cfg.Storage.Path), "artwork")
 	sh := &shared{logger: logger, db: db, moduleDBs: moduleDBs, keys: k, jf: jf,
 		images: art, tickets: playback.NewTickets(24 * time.Hour), folders: api.NewFolderCache(),
-		searches: &api.SearchLimiter{PerMinute: 30}, requested: &api.SeerrRequested{Logger: logger},
+		searches: &api.AccountLimiter{PerMinute: 30}, requests: &api.AccountLimiter{PerMinute: 20}, requested: &api.SeerrRequested{Logger: logger},
 		service: &provision.Service{},
 		// Emails, with the operator's own templates next to the database.
 		emails: &emails.Writer{Dir: filepath.Join(filepath.Dir(cfg.Storage.Path), "mail-templates"), Store: db, Logger: logger},

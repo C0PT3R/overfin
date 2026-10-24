@@ -85,10 +85,6 @@ func (h *host) Templates(ctx context.Context) ([]feature.AccountTemplate, error)
 	return out, nil
 }
 
-func (h *host) HandleLink(pattern string, fn http.HandlerFunc) error {
-	return h.reg.HandleNavigation(pattern, fn)
-}
-
 func (h *host) Logger() *slog.Logger {
 	return h.mount.Logger.With("module", h.mount.Module.Info().Name)
 }

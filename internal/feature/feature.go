@@ -71,12 +71,6 @@ type Host interface {
 	// visitor may have an account (required group…), and that they have
 	// none yet.
 	HandleVisitor(pattern string, h VisitorHandler) error
-	// HandleLink registers a link people open from elsewhere, an email or a
-	// message, with no login: "GET /api/v1/…", a fixed path, acting on its
-	// query only. It's the one kind of route other sites may send people
-	// to, so it must reveal nothing, and only lead them on (setting a
-	// cookie, redirecting).
-	HandleLink(pattern string, h http.HandlerFunc) error
 	// HandleAdmin registers a control panel route, for the module's tab.
 	// The pattern is "METHOD /path"; the core files it under
 	// /admin/api/modules/<name>/path, on the panel's private listener, where

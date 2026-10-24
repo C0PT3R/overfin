@@ -35,15 +35,16 @@ type searchResults struct {
 	PeopleFirst bool `json:"peopleFirst,omitempty"`
 }
 
-// SearchLimiter allows each account a number of searches a minute.
-type SearchLimiter struct {
+// AccountLimiter allows each account a number of actions a minute
+// (searches, requests).
+type AccountLimiter struct {
 	PerMinute int
 	mu        sync.Mutex
 	recent    map[string][]time.Time
 }
 
-// allow says whether an account may search now, and counts it.
-func (s *SearchLimiter) allow(account string, now time.Time) bool {
+// allow says whether an account may act now, and counts it.
+func (s *AccountLimiter) allow(account string, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.recent == nil {
@@ -60,7 +61,7 @@ func (s *SearchLimiter) allow(account string, now time.Time) bool {
 		return false
 	}
 	s.recent[account] = append(kept, now)
-	// Forget accounts that haven't searched for a minute, now and then.
+	// Forget accounts that haven't acted for a minute, now and then.
 	if len(s.recent) > 1000 {
 		for a, times := range s.recent {
 			if len(times) == 0 || now.Sub(times[len(times)-1]) >= time.Minute {

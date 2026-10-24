@@ -505,8 +505,7 @@ func (m *Managed) verify(w http.ResponseWriter, r *http.Request) {
 // browser, where their account is about to be set up.
 func (m *Managed) keepInvitation(w http.ResponseWriter, r *http.Request, code string) {
 	if code != "" {
-		cookie.Set(w, r, &http.Cookie{Name: feature.InviteCookie, Value: code, MaxAge: 24 * 60 * 60,
-			SameSite: http.SameSiteLaxMode})
+		cookie.Set(w, r, &http.Cookie{Name: feature.InviteCookie, Value: code, MaxAge: 24 * 60 * 60})
 	}
 }
 

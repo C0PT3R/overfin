@@ -6,8 +6,8 @@ import (
 )
 
 // Each account gets its searches a minute; a minute later, again.
-func TestSearchLimiter(t *testing.T) {
-	l := &SearchLimiter{PerMinute: 3}
+func TestAccountLimiter(t *testing.T) {
+	l := &AccountLimiter{PerMinute: 3}
 	now := time.Now()
 	for i := 0; i < 3; i++ {
 		if !l.allow("a", now) {

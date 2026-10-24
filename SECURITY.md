@@ -28,6 +28,11 @@ network security expert. So the rules come in two kinds:
   - **Access to Jellyfin itself** (rule 67) is closed: its administrators
     have passwords nobody knows. An admin can open it from the control
     panel, and close it again.
+  - **What the operator may choose to share or allow**, each off or at
+    its strictest by default: profiles of an account seeing each other
+    (rule 50), privacy-sensitive fields (rule 55), copying history from
+    another server (rule 60), apps reading totals (rule 40), and how many
+    wrong PINs lock a profile (rule 22, within 3 to 10).
 
 Every rule not named here is a hard rule.
 
@@ -89,8 +94,8 @@ comes from the internet, and media files can be written by anyone.
     `Accept-Ranges`. Never `Set-Cookie` or `Location`.
 
 ### Identity and sessions
-13. Identity comes from Overfin's own sign-in (managed: an email and a code
-    sent there, a password, or a one-time link; the default), from an
+13. Identity comes from Overfin's own sign-in (managed: an email and a
+    password, rule 66; the default), from an
     OpenID Connect provider through Overfin's login, or from forward-auth
     headers set by a trusted proxy. With Overfin's sign-in or login,
     identity headers are ignored entirely, whoever sends them; a login
@@ -113,7 +118,7 @@ comes from the internet, and media files can be written by anyone.
     default; if the provider stays unreachable for an hour, logins fail
     closed). A provider that gives no refresh tokens gets logins that last
     12 hours at most, without extension. Disabling an identity ends its
-    sessions and revokes its Jellyfin tokens. The required group is checked
+    sessions. The required group is checked
     on every request, so someone taken out of it is out at once.
 17. Session cookies are `HttpOnly` and `SameSite=Strict`, and over HTTPS
     they use the `__Host-` prefix and are `Secure`. A secure default: a
@@ -121,10 +126,16 @@ comes from the internet, and media files can be written by anyone.
     gets cookies without the prefix and the flag, which browsers refuse
     there. A cookie set without HTTPS is never read over HTTPS, nor the
     other way round, and a site whose address is `https://` always gets
-    HTTPS cookies.
+    HTTPS cookies. The one cookie that isn't `SameSite=Strict` is the
+    invitation's with an identity provider: it's `Lax`, so it survives the
+    trip there, and holds only the invitation.
 18. Only same-origin requests are accepted (`Sec-Fetch-Site: same-origin`, or
     `none` for plain navigation); cross-site and same-site requests are
-    rejected, so sibling subdomains can't act for the user. State-changing
+    rejected, so sibling subdomains can't act for the user. The only
+    exceptions are top-level GET navigations to the pages people arrive at
+    from elsewhere (sign-in, an invitation, a forgotten password, an
+    identity provider's return), which act on nothing but their own code
+    and query, and the gate a reverse proxy asks (rule 13). State-changing
     requests must be JSON, except image uploads, which must carry an image
     content type (plain HTML forms can send neither). There is no CORS unless
     the operator lists allowed origins, and those use token auth, not cookies.
@@ -134,10 +145,11 @@ comes from the internet, and media files can be written by anyone.
 20. Upstream tokens are encrypted at rest, with the key kept outside the
     database. PINs are hashed with that key, so a leaked database alone can't
     be used to guess them.
-21. Rare, destructive actions (profile transfer, profile deletion, account
-    deletion, exporting the whole account, PIN reset, changing one's
-    password) require a fresh login: the password or an emailed code again
-    with Overfin's own sign-in, a new login at the identity provider
+21. Rare, destructive actions (profile deletion, account deletion,
+    exporting the whole account, PIN reset, changing one's password, and
+    profile transfer, planned)
+    require a fresh login: the password again with Overfin's own sign-in,
+    a new login at the identity provider
     otherwise. Frequent sensitive actions (switching to a
     PIN-protected profile, changing a kids profile's rating ceiling or turning
     it into a standard profile) require the PIN. A standard profile exporting
@@ -147,29 +159,31 @@ comes from the internet, and media files can be written by anyone.
     back to a PIN-protected owner profile: when the owner has a PIN, a new
     session, or one whose profile was deleted, has no profile until one is
     chosen (`profile-required`).
-22. Each wrong PIN adds a growing delay. After a set number of wrong PINs
-    (operator setting, default 5), PIN entry on that profile is blocked until
-    the account owner confirms a fresh login (rule 21).
-    The threshold is `limits.pin_attempts` (3 to 10, default 5), and the
-    wait between attempts never exceeds a minute. On an instance without
-    step-up, where the owner can't confirm a login, the block lasts 15
-    minutes.
+22. Each wrong PIN adds a growing delay, never more than a minute. After
+    a number of wrong PINs in a row (`limits.pin_attempts`, 3 to 10,
+    default 5), PIN entry on that profile is blocked until the account
+    owner confirms a fresh login (rule 21); on an instance without step-up,
+    where the owner can't confirm a login, the block lasts 15 minutes. The
+    count starts over 15 minutes after the last wrong PIN.
 
 ### Authorization
 23. Every Overfin resource ID (profiles, playback sessions, stream tickets,
-    transfer codes) is random, at least 128 bits, and every lookup checks that
-    it belongs to the current account.
+    invitations, and the planned transfer codes) is random, at least 128 bits, and every lookup checks that
+    it belongs to the current account (or, for invitations, that an admin
+    asks).
 24. Anything the caller may not see returns 404, never 403. A 403 only ever
     means the caller can see the thing but may not do this to it (owner-only
     actions, or a missing step-up).
 25. Account-wide actions are reserved for the owner profile: managing profiles,
     deleting the account, exporting the whole account, and ending other
     devices' sessions.
-26. The client never chooses which Jellyfin or Seerr user acts for it; Overfin
-    derives that from the session.
+26. The client never chooses who acts for it upstream: Jellyfin calls run
+    as Overfin's one account (rule 3), and Seerr's as the account's own
+    Seerr user, which Overfin derives from the session.
 27. An image is served only after checking that the active profile may see
-    what it belongs to (a library item, a catalog title, or a profile of the
-    same account), also when it comes from Overfin's cache.
+    what it belongs to (a library item or a catalog title), also when it
+    comes from Overfin's cache. A person's own photo goes to any profile:
+    people carry no rating, library or tag.
 28. Kids profiles can request only titles rated at or below their ceiling, in
     the operator's chosen ratings country. The ratings are Overfin's own, from
     TMDB, never the media server's; a title's every certification there must
@@ -179,20 +193,25 @@ comes from the internet, and media files can be written by anyone.
     The same holds for the libraries a profile gets and the tags hidden from
     it, for any profile: Overfin applies them, not Jellyfin, and what it
     can't place in a library is hidden from a profile limited to some.
-29. Every entry of a play queue is checked against the active profile, when the
-    queue is set and again when it advances.
+29. Play queues aren't accepted yet; when they are, every entry is checked
+    against the active profile, when the queue is set and again when it
+    advances.
 30. Stream tickets are short-lived and bound to the session that created them.
-    Transfer codes are long, single-use and expire within minutes.
+    Transfer codes (planned, for profile transfer) will be long, single-use,
+    rate-limited and expire within minutes.
 
 ### Limits
-31. Streams and transcodes are limited per account and in total. Images come in
-    a fixed set of sizes. Login, search, requests, streaming, bitrate tests and
-    transfer-code attempts are rate-limited.
+31. Streams are limited per account (its account template), and playbacks
+    that re-encode the video in total (`limits.max_transcodes_total`).
+    Images come in a fixed set of sizes. Sign-in, registration, forgotten
+    passwords, PINs, search, requests to Seerr, copying history and new
+    accounts are rate-limited.
 32. When an account reaches its stream limit, its oldest stream stops and the
     stopped device is told why (operators can choose to refuse the new stream
-    instead). Overfin never stops another user's stream: when the server is
-    busy, it plays a version that needs no transcoding if there is one, and
-    refuses otherwise.
+    instead). Overfin never stops another user's stream: when every
+    transcode is taken, a new playback that needs one is refused (Overfin
+    already plays files as they are, or copies their video, whenever the
+    device can take it).
 33. A transcode is stopped as soon as its playback stops, its ticket expires or
     its progress reports go silent, so abandoned streams never keep the server
     busy.
@@ -203,23 +222,27 @@ comes from the internet, and media files can be written by anyone.
     Upstream errors are mapped to generic responses; internal details stay in
     the server log.
 36. Logs never contain tokens, cookies, passwords or PINs.
-37. Public endpoints (`/health`, `/info`) never reveal software versions,
-    upstream servers or anything about users.
+37. Public endpoints (`/api/v1/health`, the sign-in, invitation and
+    forgotten-password pages with their script, style, logo and check
+    against scripts, `theme.css`, and the operator's branding) never reveal
+    software versions, upstream servers or anything about users.
 38. Cursors are signed and bound to the query that produced them. A modified
     cursor, or one used with a different query, is refused.
-39. Uploaded images (profile avatars) get the same treatment as rule 10, with
-    stricter size limits, and are rate-limited. Overfin stores them itself,
-    never in Jellyfin, whose image endpoints don't check permissions.
+39. Today, only admins upload files: branding pictures (rule 10).
+    Profile pictures (planned) will get rule 10's treatment, with stricter
+    size limits and a rate limit. Overfin keeps uploads itself, never in
+    Jellyfin, whose image endpoints don't check permissions.
 
 ### Privacy
-40. Overfin stores only what it needs to run: the account-to-Jellyfin mapping,
-    encrypted tokens, sessions, profiles (with their uploaded avatars), which
-    profile made each request, and short-lived playback state; with the admin
-    side, also invites, account expiry and limits, and labels the operator
-    sets; with the watchlist, each profile's list of titles (private to it,
-    deleted with it); with Overfin's own sign-in, each person's email and,
-    if they set one, a hash of their password (PBKDF2-SHA256, 600,000
-    rounds), deleted with their account; and what each profile did with each title (where it
+40. Overfin stores only what it needs to run: encrypted upstream tokens
+    and keys, sessions, profiles, which profile made each request, and
+    short-lived playback state; with the admin side, also invites, account
+    expiry and limits, and labels the operator sets; with the watchlist,
+    each profile's list of titles (private to it, deleted with it); with
+    Overfin's own sign-in, each person's email, a hash of their password
+    (PBKDF2-SHA256, 600,000 rounds) and keyed hashes of the links it emails
+    them, deleted with their account (and, until a registration is
+    confirmed, its invitation, sealed); and what each profile did with each title (where it
     stopped, whether it watched it, how many times and when last, its
     favorites), brought over from Jellyfin once with the profile's own
     token, then kept by Overfin. That belongs to its profile: only that
@@ -244,15 +267,17 @@ comes from the internet, and media files can be written by anyone.
     posters, are served by the gateway.
 44. A public API response never reveals other users' data or activity. Only
     the admin API (rule 58) shows users, to the operator's admins.
-45. Deleting an account deletes everything Overfin holds about it. Its Jellyfin
-    and Seerr users are deleted or disabled, as the operator configures
-    (`accounts.on_delete`), and the site tells the user which.
+45. Deleting an account deletes everything Overfin holds about it. Its
+    Seerr user, and the Jellyfin users of profiles from before Overfin's
+    one Jellyfin account (rule 3), are deleted or disabled, as the operator
+    configures (`accounts.on_delete`), and the site tells the user which.
 46. Overfin offers no hooks for extra data collection. Operators who want more
     collect it with their own tools. Social features are out of Overfin's
     scope: it stores no relations between users, comments, likes, messages
     or anything of the kind. Operators who want them build them in their own
     backend, logging users in with the same identity provider.
-47. Jellyfin users created by Overfin get opaque names (e.g. `of-7f3k2q`),
+47. Overfin's users on Jellyfin get opaque names (its one account,
+    `overfin-service-…`, and those of profiles from before it, `of-…`),
     never real names or emails. Seerr users get the account's name as the
     control panel shows it (the identity provider's, else the operator's
     label, else the owner profile's), so Seerr's own pages say who asked
@@ -369,10 +394,13 @@ comes from the internet, and media files can be written by anyone.
     accounts, and they delete what they hold about them.
 
 ### Invitations
-63. Invitation links carry 128 random bits; only their SHA-256 is kept, and
-    a link is shown to the admin once. Opening one only keeps it in an
-    HttpOnly cookie for a day and leads on to the site; an account is set
-    up with it only after a login, under the account-creation lock, so a
+63. Invitation links carry 128 random bits; only their SHA-256 is kept with
+    the invitations, and a link is shown to the admin once (or emailed,
+    when they ask). Opening one keeps it in an HttpOnly cookie for a day:
+    with Overfin's own sign-in, the page shows the registration form (rule
+    66), and a registration keeps its invitation sealed, like a token,
+    only until it's confirmed; otherwise it leads on to the site. An
+    account is set up with it only after a login, under the account-creation lock, so a
     single-use invitation is used once. Uses stay counted when the account
     is deleted. With an identity provider, an invitation decides what an
     account gets, never who may log in: the provider and the required group
@@ -473,21 +501,18 @@ gets its own certificate with `https.domain` (or `OVERFIN_DOMAIN`), or a
 reverse proxy provides it. Behind a proxy, set `site.url` to the site's
 `https://` address, so cookies are HTTPS ones whatever the proxy says, and
 `identity.trusted_proxies`, so the client address is the proxy's to give.
-Without HTTPS, everything sent, passwords and codes included, travels in
-clear: keep that to a LAN or a test.
+Without HTTPS, everything sent, passwords and emailed links included,
+travels in clear: keep that to a LAN or a test.
 
-With Overfin's own login, the proxy only forwards `/api/*` to Overfin and
-can protect the site's pages by asking `/api/v1/gate` first (forward auth to
-Overfin). With forward-auth from another provider instead, every route to
-Overfin except the public ones (`/api/v1/health`, `/api/v1/info`) must pass
+With Overfin's own sign-in or login, the simplest is for the proxy to
+forward everything to Overfin, which serves the site, its own pages
+(`/signin`, `/invite/…`, `/reset`) and the API; a proxy serving the site's
+pages itself can protect them by asking `/api/v1/gate` first (forward auth
+to Overfin). With forward-auth from another provider instead, every route
+to Overfin except the public ones (rule 37) must pass
 through the proxy's authentication. In both cases, on every route, the proxy
 must strip client-sent forwarded headers, and with forward-auth also
 identity headers, before adding its own (rules 13 and 14).
-
-## Reporting a vulnerability
-
-Please don't open a public issue. Use GitHub's private vulnerability reporting
-on this repository instead.
 
 ## Reporting a vulnerability
 

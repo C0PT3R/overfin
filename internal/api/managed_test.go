@@ -396,3 +396,26 @@ func TestSigninEmailLanguage(t *testing.T) {
 		t.Errorf("emails: %+v", mails)
 	}
 }
+
+// "Download my data" has the email the account signs in with (rule 52).
+func TestManagedExportHasEmail(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{managed: true, store: &st, freshFor: time.Minute})
+	ctx := context.Background()
+	ann, _ := st.CreateUser(ctx, "ann@example.org", true)
+	hash, _ := password.Hash("a long password 1")
+	st.SetPassword(ctx, ann.Subject, hash)
+	b := newBrowser(srv)
+	if c, out := signinPost(t, b, srv, "/api/v1/signin", checked(t, srv, map[string]any{"email": "ann@example.org", "password": "a long password 1"})); c != 200 {
+		t.Fatalf("signing in: %d %v", c, out)
+	}
+	if c, out := signinPost(t, b, srv, "/api/v1/me", map[string]any{}); c != 200 && c != 201 {
+		t.Fatalf("creating the account: %d %v", c, out)
+	}
+	signinPost(t, b, srv, "/api/v1/signin", map[string]any{"password": "a long password 1", "fresh": true})
+	c, out := signinPost(t, b, srv, "/api/v1/me/export", map[string]any{})
+	account, _ := out["account"].(map[string]any)
+	if c != 200 || account["email"] != "ann@example.org" || account["admin"] != true || account["limits"] == nil {
+		t.Fatalf("export: %d %v", c, out)
+	}
+}
