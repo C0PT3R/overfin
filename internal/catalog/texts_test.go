@@ -67,3 +67,30 @@ func TestTexts(t *testing.T) {
 		t.Errorf("fetched again: %v", asked)
 	}
 }
+
+// A library title TMDB doesn't know doesn't hold up the others' texts: the
+// slow pass leaves it for a day and goes on.
+func TestTextsGoPastUnknownTitles(t *testing.T) {
+	box, _ := seal.New(bytes.Repeat([]byte{9}, 32))
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "t.db"), box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	st.SetLanguages(ctx, []string{"fr-CA", "en-CA"}, "fr-CA")
+	st.PutCatalog(ctx, []store.CatalogItem{
+		{ID: id(1), Kind: "movie", Name: "Gone", SortName: "gone", TMDB: "1"},
+		{ID: id(2), Kind: "series", Name: "GoT", SortName: "got", TMDB: "1399"},
+	}, 1)
+	st.RefreshTitleKeys(ctx)
+	x := NewTexts(func(string) TitleSource { return &fakeTitles{} }, st, slog.New(slog.NewTextHandler(io.Discard, nil)), 0, time.Hour)
+	for range 3 {
+		if err := x.slowly(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, _ := st.HasTexts(ctx, "en-CA", "series", "1399", time.Now().Add(-time.Hour)); !ok {
+		t.Error("the series' texts never came")
+	}
+}

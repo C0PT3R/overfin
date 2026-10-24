@@ -27,7 +27,14 @@ type Texts struct {
 	// titles of the library's slow pass.
 	Pause, Idle time.Duration
 	wants       chan want
+	// tried are the slow pass's titles tried lately (language, kind, TMDB
+	// ID), and when: one TMDB doesn't know, or that fails, waits a day, and
+	// the others go on. Only Run touches it.
+	tried map[want]time.Time
 }
+
+// triedFor is how long the slow pass leaves a title it tried.
+const triedFor = 24 * time.Hour
 
 // want is a title someone was shown without its texts in a language.
 type want struct{ language, kind, tmdb string }
@@ -100,14 +107,27 @@ func (x *Texts) slowly(ctx context.Context) error {
 		if language == def {
 			continue
 		}
-		todo, err := x.Store.TextsToFetch(ctx, language, time.Now().Add(-TitlesFresh), 1)
-		if err != nil || len(todo) == 0 {
-			if err != nil {
-				return err
-			}
-			continue
+		todo, err := x.Store.TextsToFetch(ctx, language, time.Now().Add(-TitlesFresh), len(x.tried)+1)
+		if err != nil {
+			return err
 		}
-		return x.fetch(ctx, want{language, todo[0].Kind, todo[0].TMDB})
+		now := time.Now()
+		for _, t := range todo {
+			w := want{language, t.Kind, t.TMDB}
+			if at, ok := x.tried[w]; ok && now.Sub(at) < triedFor {
+				continue
+			}
+			if x.tried == nil {
+				x.tried = map[want]time.Time{}
+			}
+			for k, at := range x.tried {
+				if now.Sub(at) >= triedFor {
+					delete(x.tried, k)
+				}
+			}
+			x.tried[w] = now
+			return x.fetch(ctx, w)
+		}
 	}
 	return nil
 }
