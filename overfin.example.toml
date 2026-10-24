@@ -3,9 +3,10 @@
 # Overfin runs without any file: everything has a default, and the setup page
 # in the browser asks for the rest. Copy to /etc/overfin/overfin.toml only to
 # change them. Changes apply on restart, or live on SIGHUP (docker kill -s
-# HUP overfin) except listen, storage.path, jellyfin.url, [https], [admin]
-# and the secret key. Secrets never go in this file; set them as
-# environment variables (or NAME_FILE pointing to a file, for Docker secrets):
+# HUP overfin) except listen, storage.path, jellyfin.url, [https], [admin],
+# site.url, [connector] and the secret key. Secrets never go in this file;
+# set them as environment variables (or NAME_FILE pointing to a file, for
+# Docker secrets):
 #
 #   OVERFIN_SECRET_KEY           optional: base64, at least 32 random bytes
 #                                (openssl rand -base64 32). Without it,
@@ -16,6 +17,11 @@
 #   OVERFIN_CONNECTOR_TOKEN      with [connector]: the identity provider API
 #                                token
 #   OVERFIN_MAIL_PASSWORD        with mail.username: the SMTP password
+#   OVERFIN_TMDB_TOKEN           optional: TMDB's read access token (or set it
+#                                in the setup wizard or the control panel)
+#
+# OVERFIN_CONFIG, when set, is where Overfin looks for this file (the
+# -config flag wins).
 
 # Address Overfin listens on: the site, over plain http. With [https], only
 # Let's Encrypt's checks, and a redirect to HTTPS for everyone else.
@@ -46,20 +52,22 @@ url = "http://192.0.2.10:8096"
 [identity]
 # How users log in:
 #   "managed"      the default: Overfin signs people in itself, with their
-#                  email and a code it sends there ([mail]), or a password
-#                  they set. Nothing else to set up; [oidc] is then unused.
+#                  email and a password. Nothing else to set up; [oidc] is
+#                  then unused.
 #   "oidc"         Overfin logs them in with the identity provider in [oidc]
 #                  (recommended: one client registration for login and
 #                  step-up, no identity headers to trust).
 #   "forwardauth"  a reverse proxy authenticates users and passes identity
 #                  headers (user_header, groups_header below).
 #   "anonymous"    no login at all.
+# This example fills in [oidc] below, so it says "oidc"; leave mode out for
+# the default.
 mode = "oidc"
 # The reverse proxies in front of Overfin: the client address is taken from
 # them, and in forwardauth mode the identity headers too.
 trusted_proxies = ["198.51.100.7"]
-# Only members of this group get an account. Leave empty to allow everyone
-# who can log in.
+# oidc and forwardauth modes only: only members of this group get an
+# account. Leave empty to allow everyone who can log in.
 required_group = "media-users"
 # Where users go to also leave the identity provider when they log out. In
 # oidc mode, leave empty to use the provider's own end-session address.
@@ -103,8 +111,9 @@ groups_claim = "groups"
 path = "/data/overfin.db"
 
 [mail]
-# Managed sign-in only: the SMTP server sign-in codes are sent through.
-# Without it, people sign in with a password. Off when host is empty.
+# Managed sign-in only: the SMTP server for emails (confirming an address,
+# choosing a new password, invitations). Without it, nobody registers, and
+# an admin sets forgotten passwords. Off when host is empty.
 host = ""                       # e.g. "smtp.example.org"
 port = 587                      # 587 for starttls, 465 for tls
 tls = "starttls"                # "starttls", "tls", or "none" (a relay on
@@ -167,10 +176,10 @@ serve = "builtin"
 # (everything from the site itself); your own client may need more sources.
 # csp = "default-src 'self'; ..."
 # For single-page apps: paths that aren't files get index.html. Always on for
-# the built-in client, whose pages have real paths (/item/…).
+# the built-in client, whose pages have real paths (/title/…).
 spa_fallback = false
-# The site's public address. Optional: with it, sign-in emails also carry a
-# link to sign in with, besides the code.
+# The site's public address, for the links in emails (confirming an
+# address, a new password, invitations): emails with a link need it.
 # url = "https://example.org"
 
 # ---- Feature settings --------------------------------------------------------
@@ -193,17 +202,13 @@ pin_attempts = 5
 on_limit = "replace-oldest"
 
 # Features' own settings, each under its name. Migration lets people bring
-# an existing Jellyfin account, with its watch history, by entering its
-# username and password once (switch it on in [plugins]). Administrator
-# accounts can never be brought over.
+# their watch history from your other Jellyfin server, with their username
+# and password there (switch it on in [plugins]). Nothing changes on that
+# server.
 [modules.migration]
-# "move": bringing an account is one-way. The Jellyfin account gets an opaque
-#   name, the lock-down and a new password nobody knows; its old login and
-#   Jellyfin apps stop working. When you overfin, you don't fin.
-# "link": it keeps its name and password, for a transition period. Move
-#   these accounts later from migration's tab in the control panel, once
-#   the old way to Jellyfin is closed.
-mode = "move"
+# The other server's address, as Overfin reaches it. Nothing is offered
+# without it.
+from = ""
 
 [accounts]
 # When someone deletes their account, its Jellyfin users are "delete"d with
@@ -213,14 +218,12 @@ on_delete = "delete"
 
 [plugins]
 # The features switched on, besides those always on (accounts and profiles,
-# the library, playback, the watchlist). Off by default:
-#   migration  people bring their previous account and its history
-#   invites    invitation links, made in the control panel
+# the library, playback, the watchlist, invitations). Off by default:
+#   migration  people bring their history from another Jellyfin server
 enable = []
 
 [privacy]
 # Privacy-sensitive fields stay hidden unless listed here:
 #   version.names   names of media versions, derived from file names (otherwise
 #                   a neutral description such as "2160p HDR · HEVC" is shown)
-#   photo.takenAt, photo.location, photo.camera, item.tags
 expose = []

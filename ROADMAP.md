@@ -631,8 +631,9 @@ nothing beyond what that needs.
   item, so they come with the TMDB catalog and Seerr requests plugins (Seerr
   keeps watchlists of its own).
 - From Jellyfin's most voted feature requests, simple once Overfin keeps
-  personal data (milestone 4): **removing a title from "Continue
-  Watching"** (one of the most voted of all) and **hiding a title**, per
+  personal data (milestone 4): ~~**removing a title from "Continue
+  Watching"**~~ (one of the most voted of all; done:
+  `DELETE /titles/{id}/progress`) and **hiding a title**, per
   profile; **personal ratings**; **avoiding spoilers** (an option to blur
   the images and descriptions of unwatched episodes); **"Are you still
   watching?"**, an operator's setting; and **a message to all users**, with
@@ -642,7 +643,7 @@ nothing beyond what that needs.
 - ~~**Discovery from Seerr, first version**~~ Done: Seerr connected from
   the panel (tested, its key sealed), `/discover` (trending, popular,
   upcoming; all, in the library, missing) and `/catalog/{kind}/{tmdbId}`
-  (genres, cast, each season's place from the index), the library item
+  (now `/titles/{id}`; genres, cast, each season's place from the index), the library item
   read as the profile, TMDB posters through the image pipeline (only at the
   path Seerr gives). Overfin keeps every TMDB title it comes across, and
   the lists as ordered IDs read from Seerr in the background every hour
@@ -658,14 +659,13 @@ nothing beyond what that needs.
   step 3). Next: search, curated lists.
 - **Discovery**: trending, popular and upcoming titles, search, a title's
   page, curated lists, with each title's place in the library (available,
-  partly, requested, missing). From TMDB itself, with the project's own
-  key (operators never need one), or from Seerr, which also knows what's
-  requested. Images are TMDB paths, fetched from
+  partly, requested, missing). From TMDB itself, with the operator's own
+  read access token, or from Seerr, which also knows what's requested. Images are TMDB paths, fetched from
   TMDB's fixed image server only (rules 5 and 43). Lists carry no ratings,
   so a title is shown to a kids profile only once its rating, in the
   operator's country, is read from its details and kept; without one it
   stays hidden (rule 28).
-- **Requests**, through Seerr. Each Overfin **account** (not profile) has
+- ~~**Requests**, through Seerr~~ Done (`/requests`). Each Overfin **account** (not profile) has
   its own Seerr user, under the name the panel shows for the account (kept
   up to date), with a unique placeholder address on `.invalid` and a
   random password thrown away (so Seerr never emails one, and nobody signs
@@ -675,7 +675,7 @@ nothing beyond what that needs.
   never set for people. Problem reports may come later, through Seerr's
   issues.
 - Profile avatars, profile transfers.
-- Trickplay, lyrics, bitrate test.
+- ~~Trickplay~~ (done), lyrics, bitrate test.
 
 ## Planned, not designed yet
 

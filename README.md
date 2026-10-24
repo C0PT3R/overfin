@@ -36,8 +36,8 @@ identity provider: see [Running it](#running-it).
 
 **For the people watching**
 
-- **Signing in with their email**: a code sent there, or a password. No
-  Jellyfin account, no app to install.
+- **Signing in with their email** and a password. No Jellyfin account, no
+  app to install.
 - **Profiles**, each with its own history and an optional PIN. **Kids
   profiles** see only titles rated within their limits, on real age
   ratings from TMDB for the country you choose: everything else is hidden
@@ -115,7 +115,8 @@ The main gaps (details in [ROADMAP.md](ROADMAP.md)):
 
 - TV and phone apps, and a sign-in for native apps.
 - A live view of who's watching.
-- Emails beyond sign-in (sign-in and confirmation codes are there).
+- Emails beyond accounts (confirming an address, a new password and
+  invitations are there).
 - SDKs other than JavaScript.
 
 The API specification also describes endpoints that aren't served yet; they
@@ -280,7 +281,7 @@ redirect_url = "https://media.example.org/api/v1/auth/callback"
 
 with the client secret in `OVERFIN_OIDC_CLIENT_SECRET`. Anyone who can log
 in at your provider gets an account, unless you set
-`identity.required_group`, or switch invitations on and make them required.
+`identity.required_group`, or make invitations required.
 
 **Leaving your identity provider for Overfin's own sign-in?** While it's
 still configured (with its `[connector]`), run `overfin -import-people`
@@ -331,25 +332,27 @@ can't show); a banner for light pages is optional. With your brand, the
 site and emails say "Powered by Overfin", discreetly. The control panel
 stays Overfin's.
 
-**Emails** are Overfin's own, in each person's language (sign-in codes,
-confirmation codes, the panel's test), in HTML and plain text, with your
-brand when it's on. To write your own, put templates with the same names
-in `mail-templates/`, next to the database (`/data/mail-templates/` with
-Docker): any file there replaces Overfin's, and the rest stay Overfin's.
+**Emails** are Overfin's own, in each person's language (confirming an
+address, choosing a new password, invitations, the panel's test), in HTML
+and plain text, with your brand when it's on. To write your own, put
+templates with the same names in `mail-templates/`, next to the database
+(`/data/mail-templates/` with Docker): any file there replaces Overfin's,
+and the rest stay Overfin's.
 Overfin's are the place to start, at the release you run:
 [internal/emails/templates](internal/emails/templates).
 
-- `layout.html` and `layout.txt` frame every email; `signin`, `confirm`
-  and `test` are each email's own (`.html` and `.txt`). The subject is the
-  `.txt` file's `subject` block.
-- `signin.html` replaces it in every language; `signin.fr.html`, in
-  French only; `signin.fr-CA.html`, in Canadian French only. Your own
+- `layout.html` and `layout.txt` frame every email; `verify` (confirming
+  an address), `reset` (a new password), `exists` (someone registered
+  with an address that has an account), `invite` and `test` are each
+  email's own (`.html` and `.txt`). The subject is the `.txt` file's
+  `subject` block.
+- `reset.html` replaces it in every language; `reset.fr.html`, in
+  French only; `reset.fr-CA.html`, in Canadian French only. Your own
   templates' languages are yours to cover.
-- Templates are Go templates, with `.Site`, `.Lang`, `.Code`, `.Link`,
-  `.Minutes`, `.Custom` (your brand is on), `.Banner` (`cid:banner`),
-  `.Light` and `.Dark` (the theme's colors, such as `index .Light "accent"`),
-  and `t` for Overfin's sentences in the reader's language
-  (`{{t "signin.intro"}}`).
+- Templates are Go templates, with `.Site`, `.Lang`, `.Subject`, `.Link`,
+  `.Custom` (your brand is on), `.Banner` (`cid:banner`), `.Light` and
+  `.Dark` (the theme's colors, such as `index .Light "accent"`), and `t`
+  for Overfin's sentences in the reader's language (`{{t "reset.intro"}}`).
 - They're read for every email: no restart. One that fails is reported in
   the log, and Overfin's is used instead. The panel's Emails card says
   whose each one is, and sends you a sample.
@@ -378,7 +381,7 @@ watchlist are always on; the rest is switched on in the control panel.
 | Library | Browsing, images | Always on |
 | Playback | Watching, subtitles, limits | Always on |
 | Watchlist | Each profile's watchlist | Always on |
-| Invitations | Invitations and invite templates | Switch |
+| Invitations | Invitations and invite templates | Always on |
 | Migration | Bringing Jellyfin accounts over | Switch |
 | Catalog | The library's index, matched to TMDB | Always on |
 | Discovery | Trending, popular and upcoming titles, from TMDB | With a TMDB token or Seerr; kids profiles see what their ceilings allow |
@@ -394,7 +397,7 @@ no discovery, and kids profiles see nothing, since their limits need
 TMDB's age ratings.
 
 Overfin asks TMDB by itself, by title, never saying who's asking; browsers
-never contact TMDB. It keeps TMDB's data as its terms allow (six months at
+never contact TMDB. It keeps TMDB's data as its terms allow (five months at
 most), and overfin-web shows TMDB's attribution. The pictures of the
 titles your libraries have are kept on disk ahead of time, in `artwork/`
 next to the database, so browsing the library never waits for TMDB; the
@@ -480,7 +483,9 @@ Useful to know: `overfin -check` tests the configuration and what it points
 to (the secret key, Jellyfin, the identity provider) and says in plain words
 what's wrong, changing nothing; `SIGHUP` reloads the configuration without dropping
 playbacks; `-recover-tokens` gets you going again if the secret key is lost
-(PINs and logins are reset, history is kept).
+(PINs and logins are reset, history is kept; TMDB's token, Seerr's key and
+the SMTP password set in the panel are given again there, and pending
+registrations start over).
 
 ## AI-assisted development
 

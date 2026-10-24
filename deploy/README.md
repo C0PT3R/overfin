@@ -49,10 +49,11 @@ Then, in the control panel (`/admin/`):
 
 - **Libraries**: add yours, with folders under `/media`, where the compose
   file puts `MEDIA_DIR`.
-- **Server, Email**: an SMTP server, so people can sign in with a code sent
-  by email. Without one, they use passwords, or sign-in links you make.
+- **Server, Email**: an SMTP server, so people can register with an
+  invitation and choose a new password by email. Without one, you add
+  people with a password, and set forgotten ones.
 - **Server, Transcoding**: your GPU, once Jellyfin has it (below).
-- **People**: add them, or switch invitations on.
+- **People**: add them, or send invitations.
 
 ## A GPU for converting videos
 
@@ -84,4 +85,5 @@ Overfin's releases: keep the one the compose file names.
 
 `overfin-secrets` holds Overfin's secret key, `overfin-data` everything
 else; `jellyfin-config` is Jellyfin's. Back the secret key up apart from
-the rest.
+the rest. Stop the stack first (`docker compose stop`), so the databases
+are copied whole, then start it again.
