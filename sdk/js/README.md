@@ -21,7 +21,7 @@ const overfin = new Overfin();
 
 const me = await overfin.me();                 // account and active profile
 const libraries = await overfin.libraries();
-const { items } = await overfin.items({ library: libraries[0].id, sort: 'addedAt', order: 'desc' });
+const { items } = await overfin.titles({ kind: 'movie', library: libraries[0].id, sort: 'addedAt', order: 'desc' });
 img.src = overfin.imageUrl(items[0].images.primary, 'small');
 
 const player = await overfin.play(videoElement, items[0].id, {

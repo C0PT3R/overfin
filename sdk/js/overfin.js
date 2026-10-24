@@ -133,16 +133,19 @@ export class Overfin {
   logout() { return this.request('POST', '/logout', {}); }
   /**
    * With managed sign-in only (404 otherwise): how the person signed in
-   * signs in. Resolves with { email, hasPassword, codes }, codes telling
-   * whether codes can come by email.
+   * signs in. Resolves with { email, hasPassword, reset }, reset telling
+   * whether a forgotten password can be reset by email. The account
+   * owner's profile only.
    */
   signinInfo() { return this.request('GET', '/me/signin'); }
 
   /** Whose brand to show: Overfin's, or the operator's own. No sign-in needed. */
   branding() { return this.request('GET', '/branding'); }
-  /** Sets or changes the password; needs a fresh login (step-up). Other browsers sign in again. */
+  /**
+   * Sets or changes the password; needs a fresh login (step-up) and the
+   * account owner's profile. Other browsers sign in again.
+   */
   setPassword(password) { return this.request('PUT', '/me/password', { password }); }
-  /** Removes the password, when codes can come by email; needs a fresh login (step-up). */
 
   // ---- Profiles ----------------------------------------------------------
 
