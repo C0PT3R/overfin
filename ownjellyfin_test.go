@@ -107,7 +107,16 @@ func TestTakeOverOnSetupPage(t *testing.T) {
 	if len(other.Writes) != 0 {
 		t.Fatalf("changed before it was handed over: %v", other.Writes)
 	}
-	got, key, ans, err := takeOver(ctx, db, otherURL, admin.JellyfinRequest{Username: "alice", Password: "secret", Confirm: "server-1"}, logger)
+	// Closing access fails once: it shows as open, and the next try, with
+	// Overfin's key, closes it.
+	other.FailPasswords = 1
+	if _, _, ans, err := takeOver(ctx, db, otherURL, admin.JellyfinRequest{Username: "alice", Password: "secret", Confirm: "server-1"}, logger); err == nil || ans.Done {
+		t.Fatalf("closing failed: %+v %v", ans, err)
+	}
+	if open, _, _ := db.JellyfinAccess(ctx); !open {
+		t.Error("closing failed, recorded as closed")
+	}
+	got, key, ans, err := takeOver(ctx, db, otherURL, admin.JellyfinRequest{}, logger)
 	if err != nil || !ans.Done || got != otherURL || other.Keys[key] != takeover.AppName {
 		t.Fatalf("handed over: %q %+v %v", got, ans, err)
 	}

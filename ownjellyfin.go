@@ -137,6 +137,15 @@ func takeOver(ctx context.Context, db *store.Store, fixed string, req admin.Jell
 		key, err = takeover.SetUp(ctx, jf, jellyfinStartup)
 	case takeover.Ours:
 		key = savedKey
+		// Handed over before, but access stayed open (closing it failed):
+		// closed now.
+		if open, _, err := db.JellyfinAccess(ctx); err != nil {
+			return "", "", ans, err
+		} else if open {
+			if err := closeAfterHandOver(ctx, db, jf, key, logger); err != nil {
+				return "", "", ans, err
+			}
+		}
 	default:
 		switch {
 		case req.Username == "":
@@ -157,7 +166,14 @@ func takeOver(ctx context.Context, db *store.Store, fixed string, req admin.Jell
 	if err != nil {
 		return "", "", ans, err
 	}
-	// Saved before access is closed: Overfin never loses its way in.
+	// Saved before access is closed: Overfin never loses its way in. Access
+	// counts as open until it's closed, so a failure there shows, and is
+	// closed again on the next try.
+	if found.State == takeover.Other {
+		if err := db.SetJellyfinAccess(ctx, true); err != nil {
+			return "", "", ans, err
+		}
+	}
 	if err := db.SetJellyfin(ctx, url, key, found.Server.ID); err != nil {
 		return "", "", ans, err
 	}

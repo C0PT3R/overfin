@@ -24,9 +24,10 @@ type Jellyfin struct {
 	Tokens    map[string]string // login token → user name
 	LoggedOut int
 	Writes    []string // what changed, in order
-	// FailKeys is how many of the next requests to make a key fail.
-	FailKeys int
-	made     int // keys made so far
+	// FailKeys is how many of the next requests to make a key fail, and
+	// FailPasswords how many of those to set a password.
+	FailKeys, FailPasswords int
+	made                    int // keys made so far
 }
 
 // UserID is the ID the fake gives a user.
@@ -135,6 +136,9 @@ func (f *Jellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			users = append(users, map[string]any{"Id": UserID(n), "Name": n, "Policy": map[string]bool{"IsAdministrator": u.Admin}})
 		}
 		reply(users)
+	case route == "POST /Users/Password" && f.FailPasswords > 0:
+		f.FailPasswords--
+		w.WriteHeader(http.StatusInternalServerError)
 	case route == "POST /Users/Password":
 		n := f.byID(r.URL.Query().Get("userId"))
 		u := f.Users[n]
