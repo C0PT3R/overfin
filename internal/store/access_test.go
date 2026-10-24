@@ -8,6 +8,37 @@ import (
 	"time"
 )
 
+// A hidden tag hides it whatever the case of any letter, accented ones
+// too, as the tags listed and the profile's settings count them.
+func TestHiddenTagAnyCase(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	id := func(n int) string { return strings.Repeat("0", 31) + string(rune('a'+n)) }
+	s.PutCatalog(ctx, []CatalogItem{
+		{ID: id(0), Kind: "movie", Name: "Peur", SortName: "a", TMDB: "1", LibraryID: "films", Tags: []string{"épouvante"}},
+		{ID: id(1), Kind: "movie", Name: "Effroi", SortName: "b", TMDB: "2", LibraryID: "films", Tags: []string{"Épouvante"}},
+		{ID: id(2), Kind: "movie", Name: "Rire", SortName: "c", TMDB: "3", LibraryID: "films"},
+	}, 1)
+	if err := s.RefreshTitleKeys(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a := Access{BlockedTags: []string{"ÉPOUVANTE"}}
+	got, err := s.ListCatalog(ctx, ListQuery{Access: &a, Sort: "name", Limit: 50})
+	if err != nil || !slices.Equal(got, []string{id(2)}) {
+		t.Errorf("listed: %v %v", got, err)
+	}
+	allowed, _, err := s.AllowedItems(ctx, a, []string{id(0), id(1), id(2)})
+	if err != nil || allowed[id(0)] || allowed[id(1)] || !allowed[id(2)] {
+		t.Errorf("allowed: %v %v", allowed, err)
+	}
+	if tags, _ := s.CatalogTags(ctx); len(tags) != 1 {
+		t.Errorf("tags: %v", tags)
+	}
+	if !a.Blocks([]string{"épouvante"}) {
+		t.Error("Blocks disagrees")
+	}
+}
+
 func TestAccessAndListings(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()

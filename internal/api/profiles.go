@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -183,7 +182,7 @@ func (p Profiles) accessFrom(ctx context.Context, c *Caller, pr *store.Profile, 
 				if t == "" || len(t) > 128 || textclean.Plain(t, 128) != t {
 					return nil, nil, false, nil
 				}
-				if !slices.ContainsFunc(tags, func(o string) bool { return strings.EqualFold(o, t) }) {
+				if !slices.ContainsFunc(tags, func(o string) bool { return store.FoldTag(o) == store.FoldTag(t) }) {
 					tags = append(tags, t)
 				}
 			}

@@ -2,9 +2,29 @@ package store
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"strings"
+
+	"modernc.org/sqlite"
 )
+
+// FoldTag is a tag as tags compare: regardless of case, for every letter
+// (SQLite's NOCASE only folds A to Z, so "Épouvante" wasn't "épouvante").
+func FoldTag(s string) string { return strings.ToLower(s) }
+
+func init() {
+	// fold(x) is FoldTag in SQL.
+	sqlite.MustRegisterDeterministicScalarFunction("fold", 1, func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+		switch v := args[0].(type) {
+		case string:
+			return FoldTag(v), nil
+		case []byte:
+			return FoldTag(string(v)), nil
+		}
+		return args[0], nil
+	})
+}
 
 // Access is what a profile may see of the library, when it's limited:
 // titles within its ratings ceiling (kids profiles), in the libraries it
@@ -53,7 +73,7 @@ func (a *Access) Blocks(tags []string) bool {
 	}
 	for _, t := range tags {
 		for _, b := range a.BlockedTags {
-			if strings.EqualFold(t, b) {
+			if FoldTag(t) == FoldTag(b) {
 				return true
 			}
 		}
@@ -82,9 +102,9 @@ func (a Access) itemAllowed(table string) (string, []any) {
 	if len(a.BlockedTags) > 0 {
 		conds = append(conds, `NOT EXISTS (SELECT 1 FROM catalog_tags t
 			WHERE t.item_id IN (`+table+`.id, coalesce(`+table+`.series_id, ''), coalesce(`+table+`.season_id, ''))
-			AND t.tag COLLATE NOCASE IN (`+marks(len(a.BlockedTags))+`))`)
+			AND fold(t.tag) IN (`+marks(len(a.BlockedTags))+`))`)
 		for _, t := range a.BlockedTags {
-			args = append(args, t)
+			args = append(args, FoldTag(t))
 		}
 	}
 	if len(conds) == 0 {
@@ -133,7 +153,7 @@ func (s *Store) AllowedItems(ctx context.Context, a Access, itemIDs []string) (a
 
 // CatalogTags lists the library's tags, for choosing which to hide.
 func (s *Store) CatalogTags(ctx context.Context) ([]string, error) {
-	return s.ids(ctx, `SELECT tag FROM catalog_tags GROUP BY tag COLLATE NOCASE ORDER BY tag COLLATE NOCASE`)
+	return s.ids(ctx, `SELECT min(tag) FROM catalog_tags GROUP BY fold(tag) ORDER BY fold(tag)`)
 }
 
 // SetProfileAccess changes the libraries a profile gets (nil: every
