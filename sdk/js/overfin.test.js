@@ -302,6 +302,30 @@ test('subtitles: the language kept, and those the server turned on shown', async
   globalThis.document = realDocument;
 });
 
+test('two quick changes leave one playback: the overtaken one is stopped', async () => {
+  const { calls } = playbackServer();
+  const player = await new Overfin().play(fakeVideo(), 'title_movie_tmdb_1', { startMs: 0, capabilities: {} });
+  await Promise.all([player.setMaxBitrate(4000), player.setMaxBitrate(2000)]);
+  await settle();
+  const started = calls.filter((c) => c.method === 'POST' && c.url === '/api/v1/playback').length;
+  const stopped = calls.filter((c) => c.url.endsWith('/stop')).map((c) => c.url);
+  assert.equal(started, 3);
+  assert.equal(player.playback.id, 'pb3');
+  assert.ok(stopped.includes('/api/v1/playback/pb1/stop') && stopped.includes('/api/v1/playback/pb2/stop'), stopped);
+  await player.close();
+});
+
+test('closed while starting: what the start gets is stopped, nothing plays', async () => {
+  const { calls } = playbackServer();
+  const player = new Player(new Overfin(), fakeVideo(), 'title_movie_tmdb_1', { startMs: 0, capabilities: {} });
+  const starting = player.start();
+  await player.close();
+  assert.equal(await starting, null);
+  await settle();
+  assert.equal(player.playback, null);
+  assert.ok(calls.some((c) => c.url === '/api/v1/playback/pb1/stop'));
+});
+
 test('quality: a bitrate limit restarts the stream at the same place with it', async () => {
   const { calls } = playbackServer();
   const player = await new Overfin().play(fakeVideo(), 'title_movie_tmdb_1', { startMs: 0, capabilities: {} });

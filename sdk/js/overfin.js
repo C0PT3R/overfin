@@ -393,6 +393,9 @@ export class Player {
     this.timer = null;
     this.pausedAt = 0;
     this.closed = false;
+    // starts counts start() calls: one overtaken by a newer one, or by
+    // close(), stops what it started and goes no further.
+    this.starts = 0;
     this.handlers = {
       pause: () => { this.pausedAt = Date.now(); this.report(); },
       play: () => {
@@ -407,12 +410,18 @@ export class Player {
   /** The position, in ms. */
   get positionMs() { return Math.round(this.video.currentTime * 1000); }
 
-  /** Starts, or restarts at the current position. */
+  /**
+   * Starts, or restarts at the current position. Resolves with the
+   * playback, or null when close() or a newer start came first.
+   */
   async start(startMs = this.options.startMs) {
     this.teardown();
+    const run = ++this.starts;
+    const overtaken = () => this.closed || run !== this.starts;
     let at = startMs;
     if (at === undefined) {
       const title = await this.client.title(this.titleId);
+      if (overtaken()) return null;
       at = title.userState?.positionMs || 0;
     }
     let pb;
@@ -425,8 +434,14 @@ export class Player {
         ...clean(this.choice),
       });
     } catch (err) {
+      if (overtaken()) return null;
       this.options.onError?.(err);
       throw err;
+    }
+    if (overtaken()) {
+      // Nobody watches it: the server frees it at once.
+      this.client.stopPlayback(pb.id, Math.round(at)).catch(() => {});
+      return null;
     }
     this.playback = pb;
     this.attach(pb);
