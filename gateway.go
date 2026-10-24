@@ -585,14 +585,20 @@ func (g *gateway) JellyfinAccess(ctx context.Context) (bool, time.Time, error) {
 func (g *gateway) SetJellyfinAccess(ctx context.Context, open bool) (name, password string, err error) {
 	a := g.adminAuth()
 	if open {
-		name, password, err = takeover.OpenAccess(ctx, g.sh.jf, a)
-	} else {
-		err = takeover.CloseAccess(ctx, g.sh.jf, a)
+		// Recorded open first: whatever fails after, the panel never says
+		// closed while it's open, and the password shown once isn't lost.
+		if err := g.sh.db.SetJellyfinAccess(ctx, true); err != nil {
+			return "", "", err
+		}
+		if name, password, err = takeover.OpenAccess(ctx, g.sh.jf, a); err != nil {
+			return "", "", forPage(err)
+		}
+		return name, password, nil
 	}
-	if err != nil {
+	if err := takeover.CloseAccess(ctx, g.sh.jf, a); err != nil {
 		return "", "", forPage(err)
 	}
-	return name, password, g.sh.db.SetJellyfinAccess(ctx, open)
+	return "", "", g.sh.db.SetJellyfinAccess(ctx, false)
 }
 
 // adminAuth is the key Overfin made on its Jellyfin.
