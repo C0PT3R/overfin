@@ -447,10 +447,10 @@ func run(logger *slog.Logger) error {
 	sh.service.Provisioner = gw.Provisioner
 	site.set(gw)
 
-	// Playbacks outlive reloads, so their janitor runs for the whole run:
-	// it needs only the registry and Jellyfin.
-	janitor := api.Playback{Library: api.Library{Jellyfin: sh.jf, Logger: logger}, Tickets: sh.tickets, Logger: logger}
-	go janitor.RunJanitor(ctx)
+	// Playbacks outlive reloads, so their janitor runs for the whole run,
+	// with the playbacks' handler in use at each pass (a bare one crashed
+	// Overfin, keeping where an abandoned playback stopped).
+	go api.RunJanitor(ctx, func() api.Playback { return gw.current.Load().playback })
 	go purgeExpired(ctx, db, logger)
 	// The catalog's index, read through Overfin's Jellyfin service account,
 	// as Jellyfin's socket says the library changed (polling only while

@@ -148,6 +148,8 @@ type built struct {
 	tabs    []admin.Tab
 	// managed is the managed sign-in, when that's the identity mode.
 	managed *api.Managed
+	// playback serves playbacks; its janitor ends the idle ones.
+	playback api.Playback
 }
 
 func build(cfg *config.Config, sh *shared) (*built, error) {
@@ -226,7 +228,7 @@ func build(cfg *config.Config, sh *shared) (*built, error) {
 		RefuseOverLimit: cfg.Limits.OnLimit == "refuse", Logger: logger}
 	// The modules the operator switched on, with their control panel routes
 	// and tabs.
-	b := &built{admin: http.NewServeMux()}
+	b := &built{admin: http.NewServeMux(), playback: pb}
 	var mounts []api.Mount
 	for _, m := range modules {
 		info := m.Info()

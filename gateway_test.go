@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/overfin/server/internal/admin"
+	"github.com/overfin/server/internal/api"
 	"github.com/overfin/server/internal/config"
 	"github.com/overfin/server/internal/images"
 	"github.com/overfin/server/internal/jellyfin"
@@ -559,4 +560,43 @@ func TestSeerrNotes(t *testing.T) {
 			t.Errorf("%+v: %q", r, got)
 		}
 	}
+}
+
+// The janitor ends idle playbacks with the gateway's own playback handler:
+// keeping where an abandoned one stopped needs the whole of it (a bare one
+// crashed Overfin).
+func TestJanitorEndsIdlePlaybacks(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "overfin.db")
+	cfgPath := filepath.Join(dir, "overfin.toml")
+	os.WriteFile(cfgPath, []byte(strings.ReplaceAll(baseConfig, "%DB%", dbPath)), 0o600)
+	cfg, err := config.Load(cfgPath, env("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := keys.Derive(cfg.Secrets.Key)
+	box, _ := seal.New(k.TokenEncryption)
+	db, err := store.Open(context.Background(), dbPath, box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jf, _ := jellyfin.New(cfg.Jellyfin.URL, "test")
+	sh := &shared{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), db: db, keys: k, jf: jf,
+		images: images.New(jf, 1<<20), tickets: playback.NewTickets(time.Hour)}
+	g, err := newGateway(cfgPath, cfg, sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Half watched, then abandoned.
+	now := time.Now()
+	s := &playback.Stream{AccountID: "acct", ProfileID: "prof", ItemID: fmt.Sprintf("%032x", 1),
+		Decision: playback.Decision{Method: "direct", Protocol: "file", Source: jellyfin.MediaSource{RunTimeTicks: 600_000_000}}}
+	sh.tickets.Add(s, 0, now)
+	sh.tickets.Progress(s, 300_000_000, false, now)
+	g.current.Load().playback.EndIdle(now.Add(api.IdleTimeout + time.Minute))
+	if len(sh.tickets.ForAccount("acct")) != 0 {
+		t.Error("the idle playback is still there")
+	}
+	time.Sleep(200 * time.Millisecond) // what follows runs in the background
 }

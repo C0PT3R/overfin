@@ -61,8 +61,10 @@ func (pb Playback) Register(r *plugin.Registrar) error {
 const IdleTimeout = 2 * time.Minute
 
 // RunJanitor ends idle playbacks, and their transcodes, until ctx is done.
-// Jellyfin doesn't stop abandoned transcodes by itself (rule 33).
-func (pb Playback) RunJanitor(ctx context.Context) {
+// Jellyfin doesn't stop abandoned transcodes by itself (rule 33). current
+// is the Playback in use now (settings reloads make a new one), whole: an
+// abandoned playback's position is kept like any other's.
+func RunJanitor(ctx context.Context, current func() Playback) {
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	for {
@@ -70,10 +72,15 @@ func (pb Playback) RunJanitor(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-tick.C:
-			for _, s := range pb.Tickets.Idle(now, IdleTimeout) {
-				pb.end(s, "expired", "")
-			}
+			current().EndIdle(now)
 		}
+	}
+}
+
+// EndIdle ends the playbacks idle at now.
+func (pb Playback) EndIdle(now time.Time) {
+	for _, s := range pb.Tickets.Idle(now, IdleTimeout) {
+		pb.end(s, "expired", "")
 	}
 }
 
