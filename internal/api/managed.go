@@ -191,6 +191,10 @@ func (m *Managed) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
 	if u == nil || !u.Confirmed || u.MustChange {
 		return "", false, false
 	}
+	// A disabled account is out of the panel too, at once (rule 16).
+	if a, err := m.Store.AccountBySubject(r.Context(), u.Subject); err == nil && a.Disabled {
+		return u.Email, false, false
+	}
 	return u.Email, u.Admin, !l.Fresh.IsZero() && time.Since(l.Fresh) < m.FreshFor
 }
 

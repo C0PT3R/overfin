@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -420,6 +421,40 @@ func TestManagedPasswordOwnerOnly(t *testing.T) {
 	}
 	if code := put(); code != 200 {
 		t.Errorf("the owner's new password: %d", code)
+	}
+}
+
+// An admin whose account is disabled loses the control panel at once
+// (rule 16), even signed in and fresh.
+func TestSiteAdminDisabledAccount(t *testing.T) {
+	var st *store.Store
+	var m *api.Managed
+	srv, _ := newServerWith(t, options{managed: true, store: &st, signIn: &m, freshFor: time.Minute})
+	ctx := context.Background()
+	boss, _ := st.CreateUser(ctx, "boss@example.org", true)
+	hash, _ := password.Hash("a long password 1")
+	st.SetPassword(ctx, boss.Subject, hash)
+	acct, _, _ := st.CreateAccount(ctx, boss.Subject, store.NewOwner{Name: "Boss"})
+	b := newBrowser(srv)
+	if c, out := signinPost(t, b, srv, "/api/v1/signin", checked(t, srv, map[string]any{"email": "boss@example.org", "password": "a long password 1"})); c != 200 {
+		t.Fatalf("signing in: %d %v", c, out)
+	}
+	ask := func() (string, bool, bool) {
+		r := httptest.NewRequest("GET", srv.URL+"/admin/login", nil)
+		u, _ := url.Parse(srv.URL)
+		for _, c := range b.Jar.Cookies(u) {
+			r.AddCookie(c)
+		}
+		return m.SiteAdmin(r)
+	}
+	if email, admin, fresh := ask(); email != "boss@example.org" || !admin || !fresh {
+		t.Fatalf("before: %q %v %v", email, admin, fresh)
+	}
+	if err := st.SetAccountDisabled(ctx, acct.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, admin, _ := ask(); admin {
+		t.Error("a disabled account is still an admin")
 	}
 }
 
