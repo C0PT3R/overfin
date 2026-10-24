@@ -161,8 +161,9 @@ only ever sees its own tables and reaches the core's data through its host;
 the core tells them of deleted profiles and accounts (`feature.Forgetter`),
 and existing installs' tables moved there once.
 
-**Connectors to sibling tools**, later: first Stewarr (storage
-intelligence for the *arr stack), which reads what Overfin knows (title
+**Connectors to sibling tools**, later: first Overtide (storage
+intelligence for the *arr stack, built from Stewarr, which stays a
+standalone tool), which reads what Overfin knows (title
 values and requests, never who) and decides what the server gets and
 keeps (see "Requests in Overfin" below).
 
@@ -686,7 +687,7 @@ nothing beyond what that needs.
     panel: nowhere (no request button), **Radarr and Sonarr** (their
     address and key, the quality profile and root folder to use; Overfin
     sends each request and reads its download status back), or
-    **Stewarr** (its address and key only; Stewarr holds the *arr, torrent
+    **Overtide** (its address and key only; Overtide holds the *arr, torrent
     and storage access). Switching hands the open requests over.
   - **Status** comes back to people in Overfin's words: approved, queued
     (and why: "traffic limit reached, expected tomorrow"), downloading,
@@ -709,7 +710,7 @@ nothing beyond what that needs.
   and counts ever leave Overfin, never who, and a title's watch and wish
   signals only once enough people are behind them, so a small server's
   values don't reveal one person's taste.
-- **Stewarr**, when the operator plugs requests into it, is the one that
+- **Overtide**, when the operator plugs requests into it, is the one that
   cares about storage. It reads the requests (by an anonymous account ID,
   for nothing but counting) and the values through Overfin's apps API, so
   it needs no TMDB key or ratings of its own any more. It sends requests to
@@ -719,7 +720,7 @@ nothing beyond what that needs.
   the server, weighs them with what only it knows (sizes, from the
   filesystem, and each torrent's value from the history it records), and
   decides what goes. It depends on Jellyfin as little as possible.
-  Overfin keeps the limits on people (quotas, approval, kids), Stewarr
+  Overfin keeps the limits on people (quotas, approval, kids), Overtide
   those on resources; the most wanted titles download first when
   resources are short. It tells Overfin each request's status and what's
   **leaving soon**, which titles then show, so people get a last chance
@@ -796,8 +797,7 @@ built on Overfin without changing it:
 
 ## Open questions
 
-- Stewarr: does it become public, an official part of the Overfin family?
-  And does it delete what goes out on its own, or propose it for the
+- Overtide: does it delete what goes out on its own, or propose it for the
   operator to approve?
 
 - Step-up checks the login time in the ID token rather than trusting
