@@ -454,7 +454,7 @@ func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) 
 		// When the profile last played the title, or any of its episodes.
 		order, ok = `(SELECT max(x.last_played_at) FROM profile_titles x JOIN catalog_items e ON x.title = e.title_key
 			WHERE x.profile_id = ? AND (e.id = catalog_items.id OR e.series_id = catalog_items.id OR e.season_id = catalog_items.id))`, true
-		orderArgs = []any{q.ProfileID, q.ProfileID}
+		orderArgs = []any{q.ProfileID}
 	}
 	if !ok {
 		return nil, fmt.Errorf("store: unknown sort %q", q.Sort)
@@ -464,17 +464,21 @@ func (s *Store) ListCatalog(ctx context.Context, q ListQuery) ([]string, error) 
 	if q.Descending {
 		dir = "DESC"
 	}
-	query := `SELECT id FROM catalog_items WHERE ` + strings.Join(where, " AND ") +
-		` ORDER BY ` + order + ` IS NULL, ` + order + ` ` + dir + `, sort_name COLLATE NOCASE, id LIMIT ? OFFSET ?`
-	args = append(args, orderArgs...)
-	return s.ids(ctx, query, append(args, q.Limit, q.Offset)...)
+	// One copy of each title (the same film in two libraries, 4K and HD):
+	// pages and counts are of titles.
+	query := `SELECT id FROM (SELECT id, sort_name, ` + order + ` AS o,
+			row_number() OVER (PARTITION BY coalesce(title_key, id) ORDER BY id) AS copy
+			FROM catalog_items WHERE ` + strings.Join(where, " AND ") + `)
+		WHERE copy = 1 ORDER BY o IS NULL, o ` + dir + `, sort_name COLLATE NOCASE, id LIMIT ? OFFSET ?`
+	return s.ids(ctx, query, append(append(orderArgs, args...), q.Limit, q.Offset)...)
 }
 
-// CountCatalog counts what a listing has in all.
+// CountCatalog counts the titles a listing has in all.
 func (s *Store) CountCatalog(ctx context.Context, q ListQuery) (int, error) {
 	where, args := q.where()
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM catalog_items WHERE `+strings.Join(where, " AND "), args...).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT count(DISTINCT coalesce(title_key, id)) FROM catalog_items WHERE `+
+		strings.Join(where, " AND "), args...).Scan(&n)
 	return n, err
 }
 

@@ -8,6 +8,40 @@ import (
 	"time"
 )
 
+// A film in two libraries (4K and HD) is one title in listings: once on
+// the pages, once in the count.
+func TestListingOneCopyPerTitle(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	id := func(n int) string { return strings.Repeat("0", 31) + string(rune('a'+n)) }
+	s.PutCatalog(ctx, []CatalogItem{
+		{ID: id(0), Kind: "movie", Name: "Arrival", SortName: "a", TMDB: "1", LibraryID: "films"},
+		{ID: id(1), Kind: "movie", Name: "Arrival", SortName: "a", TMDB: "1", LibraryID: "films-4k"},
+		{ID: id(2), Kind: "movie", Name: "Heat", SortName: "h", TMDB: "2", LibraryID: "films"},
+	}, 1)
+	if err := s.RefreshTitleKeys(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var all []string
+	for offset := 0; offset < 4; offset++ {
+		page, err := s.ListCatalog(ctx, ListQuery{Kinds: []string{"movie"}, Sort: "name", Offset: offset, Limit: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, page...)
+	}
+	if !slices.Equal(all, []string{id(0), id(2)}) {
+		t.Errorf("pages: %v", all)
+	}
+	if n, err := s.CountCatalog(ctx, ListQuery{Kinds: []string{"movie"}}); err != nil || n != 2 {
+		t.Errorf("count: %d %v", n, err)
+	}
+	// Within one library, its own copy.
+	if got, _ := s.ListCatalog(ctx, ListQuery{LibraryID: "films-4k", Sort: "name", Limit: 10}); !slices.Equal(got, []string{id(1)}) {
+		t.Errorf("the 4K library: %v", got)
+	}
+}
+
 // A hidden tag hides it whatever the case of any letter, accented ones
 // too, as the tags listed and the profile's settings count them.
 func TestHiddenTagAnyCase(t *testing.T) {
