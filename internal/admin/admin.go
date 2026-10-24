@@ -432,9 +432,11 @@ func (p *Panel) signedIn(h func(http.ResponseWriter, *http.Request, *session)) h
 	return func(w http.ResponseWriter, r *http.Request) {
 		s := p.current(r)
 		if s != nil && p.SiteAdmin != nil {
-			// Still the same admin on the site: signing out there, or
-			// losing the admin flag, ends the panel's session too.
-			if email, isAdmin, _ := p.SiteAdmin(r); email != s.name || !isAdmin {
+			// Still the same admin on the site, on their own profile:
+			// signing out there, losing the admin flag, or handing the
+			// browser over on another profile ends the panel's session too.
+			email, isAdmin, _ := p.SiteAdmin(r)
+			if email != s.name || !isAdmin || (p.SiteOwner != nil && !p.SiteOwner(r)) {
 				c, _ := cookie.Get(r, cookieName)
 				p.mu.Lock()
 				delete(p.sessions, hashToken(c.Value))

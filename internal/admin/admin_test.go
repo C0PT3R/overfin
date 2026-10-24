@@ -345,7 +345,21 @@ func TestPanelOnSite(t *testing.T) {
 	if rec := do("/admin/api/session", internet); rec.Code != 200 || !strings.Contains(rec.Body.String(), "bob@example.org") {
 		t.Fatalf("signed in: %d %s", rec.Code, rec.Body)
 	}
-	// Signed out on the site, or no longer an admin: out of the panel too.
+	// On another profile on the site, or signed out there, or no longer an
+	// admin: out of the panel too.
+	who.owner = false
+	if rec := do("/admin/api/session", internet); rec.Code != 401 {
+		t.Errorf("on another profile: %d", rec.Code)
+	}
+	who.owner = true
+	for _, c := range do("/admin/login?return=/admin/", internet).Result().Cookies() {
+		if c.Name == cookieName {
+			cookie = c
+		}
+	}
+	if rec := do("/admin/api/session", internet); rec.Code != 200 {
+		t.Fatalf("signed in again: %d", rec.Code)
+	}
 	who.admin = false
 	if rec := do("/admin/api/session", internet); rec.Code != 401 {
 		t.Errorf("no longer an admin: %d", rec.Code)
