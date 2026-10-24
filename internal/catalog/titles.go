@@ -128,6 +128,11 @@ func (a *Titles) Once(ctx context.Context) error {
 			if failed[t.Key()] {
 				continue
 			}
+			// TMDB removed meanwhile: its data was just deleted, and none is
+			// written back.
+			if a.Source() == nil {
+				return nil
+			}
 			progress = true
 			images, err := a.fetch(ctx, src, t)
 			switch {

@@ -159,6 +159,11 @@ func (k *Keeper) Once(ctx context.Context) error {
 			if failed[t] {
 				continue
 			}
+			// TMDB removed meanwhile: its data was just deleted, and none is
+			// written back.
+			if k.Source() == nil {
+				return nil
+			}
 			progress = true
 			// A title TMDB doesn't know has no certification: it's kept as
 			// such (hidden from kids), and not asked for again until later.

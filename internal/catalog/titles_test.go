@@ -137,3 +137,50 @@ func (f *fakeTitles) Seasons(ctx context.Context, series int, numbers []int) (ma
 	}
 	return out, nil
 }
+
+// countingTitles is fakeTitles counting the titles asked for.
+type countingTitles struct {
+	fakeTitles
+	asked int
+	after func()
+}
+
+func (c *countingTitles) Title(ctx context.Context, kind string, id int) (*tmdb.Full, error) {
+	c.asked++
+	if c.after != nil {
+		c.after()
+	}
+	return c.fakeTitles.Title(ctx, kind, id)
+}
+
+// TMDB removed while a pass runs (its data deleted): the pass stops, and
+// writes none of it back.
+func TestTitlesStopWhenTMDBGoes(t *testing.T) {
+	box, _ := seal.New(bytes.Repeat([]byte{9}, 32))
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "t.db"), box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	st.PutCatalog(ctx, []store.CatalogItem{
+		{ID: id(1), Kind: "movie", Name: "One", SortName: "a", TMDB: "11"},
+		{ID: id(2), Kind: "movie", Name: "Two", SortName: "b", TMDB: "12"},
+		{ID: id(3), Kind: "movie", Name: "Three", SortName: "c", TMDB: "13"},
+	}, 1)
+	gone := false
+	src := &countingTitles{}
+	src.after = func() { gone = true }
+	k := NewTitles(func() TitleSource {
+		if gone {
+			return nil
+		}
+		return src
+	}, st, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 0)
+	if err := k.Once(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if src.asked != 1 {
+		t.Errorf("titles asked after TMDB went: %d", src.asked-1)
+	}
+}
