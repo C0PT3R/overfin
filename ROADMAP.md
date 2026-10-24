@@ -161,9 +161,10 @@ only ever sees its own tables and reaches the core's data through its host;
 the core tells them of deleted profiles and accounts (`feature.Forgetter`),
 and existing installs' tables moved there once.
 
-**Connectors to sibling tools**, later: for example Stewarr (storage
-intelligence for the *arr stack), which could read what Overfin knows
-(watchlist counts per title, never who) and tell Overfin what's leaving soon.
+**Connectors to sibling tools**, later: first Stewarr (storage
+intelligence for the *arr stack), which reads what Overfin knows (title
+scores and requests, never who) and decides what the server gets and
+keeps (see "Requests in Overfin" below).
 
 ## Milestone 2: administration
 
@@ -673,7 +674,47 @@ nothing beyond what that needs.
   user if it's gone. Seerr approves and counts requests as it does on its
   own, and is kept private on the network (rule 47). "Ignore quota" is
   never set for people. Problem reports may come later, through Seerr's
-  issues.
+  issues. To be replaced by requests in Overfin (next).
+- **Requests in Overfin, without Seerr.** Seerr does little Overfin
+  doesn't already: TMDB's data is Overfin's own since 0.4, and requests
+  only pass through it. So Overfin keeps them itself:
+  - **Requests, quotas and approval** are Overfin's: per account (how many,
+    how often, approved at once or by an admin), kids limits as today, a
+    list of requests in the panel. They're the account's own data (in its
+    export, gone with it).
+  - **Where approved requests go** is one setting, in the wizard and the
+    panel: nowhere (no request button), **Radarr and Sonarr** (their
+    address and key, the quality profile and root folder to use; Overfin
+    sends each request and reads its download status back), or
+    **Stewarr** (its address and key only; Stewarr holds the *arr, torrent
+    and storage access). Switching hands the open requests over.
+  - **Status** comes back to people in Overfin's words: approved, queued
+    (and why: "traffic limit reached, expected tomorrow"), downloading,
+    available, refused (and why), and later "leaving soon". "Your request
+    is available" by email, with the email templates.
+  - **Leaving Seerr:** its requests are copied into Overfin once, as the
+    watch history is; then Seerr support goes.
+- **Title scores**, for what the server gets. Overfin scores titles from
+  two signals: what people say they want (each account's owner names
+  titles they'd like on the server, asked at onboarding and changeable any
+  time; the wishes are the account's own data, in its export, gone with
+  it), and what they actually watch (finished, rewatched, a series
+  followed to the end, given up early), older activity counting less.
+  Wishes reach titles not on the server through TMDB's similar titles.
+  Each signal's score is given apart, with the combined one. Only per-title
+  scores and counts ever leave Overfin, never who, and a title's score
+  only once enough people are behind it, so a small server's scores don't
+  reveal one person's taste.
+- **Stewarr**, when the operator plugs requests into it: it reads the
+  requests (by an anonymous account ID, for nothing but counting) and the
+  scores through Overfin's apps API, mixes them with what it knows of the
+  torrents, and decides what goes in and what goes out. It sends requests
+  to Radarr and Sonarr itself, and keeps the resource limits: storage per
+  library, genre and so on, traffic and simultaneous downloads, seeding.
+  Overfin keeps the limits on people (quotas, approval, kids), Stewarr
+  those on resources; the most wanted titles download first when
+  resources are short. It tells Overfin each request's status and what's
+  leaving soon.
 - Profile avatars, profile transfers.
 - ~~Trickplay~~ (done), lyrics, bitrate test.
 
@@ -688,14 +729,6 @@ nothing beyond what that needs.
   whether the GPU does it, and how far ahead the server has prepared the
   video, shown as the ready part of the seek bar. A "Playback info" panel
   in overfin-web.
-- **What people would like on the server, feeding what it gets.** Each
-  account's owner says what they would want to see on the server, in
-  terms of titles: asked at onboarding (account setup), and changeable
-  any time after. Those wishes, with live statistics of how people
-  actually watch, feed an algorithm that generates import lists for
-  Radarr and Sonarr. The wishes are the account's own data (in its
-  export, gone with it).
-
 - **Native-app login.** Today's login works in browsers (and webview apps).
   Native apps, including third-party ones, need:
   - signing in through the system browser (OAuth with PKCE), and on TVs a
@@ -754,6 +787,9 @@ built on Overfin without changing it:
 
 ## Open questions
 
+- Stewarr: does it become public, an official part of the Overfin family?
+  And does it delete what goes out on its own, or propose it for the
+  operator to approve?
 
 - Step-up checks the login time in the ID token rather than trusting
   `prompt=login`. Confirm each supported identity provider updates it on a
