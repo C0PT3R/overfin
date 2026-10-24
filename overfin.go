@@ -509,11 +509,11 @@ func run(logger *slog.Logger) error {
 		case managed && a.Enabled():
 			// Only on its own listener, private, which serves the site's
 			// sign-in too: admins sign in there, on that address.
-			p.Provider, p.SiteAdmin, p.Directory, p.People, p.Mail = nil, gw.SiteAdmin, admin.Users{Store: db}, gw, gw
+			p.Provider, p.SiteAdmin, p.SiteOwner, p.Directory, p.People, p.Mail = nil, gw.SiteAdmin, gw.SiteOwner, admin.Users{Store: db}, gw, gw
 			panel.set(admin.PrivateOnly(withPanel(gw, p.SiteHandler(false))))
 		case managed:
 			// At /admin/ on the site, for its admins.
-			p.Provider, p.SiteAdmin, p.Directory, p.People, p.Mail = nil, gw.SiteAdmin, admin.Users{Store: db}, gw, gw
+			p.Provider, p.SiteAdmin, p.SiteOwner, p.Directory, p.People, p.Mail = nil, gw.SiteAdmin, gw.SiteOwner, admin.Users{Store: db}, gw, gw
 			site.set(withPanel(gw, p.SiteHandler(a.Private)))
 		default:
 			panel.set(p.Handler())

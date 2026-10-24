@@ -148,6 +148,10 @@ type Panel struct {
 	// they confirmed it's them in the last few minutes. Admins then sign in
 	// to the panel through the site's own sign-in, not Provider.
 	SiteAdmin func(r *http.Request) (email string, admin, fresh bool)
+	// SiteOwner, with SiteAdmin, says whether the site's session in this
+	// browser uses the admin's own account's owner profile (or they have
+	// no account): another profile here shares their login.
+	SiteOwner func(r *http.Request) bool
 	// People, with managed sign-in, sends invitations by email; the People view
 	// lists who may sign in.
 	People People
@@ -564,6 +568,9 @@ func (p *Panel) siteLogin(w http.ResponseWriter, r *http.Request) {
 	case !isAdmin:
 		p.Logger.Warn("admin sign-in refused: not an admin")
 		http.Error(w, "This account is not an administrator of this server", http.StatusForbidden)
+	case p.SiteOwner != nil && !p.SiteOwner(r):
+		p.Logger.Warn("admin sign-in refused: another profile than the account owner's is in use")
+		http.Error(w, "Switch to your own profile on the site (the account owner's), then open the control panel again.", http.StatusForbidden)
 	case !fresh:
 		http.Redirect(w, r, "/signin?"+url.Values{"fresh": {"1"}, "return": {back}}.Encode(), http.StatusSeeOther)
 	default:

@@ -640,6 +640,34 @@ func (m *Managed) setPassword(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]bool{"hasPassword": true})
 }
 
+// SiteOwner reports whether the person signed in uses, in this browser,
+// their account's owner profile (or has no account yet): only then does
+// their login open the control panel on the site. Whoever uses another
+// profile here shares that login, fresh for a few minutes after each
+// sign-in (rule 25).
+func (m *Managed) SiteOwner(r *http.Request) bool {
+	_, u := m.current(r)
+	if u == nil {
+		return false
+	}
+	ctx := r.Context()
+	acct, owner, err := m.Provisioner.Find(ctx, identity.Identity{Subject: u.Subject})
+	if errors.Is(err, provision.ErrNoAccount) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	if c, err := cookie.Get(r, CookieName); err == nil && len(c.Value) <= 64 {
+		if sess, err := m.Store.SessionByToken(ctx, c.Value); err == nil && sess.AccountID == acct.ID {
+			return sess.ActiveProfileID == owner.ID || (sess.ActiveProfileID == "" && !owner.HasPIN)
+		}
+	}
+	// No session here yet: one would start on the owner profile, unless
+	// it has a PIN.
+	return !owner.HasPIN
+}
+
 // ownerHere says whether this browser uses the account owner's profile,
 // answering otherwise: the sign-in is the whole account's (SECURITY.md
 // rule 25), and whoever uses another profile here shares its login, fresh

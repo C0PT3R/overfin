@@ -440,6 +440,15 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // SiteAdmin is who's signed in with managed sign-in, for the control
 // panel on the site's address (api.Managed.SiteAdmin); nobody in other
 // modes.
+// SiteOwner is api.Managed.SiteOwner; true in other modes, which have no
+// panel on the site.
+func (g *gateway) SiteOwner(r *http.Request) bool {
+	if m := g.current.Load().managed; m != nil {
+		return m.SiteOwner(r)
+	}
+	return true
+}
+
 func (g *gateway) SiteAdmin(r *http.Request) (email string, admin, fresh bool) {
 	if m := g.current.Load().managed; m != nil {
 		return m.SiteAdmin(r)

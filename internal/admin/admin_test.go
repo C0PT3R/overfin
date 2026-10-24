@@ -297,10 +297,11 @@ func TestProviderRefusalIsShown(t *testing.T) {
 func TestPanelOnSite(t *testing.T) {
 	p := &Panel{Features: &memFeatures{f: config.DefaultFeatures()}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	who := struct {
-		email        string
-		admin, fresh bool
+		email               string
+		admin, fresh, owner bool
 	}{}
 	p.SiteAdmin = func(*http.Request) (string, bool, bool) { return who.email, who.admin, who.fresh }
+	p.SiteOwner = func(*http.Request) bool { return who.owner }
 	h := p.SiteHandler(false)
 	var cookie *http.Cookie
 	do := func(path, peer string) *httptest.ResponseRecorder {
@@ -316,18 +317,21 @@ func TestPanelOnSite(t *testing.T) {
 	const internet = "203.0.113.5:4000"
 
 	steps := []struct {
-		email        string
-		admin, fresh bool
-		code         int
-		location     string
+		email               string
+		admin, fresh, owner bool
+		code                int
+		location            string
 	}{
-		{"", false, false, 303, "/signin?return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
-		{"ann@example.org", false, true, 403, ""},
-		{"bob@example.org", true, false, 303, "/signin?fresh=1&return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
-		{"bob@example.org", true, true, 303, "/admin/"},
+		{"", false, false, false, 303, "/signin?return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
+		{"ann@example.org", false, true, true, 403, ""},
+		// Another profile than the account owner's, in this browser: a kid
+		// on the admin's TV, just signed in.
+		{"bob@example.org", true, true, false, 403, ""},
+		{"bob@example.org", true, false, true, 303, "/signin?fresh=1&return=%2Fadmin%2Flogin%3Freturn%3D%252Fadmin%252F"},
+		{"bob@example.org", true, true, true, 303, "/admin/"},
 	}
 	for _, s := range steps {
-		who.email, who.admin, who.fresh = s.email, s.admin, s.fresh
+		who.email, who.admin, who.fresh, who.owner = s.email, s.admin, s.fresh, s.owner
 		rec := do("/admin/login?return=/admin/", internet)
 		if rec.Code != s.code || rec.Header().Get("Location") != s.location {
 			t.Errorf("%+v: %d %s", s, rec.Code, rec.Header().Get("Location"))

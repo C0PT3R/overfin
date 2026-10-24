@@ -458,6 +458,48 @@ func TestSiteAdminDisabledAccount(t *testing.T) {
 	}
 }
 
+// The panel opens on the site only from the account owner's profile: a kid
+// using a browser an admin just signed in shares the admin's fresh login.
+func TestSiteOwner(t *testing.T) {
+	var st *store.Store
+	var m *api.Managed
+	srv, _ := newServerWith(t, options{managed: true, store: &st, signIn: &m, freshFor: time.Minute})
+	ctx := context.Background()
+	boss, _ := st.CreateUser(ctx, "boss@example.org", true)
+	hash, _ := password.Hash("a long password 1")
+	st.SetPassword(ctx, boss.Subject, hash)
+	b := newBrowser(srv)
+	if c, out := signinPost(t, b, srv, "/api/v1/signin", checked(t, srv, map[string]any{"email": "boss@example.org", "password": "a long password 1"})); c != 200 {
+		t.Fatalf("signing in: %d %v", c, out)
+	}
+	owner := func() bool {
+		r := httptest.NewRequest("GET", srv.URL+"/admin/login", nil)
+		u, _ := url.Parse(srv.URL)
+		for _, c := range b.Jar.Cookies(u) {
+			r.AddCookie(c)
+		}
+		return m.SiteOwner(r)
+	}
+	if !owner() {
+		t.Error("no account yet")
+	}
+	acct, main, _ := st.CreateAccount(ctx, boss.Subject, store.NewOwner{Name: "Boss"})
+	kid, _ := st.AddProfile(ctx, acct.ID, store.NewProfile{Name: "Kid", Kind: "kids", MovieCeiling: "G", SeriesCeiling: "TV-Y"}, 5)
+	if !owner() {
+		t.Error("no session yet, no PIN: the owner's")
+	}
+	if c, out := signinPost(t, b, srv, "/api/v1/profiles/"+kid.ID+"/activate", map[string]any{}); c != 200 {
+		t.Fatalf("to the kid: %d %v", c, out)
+	}
+	if owner() {
+		t.Error("on the kid's profile")
+	}
+	signinPost(t, b, srv, "/api/v1/profiles/"+main.ID+"/activate", map[string]any{})
+	if !owner() {
+		t.Error("back on the owner's")
+	}
+}
+
 // Only wrong passwords count towards an email's limit: someone signing in
 // often isn't locked out, and the right password starts the count over.
 // (Each server allows 20 tries a minute from one address.)
