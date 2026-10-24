@@ -170,11 +170,27 @@ func (s *Store) PurgeTitles(ctx context.Context, before time.Time) (int64, error
 		(SELECT 1 FROM catalog_titles t WHERE t.kind = catalog_lists.kind AND t.tmdb = catalog_lists.tmdb)`); err != nil {
 		return 0, err
 	}
+	// Texts in other languages, and IDs found from IMDb's or TVDB's, as
+	// long as the rest; a series' seasons and episodes go with its texts.
+	for _, q := range []string{
+		`DELETE FROM catalog_title_texts WHERE fetched_at < ?`,
+		`DELETE FROM tmdb_found WHERE fetched_at < ?`,
+	} {
+		if _, err := s.db.ExecContext(ctx, q, before.Unix()); err != nil {
+			return 0, err
+		}
+	}
+	for _, table := range []string{"catalog_season_texts", "catalog_episode_texts"} {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE NOT EXISTS (SELECT 1 FROM catalog_title_texts t
+			WHERE t.kind = 'series' AND t.tmdb = `+table+`.series AND t.language = `+table+`.language)`); err != nil {
+			return 0, err
+		}
+	}
 	return res.RowsAffected()
 }
 
-// ForgetTMDB deletes every title, list and certification: Overfin no longer uses TMDB's
-// data, and its terms ask for it to be deleted then.
+// ForgetTMDB deletes every title, list, certification and text: Overfin no
+// longer uses TMDB's data, and its terms ask for it to be deleted then.
 func (s *Store) ForgetTMDB(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -183,7 +199,8 @@ func (s *Store) ForgetTMDB(ctx context.Context) error {
 	defer tx.Rollback()
 	for _, q := range []string{`DELETE FROM catalog_lists`, `DELETE FROM catalog_titles`,
 		`DELETE FROM rating_scales`, `DELETE FROM title_ratings`, `DELETE FROM title_ratings_fetched`,
-		`DELETE FROM artwork`, `DELETE FROM artwork_fetched`, `DELETE FROM catalog_episodes`, `DELETE FROM catalog_seasons`, `DELETE FROM tmdb_people`} {
+		`DELETE FROM artwork`, `DELETE FROM artwork_fetched`, `DELETE FROM catalog_episodes`, `DELETE FROM catalog_seasons`, `DELETE FROM tmdb_people`,
+		`DELETE FROM catalog_title_texts`, `DELETE FROM catalog_season_texts`, `DELETE FROM catalog_episode_texts`, `DELETE FROM tmdb_found`} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}
