@@ -458,6 +458,39 @@ func TestSiteAdminDisabledAccount(t *testing.T) {
 	}
 }
 
+// Only wrong passwords count towards an email's limit: someone signing in
+// often isn't locked out, and the right password starts the count over.
+// (Each server allows 20 tries a minute from one address.)
+func TestSigninLimitCountsWrongPasswords(t *testing.T) {
+	server := func() func(pw string) int {
+		var st *store.Store
+		srv, _ := newServerWith(t, options{managed: true, store: &st})
+		ctx := context.Background()
+		ann, _ := st.CreateUser(ctx, "ann@example.org", false)
+		hash, _ := password.Hash("a long password 1")
+		st.SetPassword(ctx, ann.Subject, hash)
+		return func(pw string) int {
+			c, _ := signinPost(t, newBrowser(srv), srv, "/api/v1/signin", checked(t, srv, map[string]any{"email": "ann@example.org", "password": pw}))
+			return c
+		}
+	}
+	try := server()
+	for i := range 11 {
+		if c := try("a long password 1"); c != 200 {
+			t.Fatalf("sign-in %d: %d", i+1, c)
+		}
+	}
+	try = server()
+	for round := range 2 {
+		for range 9 {
+			try("a wrong one")
+		}
+		if c := try("a long password 1"); c != 200 {
+			t.Fatalf("round %d, after 9 wrong: %d", round+1, c)
+		}
+	}
+}
+
 // An email goes out in the account's language, whatever the browser's.
 func TestSigninEmailLanguage(t *testing.T) {
 	box := &mailbox{}

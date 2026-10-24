@@ -317,11 +317,13 @@ func (m *Managed) signIn(w http.ResponseWriter, r *http.Request) {
 	}
 	right := password.Check(hash, req.Password)
 	<-m.hashing
-	switch {
-	case !right || u == nil || u.PasswordHash == "" || u.Disabled:
+	if !right || u == nil || u.PasswordHash == "" || u.Disabled {
 		m.refuse(w, r, problem.SigninFailed, "wrongPassword")
 		return
-	case !u.Confirmed:
+	}
+	// Only wrong passwords count: signing in often isn't trying.
+	m.byEmail.forget(strings.ToLower(req.Email))
+	if !u.Confirmed {
 		// Only with the right password: it tells nothing to anyone else.
 		writeOK(w, map[string]bool{"unconfirmed": true})
 		return
@@ -939,6 +941,13 @@ type windowLimiter struct {
 	window time.Duration
 	mu     sync.Mutex
 	recent map[string][]time.Time
+}
+
+// forget clears key's tries.
+func (l *windowLimiter) forget(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.recent, key)
 }
 
 func (l *windowLimiter) allow(key string, now time.Time) bool {
