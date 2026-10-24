@@ -560,6 +560,39 @@ func TestPagesInDefaultLanguage(t *testing.T) {
 	}
 }
 
+// "Sign out all other devices" signs them out: their logins end with their
+// sessions, or they'd start a new session at their next request.
+func TestSignOutOtherDevices(t *testing.T) {
+	var st *store.Store
+	srv, _ := newServerWith(t, options{managed: true, store: &st})
+	ctx := context.Background()
+	ann, _ := st.CreateUser(ctx, "ann@example.org", false)
+	hash, _ := password.Hash("a long password 1")
+	st.SetPassword(ctx, ann.Subject, hash)
+	st.CreateAccount(ctx, ann.Subject, store.NewOwner{Name: "Ann"})
+	here, there := newBrowser(srv), newBrowser(srv)
+	for _, b := range []*http.Client{here, there} {
+		if c, out := signinPost(t, b, srv, "/api/v1/signin", checked(t, srv, map[string]any{"email": "ann@example.org", "password": "a long password 1"})); c != 200 {
+			t.Fatalf("signing in: %d %v", c, out)
+		}
+		if res, _ := visit(t, b, srv, "/api/v1/me", nil); res.StatusCode != 200 {
+			t.Fatalf("me: %d", res.StatusCode)
+		}
+	}
+	req, _ := http.NewRequest("DELETE", srv.URL+"/api/v1/sessions", nil)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	res, err := here.Do(req)
+	if err != nil || res.StatusCode != 204 {
+		t.Fatalf("signing out the others: %v %v", res, err)
+	}
+	if res, _ := visit(t, there, srv, "/api/v1/me", nil); res.StatusCode != 401 {
+		t.Errorf("the other device, after: %d", res.StatusCode)
+	}
+	if res, _ := visit(t, here, srv, "/api/v1/me", nil); res.StatusCode != 200 {
+		t.Errorf("this device, after: %d", res.StatusCode)
+	}
+}
+
 // Only wrong passwords count towards an email's limit: someone signing in
 // often isn't locked out, and the right password starts the count over.
 // (Each server allows 20 tries a minute from one address.)

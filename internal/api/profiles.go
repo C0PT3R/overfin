@@ -775,9 +775,20 @@ func (p Profiles) endOtherSessions(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.OwnerOnly, "")
 		return
 	}
-	if err := p.Store.DeleteOtherSessions(r.Context(), c.Account.ID, c.Session.ID); err != nil {
+	ctx := r.Context()
+	if err := p.Store.DeleteOtherSessions(ctx, c.Account.ID, c.Session.ID); err != nil {
 		problem.Send(w, problem.Internal, "")
 		return
+	}
+	// The other devices' logins end too, or they'd start a new session at
+	// their next request: signed out for real. This browser's stays.
+	if ck, err := cookie.Get(r, LoginCookie); err == nil && len(ck.Value) <= 64 {
+		if l, err := p.Store.LoginByToken(ctx, ck.Value); err == nil && l.Subject == c.Account.Subject {
+			if err := p.Store.DeleteOtherLogins(ctx, l.Subject, l.ID); err != nil {
+				problem.Send(w, problem.Internal, "")
+				return
+			}
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
