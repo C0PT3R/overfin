@@ -224,4 +224,13 @@ func TestConvert(t *testing.T) {
 	if _, ok := convert(jellyfin.RawItem{Id: id(1), Type: "Folder"}); ok {
 		t.Error("a folder was indexed")
 	}
+	// Every tag is kept: a hidden one far down the list still hides.
+	var tags []string
+	for i := range 60 {
+		tags = append(tags, fmt.Sprintf("keyword %d", i))
+	}
+	it, _ = convert(jellyfin.RawItem{Id: id(1), Type: "Movie", Name: "Gore", Tags: append(tags, "gore")})
+	if !slices.Contains(it.Tags, "gore") {
+		t.Errorf("tags: %d kept, not the 61st", len(it.Tags))
+	}
 }

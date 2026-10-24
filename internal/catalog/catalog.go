@@ -496,8 +496,10 @@ func convert(raw jellyfin.RawItem) (store.CatalogItem, bool) {
 			it.Studios = append(it.Studios, name)
 		}
 	}
+	// Tags hide titles from profiles (SECURITY.md rule 28): every one is
+	// kept, up to a bound no real title reaches.
 	for _, tag := range raw.Tags {
-		if name := textclean.Plain(tag, 128); name != "" && len(it.Tags) < 50 {
+		if name := textclean.Plain(tag, 128); name != "" && len(it.Tags) < maxTags {
 			it.Tags = append(it.Tags, name)
 		}
 	}
@@ -528,3 +530,6 @@ func splitPath(p string) (dir, name string) {
 	i := strings.LastIndexAny(p, `/\`)
 	return p[:max(i, 0)], p[i+1:]
 }
+
+// maxTags is how many tags of a title the index keeps.
+const maxTags = 500
