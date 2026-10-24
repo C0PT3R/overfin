@@ -209,11 +209,19 @@ func OpenAccess(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth) (
 		return "", "", err
 	}
 	policy, err := jf.UserPolicy(ctx, admin, id)
+	if err == nil {
+		policy["IsAdministrator"] = true
+		err = jf.SetUserPolicy(ctx, admin, id, policy)
+	}
 	if err != nil {
+		// Not left half made: a user of that name who isn't an
+		// administrator would stop every later try.
+		if derr := jf.DeleteUser(context.WithoutCancel(ctx), admin, id); derr != nil {
+			return "", "", fmt.Errorf("%w (and removing %s again: %v)", err, AdminName, derr)
+		}
 		return "", "", err
 	}
-	policy["IsAdministrator"] = true
-	return AdminName, password, jf.SetUserPolicy(ctx, admin, id, policy)
+	return AdminName, password, nil
 }
 
 // Tidy revokes the keys Overfin made on earlier takeovers, keeping key, and

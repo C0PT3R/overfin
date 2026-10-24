@@ -24,10 +24,11 @@ type Jellyfin struct {
 	Tokens    map[string]string // login token → user name
 	LoggedOut int
 	Writes    []string // what changed, in order
-	// FailKeys is how many of the next requests to make a key fail, and
-	// FailPasswords how many of those to set a password.
-	FailKeys, FailPasswords int
-	made                    int // keys made so far
+	// FailKeys is how many of the next requests to make a key fail,
+	// FailPasswords how many of those to set a password, FailPolicies
+	// those to set a user's policy.
+	FailKeys, FailPasswords, FailPolicies int
+	made                                  int // keys made so far
 }
 
 // UserID is the ID the fake gives a user.
@@ -153,6 +154,13 @@ func (f *Jellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(route, "GET /Users/"):
 		n := f.byID(strings.TrimPrefix(r.URL.Path, "/Users/"))
 		reply(map[string]any{"Policy": map[string]any{"IsAdministrator": f.Users[n].Admin, "IsHidden": false}})
+	case strings.HasPrefix(route, "POST /Users/") && strings.HasSuffix(route, "/Policy") && f.FailPolicies > 0:
+		f.FailPolicies--
+		w.WriteHeader(http.StatusInternalServerError)
+	case strings.HasPrefix(route, "DELETE /Users/"):
+		n := f.byID(strings.TrimPrefix(r.URL.Path, "/Users/"))
+		delete(f.Users, n)
+		f.Writes = append(f.Writes, "DELETE /Users "+n)
 	case strings.HasPrefix(route, "POST /Users/") && strings.HasSuffix(route, "/Policy"):
 		n := f.byID(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/Users/"), "/Policy"))
 		u := f.Users[n]

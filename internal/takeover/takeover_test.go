@@ -137,6 +137,16 @@ func TestAccess(t *testing.T) {
 		t.Errorf("alice still signs in: %v", err)
 	}
 
+	// Making it an administrator fails: it isn't left half made, and the
+	// next try works.
+	f.FailPolicies = 1
+	if _, _, err := takeover.OpenAccess(ctx, jf, a); err == nil {
+		t.Fatal("opened with a failing policy")
+	}
+	if _, ok := f.Users[takeover.AdminName]; ok {
+		t.Fatal("left a user who isn't an administrator")
+	}
+
 	// Opened: Overfin's own administrator, made since there's none, with
 	// the password given once.
 	name, password, err := takeover.OpenAccess(ctx, jf, a)
