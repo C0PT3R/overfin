@@ -69,7 +69,8 @@ func (Feature) ForgetAccount(context.Context, *sql.DB, string) error { return ni
 
 // Export includes the profile's watchlist in "Download my data".
 func (Feature) Export(ctx context.Context, h feature.Host, c *feature.Caller) (any, error) {
-	return items(ctx, h.DB(), c)
+	// The whole list, as kept (SECURITY.md rule 52).
+	return items(ctx, h.DB(), c, true)
 }
 
 type handlers struct {
@@ -143,8 +144,9 @@ func toTitles(ctx context.Context, db *sql.DB, c *feature.Caller) error {
 }
 
 // items reads the watchlist's titles through the backend as the caller, in
-// the list's order: what the profile can't see, or what's gone, is left out.
-func items(ctx context.Context, db *sql.DB, c *feature.Caller) ([]feature.Title, error) {
+// the list's order: what the profile can't see, or what's gone, is left
+// out, or with all, comes with its ID alone.
+func items(ctx context.Context, db *sql.DB, c *feature.Caller, all bool) ([]feature.Title, error) {
 	list, err := ids(ctx, db, c)
 	if err != nil {
 		return nil, err
@@ -161,13 +163,15 @@ func items(ctx context.Context, db *sql.DB, c *feature.Caller) ([]feature.Title,
 	for _, id := range list {
 		if it, ok := byID[id]; ok {
 			out = append(out, it)
+		} else if all {
+			out = append(out, feature.Title{ID: id})
 		}
 	}
 	return out, nil
 }
 
 func (w handlers) list(c *feature.Caller, rw http.ResponseWriter, r *http.Request) {
-	out, err := items(r.Context(), w.db, c)
+	out, err := items(r.Context(), w.db, c, false)
 	if err != nil {
 		w.log.Error("reading a watchlist failed", "err", err)
 		feature.Problem(rw, feature.Internal, "")

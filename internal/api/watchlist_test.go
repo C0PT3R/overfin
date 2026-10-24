@@ -73,13 +73,24 @@ func TestWatchlistModule(t *testing.T) {
 	}
 	// Private to the profile.
 	_, body = post(t, srv, "/api/v1/profiles", `{"name":"Partner"}`)
-	post(t, srv, "/api/v1/profiles/"+between(body, `"id":"`, `"`)+"/activate", `{}`)
+	partner := between(body, `"id":"`, `"`)
+	post(t, srv, "/api/v1/profiles/"+partner+"/activate", `{}`)
 	if code, body := getAs(t, srv, subject, "/api/v1/me/watchlist"); code != 200 || strings.Contains(body, movie3) {
 		t.Errorf("another profile's watchlist: %d %s", code, body)
 	}
-	// From that profile (no PIN), its own export includes its (empty) list.
+	// From that profile (no PIN), its own export includes its list, all of
+	// it: a title it can't see (now, or any more) by its ID alone.
 	if code, body := post(t, srv, "/api/v1/me/export", `{}`); code != 200 || !strings.Contains(body, `"watchlist":[]`) {
 		t.Errorf("export with the module's part: %d %s", code, body)
+	}
+	if _, err := dbs["watchlist"].Exec(`INSERT INTO watchlist (profile_id, item_id, added_at) VALUES (?, 'title_movie_tmdb_99', 2)`, partner); err != nil {
+		t.Fatal(err)
+	}
+	if _, body := getAs(t, srv, subject, "/api/v1/me/watchlist"); strings.Contains(body, "tmdb_99") {
+		t.Errorf("listed a title it can't see: %s", body)
+	}
+	if code, body := post(t, srv, "/api/v1/me/export", `{}`); code != 200 || !strings.Contains(body, `"id":"title_movie_tmdb_99"`) {
+		t.Errorf("export without the entry it can't see: %d %s", code, body)
 	}
 }
 
