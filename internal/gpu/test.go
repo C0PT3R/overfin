@@ -48,7 +48,7 @@ const (
 // 10-bit, preferably HDR, and AV1, those the libraries have), and puts the
 // transcoding settings back as they were. progress, when set, hears how
 // many videos there are, then each result as it comes.
-func Test(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, f Family, device string, progress func(total int, done []Result)) ([]Result, error) {
+func Test(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, f Family, device string, progress func(total int, done []Result)) (results []Result, err error) {
 	if progress == nil {
 		progress = func(int, []Result) {}
 	}
@@ -75,10 +75,15 @@ func Test(ctx context.Context, jf *jellyfin.Client, admin jellyfin.Auth, f Famil
 	if err := jf.SetSettings(ctx, admin, "encoding", trial); err != nil {
 		return nil, err
 	}
-	defer jf.SetSettings(context.WithoutCancel(ctx), admin, "encoding", before)
+	// Put back, or said: settings for a GPU that failed would break every
+	// transcode.
+	defer func() {
+		if rerr := jf.SetSettings(context.WithoutCancel(ctx), admin, "encoding", before); rerr != nil && err == nil {
+			err = fmt.Errorf("gpu: putting Jellyfin's transcoding settings back after the test: %w", rerr)
+		}
+	}()
 
 	a := jellyfin.Auth{Token: admin.Token, DeviceID: deviceID}
-	var results []Result
 	progress(len(picked), nil)
 	for _, src := range picked {
 		results = append(results, transcode(ctx, jf, a, src))
