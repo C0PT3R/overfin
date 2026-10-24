@@ -432,7 +432,12 @@ func (q Requests) cancel(w http.ResponseWriter, r *http.Request) {
 		problem.Send(w, problem.NotPending, "")
 		return
 	}
-	if err := c.CancelRequest(ctx, x.SeerrID); err != nil && !errors.Is(err, seerr.ErrNotFound) {
+	userID, err := q.seerrUser(ctx, c, caller.Account)
+	if err != nil {
+		q.seerrError(w, err)
+		return
+	}
+	if err := c.CancelRequest(ctx, userID, x.SeerrID); err != nil && !errors.Is(err, seerr.ErrNotFound) {
 		q.seerrError(w, err)
 		return
 	}

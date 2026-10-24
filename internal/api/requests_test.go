@@ -56,6 +56,15 @@ func (f *fakeSeerrRequests) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]any{"id": id, "username": user["username"]})
 		}
 	case r.Method == "POST" && r.URL.Path == "/api/v1/request":
+		// As Seerr does: the requester is the user the header names; the
+		// API key alone would be its admin.
+		var as float64
+		fmt.Sscan(r.Header.Get("X-Api-User"), &as)
+		if as == 0 || body["userId"] != nil {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		body["userId"] = as
 		for _, x := range f.requests {
 			if x["mediaId"] == body["mediaId"] && x["userId"] == body["userId"] {
 				w.WriteHeader(http.StatusConflict)
@@ -80,6 +89,10 @@ func (f *fakeSeerrRequests) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/v1/request/"):
 		var id int
 		fmt.Sscan(strings.TrimPrefix(r.URL.Path, "/api/v1/request/"), &id)
+		if x := f.requests[id]; x != nil && fmt.Sprint(x["userId"]) != r.Header.Get("X-Api-User") {
+			w.WriteHeader(http.StatusForbidden) // someone else's
+			return
+		}
 		delete(f.requests, id)
 		w.WriteHeader(http.StatusNoContent)
 	default:

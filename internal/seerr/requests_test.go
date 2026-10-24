@@ -23,6 +23,13 @@ func TestRequests(t *testing.T) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		bodies = append(bodies, body)
+		// Requests are made and cancelled as the user, not as Seerr's admin.
+		if (r.Method == "POST" || r.Method == "DELETE") && strings.HasPrefix(r.URL.Path, "/api/v1/request") &&
+			r.Header.Get("X-Api-User") != "42" {
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"message":"as the admin"}`)
+			return
+		}
 		switch r.Method + " " + r.URL.Path {
 		case "POST /api/v1/user":
 			w.WriteHeader(http.StatusCreated)
@@ -103,7 +110,7 @@ func TestRequests(t *testing.T) {
 	r, err := c.RequestTitle(ctx, 42, "series", 1399, []int{2})
 	last := bodies[len(bodies)-1]
 	if err != nil || r.ID != 7 || r.Status != 1 || !slices.Equal(r.Seasons, []int{2}) ||
-		last["mediaType"] != "tv" || last["userId"] != float64(42) || last["ignoreQuota"] != nil {
+		last["mediaType"] != "tv" || last["userId"] != nil || last["ignoreQuota"] != nil {
 		t.Errorf("request: %+v %v %v", r, err, last)
 	}
 	if _, err := c.RequestTitle(ctx, 42, "series", 1399, nil); err != nil || bodies[len(bodies)-1]["seasons"] != "all" {
@@ -120,10 +127,10 @@ func TestRequests(t *testing.T) {
 	if err != nil || len(all) != 2 || all[0].MediaStatus != 5 || all[1].Kind != "movie" || all[1].Status != 3 {
 		t.Errorf("requests: %+v %v", all, err)
 	}
-	if err := c.CancelRequest(ctx, 7); err != nil {
+	if err := c.CancelRequest(ctx, 42, 7); err != nil {
 		t.Errorf("cancel: %v", err)
 	}
-	if err := c.CancelRequest(ctx, 9); !errors.Is(err, ErrNotFound) {
+	if err := c.CancelRequest(ctx, 42, 9); !errors.Is(err, ErrNotFound) {
 		t.Errorf("cancel unknown: %v", err)
 	}
 }

@@ -33,6 +33,13 @@ var (
 // send makes a call that changes something, with body as JSON (none when
 // nil), and decodes the answer into out (when not nil).
 func (c *Client) send(ctx context.Context, method, path string, body, out any) error {
+	return c.sendAs(ctx, 0, method, path, body, out)
+}
+
+// sendAs is send as one of Seerr's users (none when 0): with the API key
+// alone, Seerr acts as its first admin, whose permissions would approve
+// every request and skip every quota.
+func (c *Client) sendAs(ctx context.Context, userID int, method, path string, body, out any) error {
 	u := *c.base
 	u.Path += "/api/v1" + path
 	var r io.Reader
@@ -48,6 +55,9 @@ func (c *Client) send(ctx context.Context, method, path string, body, out any) e
 		return err
 	}
 	req.Header.Set("X-Api-Key", c.key)
+	if userID != 0 {
+		req.Header.Set("X-Api-User", strconv.Itoa(userID))
+	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -182,9 +192,10 @@ func (r rawRequest) request() Request {
 }
 
 // RequestTitle requests a film ("movie") or seasons of a series ("series";
-// none means all of them) for a user.
+// none means all of them) as a user, so Seerr applies that user's
+// permissions (auto-approval) and quotas.
 func (c *Client) RequestTitle(ctx context.Context, userID int, kind string, tmdbID int, seasons []int) (Request, error) {
-	body := map[string]any{"mediaId": tmdbID, "userId": userID, "is4k": false}
+	body := map[string]any{"mediaId": tmdbID, "is4k": false}
 	switch kind {
 	case "movie":
 		body["mediaType"] = "movie"
@@ -199,7 +210,7 @@ func (c *Client) RequestTitle(ctx context.Context, userID int, kind string, tmdb
 		return Request{}, ErrRefused
 	}
 	var raw rawRequest
-	if err := c.send(ctx, http.MethodPost, "/request", body, &raw); err != nil {
+	if err := c.sendAs(ctx, userID, http.MethodPost, "/request", body, &raw); err != nil {
 		return Request{}, err
 	}
 	return raw.request(), nil
@@ -248,8 +259,8 @@ func (c *Client) OpenRequests(ctx context.Context) ([]Request, error) {
 
 // CancelRequest removes a request (Seerr removes pending ones only, for a
 // user without the right to manage requests).
-func (c *Client) CancelRequest(ctx context.Context, id int) error {
-	return c.send(ctx, http.MethodDelete, "/request/"+strconv.Itoa(id), nil, nil)
+func (c *Client) CancelRequest(ctx context.Context, userID, id int) error {
+	return c.sendAs(ctx, userID, http.MethodDelete, "/request/"+strconv.Itoa(id), nil, nil)
 }
 
 // DeleteUser deletes a Seerr user (gone already counts as done).
