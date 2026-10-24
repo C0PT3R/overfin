@@ -8,6 +8,7 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -85,6 +86,9 @@ type pendingAuth struct {
 	Verifier  string
 	Return    string
 	Started   time.Time
+	// From is who started it (clientFrom): one client can't push everyone
+	// else's out.
+	From string
 }
 
 const (
@@ -92,6 +96,8 @@ const (
 	pendingFor = 10 * time.Minute
 	// maxPending caps waiting logins and step-ups; the oldest go first.
 	maxPending = 10_000
+	// maxPendingFrom caps those of one client; its own oldest go first.
+	maxPendingFrom = 20
 	// shortLogin is how long a login lasts when the provider gives no
 	// refresh token to re-check it with. It doesn't slide with activity.
 	shortLogin = 12 * time.Hour
@@ -298,6 +304,7 @@ func safeReturn(s string) string {
 // browser. It writes the problem and returns false on failure.
 func (a *Auth) begin(w http.ResponseWriter, r *http.Request, p pendingAuth, fresh bool, scope ...string) (string, bool) {
 	p.Nonce, p.Verifier, p.Started = oidc.Random(32), oidc.Random(32), time.Now()
+	p.From = clientFrom(identity.ClientIP(r.Context()))
 	state := oidc.Random(32)
 	target, err := a.Provider.AuthURL(r.Context(), state, p.Nonce, p.Verifier, fresh, scope...)
 	if err != nil {
@@ -315,17 +322,43 @@ func (a *Auth) begin(w http.ResponseWriter, r *http.Request, p pendingAuth, fres
 			delete(a.pending, k)
 		}
 	}
-	if len(a.pending) >= maxPending {
-		var oldest string
-		for k, v := range a.pending {
-			if oldest == "" || v.Started.Before(a.pending[oldest].Started) {
-				oldest = k
-			}
-		}
-		delete(a.pending, oldest)
-	}
+	// Too many: the client's own oldest go first, then anyone's.
+	a.evictOldest(func(v pendingAuth) bool { return v.From == p.From }, maxPendingFrom)
+	a.evictOldest(func(pendingAuth) bool { return true }, maxPending)
 	a.pending[state] = p
 	return target, true
+}
+
+// evictOldest drops the oldest pending login among those that match, when
+// there are max of them already. Callers hold mu.
+func (a *Auth) evictOldest(match func(pendingAuth) bool, max int) {
+	var oldest string
+	n := 0
+	for k, v := range a.pending {
+		if !match(v) {
+			continue
+		}
+		n++
+		if oldest == "" || v.Started.Before(a.pending[oldest].Started) {
+			oldest = k
+		}
+	}
+	if n >= max {
+		delete(a.pending, oldest)
+	}
+}
+
+// clientFrom names a client for limits: its address, or for IPv6 its /64,
+// which one connection usually gets whole.
+func clientFrom(ip netip.Addr) string {
+	if !ip.IsValid() {
+		return ""
+	}
+	if ip.Is6() && !ip.Is4In6() {
+		p, _ := ip.Prefix(64)
+		return p.String()
+	}
+	return ip.Unmap().String()
 }
 
 // callback bounces the provider's answer to finish with a same-origin
